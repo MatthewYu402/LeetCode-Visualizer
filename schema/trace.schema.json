@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schema/trace.schema.json",
+  "title": "Visualizer Trace",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.1).",
+  "type": "object",
+  "required": [
+    "version",
+    "language",
+    "problem",
+    "steps",
+    "result"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "MAJOR.MINOR trace format version."
+    },
+    "language": {
+      "type": "string",
+      "description": "Informational only. The frontend must not branch on this."
+    },
+    "problem": {
+      "$ref": "#/$defs/problem"
+    },
+    "steps": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    },
+    "truncated": {
+      "type": "boolean",
+      "description": "True if recording stopped at the step limit."
+    },
+    "result": {
+      "$ref": "#/$defs/value"
+    }
+  },
+  "$defs": {
+    "primitive": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "value": {
+      "description": "A primitive or a tagged object. The 'kind' field selects the renderer.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/primitive"
+        },
+        {
+          "$ref": "#/$defs/list"
+        },
+        {
+          "$ref": "#/$defs/set"
+        },
+        {
+          "$ref": "#/$defs/map"
+        },
+        {
+          "$ref": "#/$defs/object"
+        },
+        {
+          "$ref": "#/$defs/ref"
+        }
+      ]
+    },
+    "list": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
+    "set": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "set"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
+    "map": {
+      "type": "object",
+      "required": [
+        "kind",
+        "entries"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "map"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/value"
+              },
+              {
+                "$ref": "#/$defs/value"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "object": {
+      "type": "object",
+      "required": [
+        "kind",
+        "type",
+        "fields"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "object"
+        },
+        "type": {
+          "type": "string",
+          "description": "Neutral type name, e.g. TreeNode, ListNode."
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
+    "ref": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "ref"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "step",
+        "line",
+        "locals",
+        "heap"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Line in the user's original source, about to execute."
+        },
+        "locals": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        "heap": {
+          "type": "object",
+          "description": "Objects referenced by 'ref' values, keyed by id.",
+          "additionalProperties": {
+            "$ref": "#/$defs/object"
+          }
+        }
+      }
+    },
+    "hint": {
+      "enum": [
+        "array",
+        "grid",
+        "adjacency-list",
+        "adjacency-matrix",
+        "intervals",
+        "tree",
+        "linked-list",
+        "graph",
+        "heap"
+      ]
+    },
+    "problem": {
+      "type": "object",
+      "required": [
+        "name",
+        "method",
+        "params",
+        "input"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "type"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "description": "Neutral type name such as list<int> or TreeNode, never a language type like vector<int>&.",
+                "not": {
+                  "pattern": "(std::|vector<|unordered_|[&*])"
+                }
+              },
+              "hint": {
+                "$ref": "#/$defs/hint"
+              }
+            }
+          }
+        },
+        "input": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}
