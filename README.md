@@ -41,6 +41,7 @@ Start with the trace format. Everything else hangs off it.
 | [`dap.md`](dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.1 |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.1 |
+| [`LICENSE`](LICENSE) | MIT license terms | Done |
 
 Planned. These links are templates: create the file, then update its status.
 <!-- TODO: create each file below, then change "Planned" to its real status. -->
@@ -53,7 +54,6 @@ Planned. These links are templates: create the file, then update its status.
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Planned |
 | [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, normalization rules | Planned |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, how to add a language | Planned |
-| [`LICENSE`](LICENSE) | License | TODO |
 
 **Suggested reading order:** this README, then `trace-format.md`, then `native-tracing.md` or `dap.md` depending on which part you are working on.
 
@@ -429,7 +429,7 @@ An adapter needs a driver template, a tracer (or a DAP configuration), a normali
 
 ## License
 
-<!-- TODO: choose a license and add a LICENSE file. -->
+Released under the [MIT License](LICENSE).
 
 ## Acknowledgements
 
