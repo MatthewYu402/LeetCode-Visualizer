@@ -36,9 +36,9 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`trace-format.md`](trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.1 |
-| [`native-tracing.md`](native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
-| [`dap.md`](dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
+| [`trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.1 |
+| [`native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
+| [`dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.1 |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.1 |
 | [`LICENSE`](LICENSE) | MIT license terms | Done |

@@ -13,21 +13,21 @@ user's Solution ──► driver ──► TRACER ──► normalizer ──►
 
 --- 
 
-## 1. What "native" maeans here
+## 1. What "native" means here
 A tracer is *native* when we write the observation logic for that specific language, either:
 - **A. Runtime hooks**: the language runtime calls our code as the program executes (Python `sys.settrace`, JVM debug interfaces, the V8 inspector).
 - **B. Source instrumentation**: we rewrite the user's code to call a recording function (`TRACE(...)`) before each statement, then compile and run the rewritten program.
 
-A tracer is a *DAP-based* when one generic client drives an external debugger through the Debug Adapter Protocol (see `dap.md`)
+A tracer is *DAP-based* when one generic client drives an external debugger through the Debug Adapter Protocol (see `dap.md`)
 
-> **Key Insight**: the dividing line is who write the per-language logic. Native means we write it for each language. DAP means we reuse one client and only write a normalizer per language. The boundary is blurry (the V8 inspector and JDI are debugger protocols too), so treat this as a design choise rather than a strict taxonomy.
+> **Key Insight**: The dividing line is who writes the per-language logic. Native means we write it for each language. DAP means we reuse one client and only write a normalizer per language. The boundary is blurry (the V8 inspector and JDI are debugger protocols too), so treat this as a design choise rather than a strict taxonomy.
 
 ## 2. What every tracer must do.
 Regardless of the mechanism, a tracer does three jobs:
 
 | Job | Language-specific? | Notes |
 |---|---|---|
-| **Observe** | Yes, completely | Get contyrol before each line of user code runs | 
+| **Observe** | Yes, completely | Get control before each line of user code runs | 
 | **Snapshot** | Partly | Copy the current state *at that instant* |
 | **Normalize** | Yes, per language | Turn native values into the kinds in `trace-format.md` |
 
@@ -40,7 +40,7 @@ Only *observe* is fundamentally different between languages. Snapshot and normal
 Record only frames in the **user's code** (The `Solution` method and helpers they wrote). Skip the driver, the standard library, and LeetCode helper code. Otherwise, traces will fill with irrelevent steps and burn the step budget.
 
 #### Identity
-Objects that need identity (`TreeNode`, `ListNode`, custom classes) get stable ids, assigned in first-seen order (`n1`, `n2`, ...) and reused for the whole run. Raw pointers or `id()` values are used internally for lookup but **never emitted** (`trace-format.md Section 8, rules 2 and 3). Insert the heap entry *before* recursing into its fields so cycles (a doubly linked list, a graph) terminate.
+Objects that need identity (`TreeNode`, `ListNode`, custom classes) get stable ids, assigned in first-seen order (`n1`, `n2`, ...) and reused for the whole run. Raw pointers or `id()` values are used internally for lookup but **never emitted** (`trace-format.md` [Section 8](./trace-format.md#8-rules-for-adapter-authors), rules 2 and 3). Insert the heap entry *before* recursing into its fields so cycles (a doubly linked list, a graph) terminate.
 
 #### Line numbers
 `line` must refer to the user's original source (`trace-format.md` Section 6). Two easy ways to get that:
@@ -128,7 +128,7 @@ def run_traced(fn, args, user_filename, max_steps=2000):
 If the user's source code is compiled with `compile(source, "<user>", "exec")` and `user_filename = "<user>"`, `frame.f_lineno` is already the line in the user's original code.
 
 ## 4. Strategy B: source instrumentation
-For languages without a convenient runtime hook (C++, and Go, which has no built-int line-event hook), rewrite the for so it reports itself.
+For languages without a convenient runtime hook (C++, and Go, which has no built-in line-event hook), rewrite them so it reports itself.
 
 Original:
 ```cpp
@@ -151,7 +151,7 @@ for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
 - Insert the `TRACE` calls on the same line as the statement they precede, or use `#line` directives, so the original line numbers are preserved.
 
 | Language | Typical Approach |
-|---|---|---|
+|---|---|
 | C++ | Clang LibTooling instrumentation. Gives full control over STL serialization |  
 | Go | `go/ast` instrumentation (or delve via DAP, see `dap.md`) | 
 | Rust | Hard to instrument cleanly. Usually better via DAP |
@@ -163,7 +163,7 @@ for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
 | Control over input | Complete | Limited to what the debugger exposes | 
 | STL/container internals | Easy (we serialize them ourselves) | Often raw internals unless pretty-printers exist | 
 | Changes the user's program | Instrumentation: yes. <br> Runtime hooks: no | No |
-| Best for | Python, C++ (instrumented), JS | Go, Ruse, Java, and fast breadth |  
+| Best for | Python, C++ (instrumented), JS | Go, Rust, Java, and fast breadth |  
 
 Planned approach: **Python via `sys.settrace`, C++ via Clang instrumentation**, and DAP for languages added later. Whatever the mechanism, the output must pass the same schema.
 
@@ -171,7 +171,7 @@ Planned approach: **Python via `sys.settrace`, C++ via Clang instrumentation**, 
 > **Key Insight 3: tracer output is untrusted data.** The tracer tuns in the same process as the user's code. Code can call sys.settrace(None) to turn tracing off, or print a forged trace. Always run the whole thing in a sandbox (separate processing, no network, CPU and memory limits, short-lived), and **validate the trace against `schema/trace.schema.json` outside the sandbox** before the frontend sees it.
 
 ## 7. Testing
-- Every tracter is validated against the schema in CI (`trace-format.md` Section 10).
+- Every tracker is validated against the schema in CI (`trace-format.md` Section 10).
 - Compare each tracer's output for the same example to the golden trace for **structural equivalence (same kinds and shapes), not byte equality.
 - Add adversarial cases: infinite loop (timeout), deep recursion, cyclic structure, huge input (truncation).
 
@@ -180,7 +180,7 @@ These are gaps in `trace-format.md` v0.1 that native tracers expose. They should
 1. **Call Stack.** A step records one frame's `locals`. Recursive solutions (DFS on a tree, backtracking) need a stack of frames, each with its own locals and line. A `stack` field is the likely addition.
 2. **Aliasing of containers.** Only `objects`s have ids. If two variables refer to the *same* list, the trace shows two separate copies. That is acceptable for most problems, but hides in-place mutation through aliases.
 3. **Member variable** LeetCode solutions often use fields on the `Solution` instance (memo tables, visited sets). The sketch above skips `self`. The tracer should surface these, either as extra locals or in a separate `members` field.
-4. **Tuples and other immutables. Tuples currently normalize to `list` which lose immutability. A hinf or a `tuple` kind may be worth adding.
+4. **Tuples and other immutables**. Tuples currently normalize to `list` which lose immutability. A hint or a `tuple` kind may be worth adding.
 
 ## 9. Design Questions
 **Q1. Why is this a separate document from `trace-format.md`?** The trace format is a stable contract that every adapter and frontend depend on. How a tracer observes a program is an implementation choice that differs per language and can change without touching the contract.
