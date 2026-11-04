@@ -46,7 +46,7 @@ Objects that need identity (`TreeNode`, `ListNode`, custom classes) get stable i
 `line` must refer to the user's original source (`trace-format.md` Section 6). Two easy ways to get that:
 
 - Keep the user's code at the top of the file and append the driver after it, so nothing shifts
-- Use the language's own mapping (Python `compile(source, "<user>"), "exec")`, C++ `#line` directives).
+- Use the language's own mapping (Python `compile(source, "<user>", "exec")`, C++ `#line` directives).
 
 #### Limits
 Stop at the step cap (default 2,000), set `"truncated": true`, and also enforce wall-clock and memory limits so an infinite loop cannot hang the run.
@@ -133,21 +133,21 @@ For languages without a convenient runtime hook (C++, and Go, which has no built
 Original:
 ```cpp
 for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
-    int compliment = target - nums[i];
-    auto it = numMap.find(compliment);
+    int complement = target - nums[i];
+    auto it = numMap.find(complement);
 ```
 
 Instrumented (Illustrative):
 ```cpp
 for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
     TRACE(8, V(nums), V(target), V(numMap), V(i));
-    int compliment = target - nums[i];
-    TRACE(9, V(nums), V(target), V(numMap), V(i), V(compliment));
-    auto it = numMap.find(compliment);
+    int complement = target - nums[i];
+    TRACE(9, V(nums), V(target), V(numMap), V(i), V(complement));
+    auto it = numMap.find(complement);
 ```
 
 - `TRACE` is a templated function that serializes each argument into a trace value (`vector` -> `list`, `unordered_map` -> `map`, `TreeNode*` -> ref + heap object).
-- Each call lists only the variables **already declared** at that point. `compliment` is absent from the line-8 snapshot because it does not exist yet, matching the pre-execution rule. Working out what is in scope at each statement needs a real parser, such as Clang's AST via LibTooling (Go's `go/ast` plays the same role for Go).
+- Each call lists only the variables **already declared** at that point. `complement` is absent from the line-8 snapshot because it does not exist yet, matching the pre-execution rule. Working out what is in scope at each statement needs a real parser, such as Clang's AST via LibTooling (Go's `go/ast` plays the same role for Go).
 - Insert the `TRACE` calls on the same line as the statement they precede, or use `#line` directives, so the original line numbers are preserved.
 
 | Language | Typical Approach |
