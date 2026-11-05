@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.1).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.2).",
   "type": "object",
   "required": [
     "version",
@@ -56,6 +56,12 @@
           "$ref": "#/$defs/primitive"
         },
         {
+          "$ref": "#/$defs/int"
+        },
+        {
+          "$ref": "#/$defs/float"
+        },
+        {
           "$ref": "#/$defs/list"
         },
         {
@@ -71,6 +77,45 @@
           "$ref": "#/$defs/ref"
         }
       ]
+    },
+    "int": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "Integer outside ±(2^53 − 1), which a JavaScript number cannot hold exactly. Digits in a string so JSON.parse cannot round them.",
+      "properties": {
+        "kind": {
+          "const": "int"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^-?[1-9][0-9]{15,}$"
+        }
+      }
+    },
+    "float": {
+      "type": "object",
+      "required": [
+        "kind",
+        "value"
+      ],
+      "additionalProperties": false,
+      "description": "Non-finite float, which JSON has no syntax for. Finite floats are bare numbers.",
+      "properties": {
+        "kind": {
+          "const": "float"
+        },
+        "value": {
+          "enum": [
+            "NaN",
+            "Infinity",
+            "-Infinity"
+          ]
+        }
+      }
     },
     "list": {
       "type": "object",
