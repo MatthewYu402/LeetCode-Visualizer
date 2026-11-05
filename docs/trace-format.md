@@ -242,9 +242,10 @@ Two adapters running the same algorithm may legitimately produce different trace
 - `version` follows `MAJOR.MINOR`
 - **Minor** bumps add optional fields or new kinds. Older frontends ignore what they do not understand
 - **Major** bumps may break compatibility. The frontend rejects traces with an unsupported major version, with a clear error.
+- **v0.2** adds the `int` and `float` kinds for numbers JSON cannot carry exactly. Every v0.1 trace that never used those values is still valid.
 
 ## 10. Validation and testing
-- A JSON Schema for this format lives in `schema/trace.schema.json` (to be written). Every adapter's output is validated against it in CI.
+- A JSON Schema for this format lives in `schema/trace.schema.json`. Every adapter's output is validated against it in CI.
 - **Golden traces**: for each problem example, a reference trace is stored as a fixture. Adapters are checked against it for **structural equivalence** (same kinds, same shapes), not byte-for-byte equality
 - The frontend can be developed against hand-written traces with no backend at all.
 
