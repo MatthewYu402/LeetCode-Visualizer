@@ -1,5 +1,5 @@
 # Native Tracing
-> Status: Draft v0.1 **Related**:`trace-format.md` (the output contract), `dap.md` (the generic alternative)
+> Status: v0.2
 
 This document describes how an adapter **observes a running solution and produces a trace** using tooling that belongs to the language: its runtime hooks, or source instrumentation. It is one of two strategies for the "tracer" box in the architecture.
 

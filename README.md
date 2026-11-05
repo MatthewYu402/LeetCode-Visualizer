@@ -21,7 +21,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 | Area | Status |
 |---|---|
-| Trace format specification | Draft v0.1 |
+| Trace format specification | Draft v0.2 |
 | JSON Schema + golden fixture (Two Sum) | Done, validated |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | Language adapters (C++, Python) | Planned |
@@ -36,11 +36,11 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.1 |
+| [`trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.2 |
 | [`native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
 | [`dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.1 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.1 |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.2 |
+| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.2 |
 | [`LICENSE`](LICENSE) | MIT license terms | Done |
 
 Planned. These links are templates: create the file, then update its status.
@@ -150,7 +150,7 @@ An adapter turns "the user's code plus an example" into a trace. Four stages:
 ┌────────────────────────────────────────────────────────────────────────────────┐
 │ 4. NORMALIZE                                                                   │
 │                                                                                │
-│   native values -> trace kinds: list · set · map · object · ref                │
+│   native values -> trace kinds: list · set · map · object · ref · int · float  │
 │   pointers / references -> stable ids (n1, n2 ...), never addresses            │
 │   unknown type -> fail loudly, never emit raw debugger or runtime text         │
 └─────────────┬──────────────────────────────────────────────────────────────────┘
@@ -274,6 +274,15 @@ The full specification is [`trace-format.md`](trace-format.md). The short versio
 {"kind": "map",  "entries": [[2, 0]]}
 {"kind": "ref",  "id": "n3"}
 ```
+
+Numbers are plain JSON whenever JavaScript can read them back exactly. Two cases cannot be, so they are tagged, with the exact value kept in a string:
+
+```json
+{"kind": "int",   "value": "9007199254740993"}
+{"kind": "float", "value": "NaN"}
+```
+
+`int` is for integers outside ±(2^53 − 1), which `JSON.parse` would silently round. `float` is for `NaN`, `Infinity`, and `-Infinity`, which JSON has no syntax for. See [numbers JSON cannot carry exactly](trace-format.md#numbers-json-cannot-carry-exactly).
 
 For linked structures (trees, linked lists, graphs) the trace uses Python Tutor's approach: a **heap of objects with ids**, plus **references** between them. A C++ `TreeNode*`, a Python `TreeNode` object, and a Java `TreeNode` reference all become the same thing:
 

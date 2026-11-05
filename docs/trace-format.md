@@ -1,5 +1,5 @@
 # Trace Format Specification
->Status: v0.1
+>Status: v0.2
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
 
@@ -46,6 +46,7 @@ A closer precedent is the Debug Adapter Protocol: one UI, many language backends
 | **Self-contained** | Each step has everything needed to draw the moment | Any step can be rendered alone, so rewind and jump are trivial |
 | **Declarative** | States what *is* ("the map contains [2, 0]"), not what *happened* ("insert [2, 0]") | Robust and simple to render. The frontend computes diffs itself |
 | **Deliberately lossy** | Drops memory addresses, hash buckets, capacity, allocator details | A small format is a stable format, with less for languages to disagree about |
+| **Bare numbers only when exact** | JSON is parsed into JavaScript doubles, so large integers would silently round and NaN or Infinity would not parse at all. Those values are tagged instead of approximated | [`trace-format.md` §5](trace-format.md#numbers-json-cannot-carry-exactly) |
 
 > **Key Insight 2: the trace is more *abstract* than the source language, not more primitive.** A compiler lowers toward the machine (registers, loads, stores). The trace raises `std::unordered_map` and Python `dict` up to one standard concept: `map`.
 
@@ -106,6 +107,26 @@ Plain JSON: `5`, `3.14`, `"abc"`, `true`, `null`.
 
 Maps use a list of `[key, value]` pairs instead of a JSON object, because JSON object keys must be strings and map keys can be ints or other types.
 
+#### Numbers JSON cannot carry exactly
+The frontend parses traces in JavaScript, where every number is an IEEE 754 double. Two kinds of value do not survive that:
+
+- **Integers outside ±(2^53 − 1)** (`Number.MAX_SAFE_INTEGER`). `JSON.parse` rounds them to the nearest double without any error.
+- **NaN, +Infinity, and −Infinity.** JSON has no syntax for them, so a bare `NaN` makes the whole trace unparseable.
+
+These are tagged, with the exact value in a string:
+
+```json
+{"kind": "int",   "value": "9007199254740993"}
+{"kind": "float", "value": "-Infinity"}
+```
+
+- `int.value` is decimal digits with an optional leading `-` and no leading zeros. Adapters **must** use it for integers outside the safe range and **must not** use it inside the range.
+- `float.value` is exactly `"NaN"`, `"Infinity"`, or `"-Infinity"`. Every finite float is a bare number, including large ones such as `1e300`, because JavaScript numbers are doubles too.
+- Finite floats are written as the shortest text that round-trips to the same value in their own type (C++ `std::to_chars`).
+- `null` never stands for NaN or infinity. It means a null pointer or `None`.
+
+> **Key Insight: emit a bare JSON number when JSON carries the value exactly, and a tagged value otherwise.** It is the same reasoning as maps using `entries`: when plain JSON would lose information, the trace tags the value instead of approximating it.
+
 #### Structure and identity: heap and references
 Trees, linked lists, and graphs need **identity**: two pointers can refer to the same node, and cycles can exist.
 
@@ -136,6 +157,8 @@ This is how C++ `TreeNode*`, a Python `TreeNode` instance, and a Go `*TreeNode` 
 | `map` | `entries`| `unordered_map`, `dict`, `HashMap`, `map`| 
 | `object` | `type`, `fields` | structs, classes (`TreeNode`, `ListNode`) | 
 | `ref` | `id` | pointers, references, object handles |
+| `int` | `value` (string) | `long long`, `uint64_t`, Python `int`, Java `long`, beyond ±(2^53 − 1) |
+| `float` | `value` (string) | NaN and ±Infinity from any floating-point type |
 
 Stacks, queues, dequeues, and heaps are **lists with a hint** in v0.1. If dedicated kinds become necessary, they will be added in a minor version ([Section 9](#9-versioning))
 
@@ -221,6 +244,7 @@ Adapters must:
 5. Treat `map` and `set` ordering as **unspecified**. The frontend must not assume insertion order.
 6. Stop at the step limit and flag truncation
 7. Pass schema validation ([Section 10](#10-validation-and-testing)) before being considered correct.
+8. Emit a bare JSON number only when JavaScript reads it back exactly. Otherwise use the `int` or `float` kind ([Section 5](#numbers-json-cannot-carry-exactly)). Never emit the bare tokens `NaN` or `Infinity`, which are not JSON.
 
 ### What is a bug and what is not
 Two adapters running the same algorithm may legitimately produce different traces
@@ -233,6 +257,7 @@ Two adapters running the same algorithm may legitimately produce different trace
 | Map entries appear in different order | No: iteration order is real language behavior | 
 | Different step counts or line numbers | No: different source files | 
 | Integer overflow happens in C++ but not in Python | No: genuine semantic difference |
+| An integer above 2^53 appears as a bare number | **Yes**: the frontend silently shows a different value |
 
 **The rule**: The same concept must always look the same in the trace, but the program's actual behavior is allowed to differ.
 
@@ -274,3 +299,5 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q3. Why are snapshots better than a log of operations, and what do they cost?** A snapshot can be drawn directly, so jumping and rewinding is free and errors do not compound. A log needs to replay from the start and reconstruct at any step. The cost is size, since unchanged data is repeated, which is negligible for small examples with a step cap.
 
 > **Q4. If two adapters run the same algorithm and produce different traces, is that a bug?** Not necessarily. Differences in *behavior* (map ordering, overflow, line numbers) are legitimate. Differences in *representation* (a different kind for the same concept, leaked addresses) are bugs. Traces must match in structure and may differ in content.
+
+> **Q5. Why not emit NaN as `null`, or big integers as plain strings?** `null` already means a null pointer, so a NaN would be indistinguishable from one, and NaN, +Infinity, and −Infinity would collapse into one value. A plain string `"9007199254740993"` is indistinguishable from a real string. Tagging keeps each value unambiguous, and only the rare values pay the cost.
