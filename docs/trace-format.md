@@ -150,19 +150,25 @@ This is how C++ `TreeNode*`, a Python `TreeNode` instance, and a Go `*TreeNode` 
 
 ### Summary of kinds
 
-| Kind | Fields | Typical source types |
-|---|---|---|
-| `list` | `items` | `vector`, `list`, array, slice, `ArrayList` |
-| `set` | `items` | `unordered_set`,  `set`, `HashSet` |
-| `map` | `entries`| `unordered_map`, `dict`, `HashMap`, `map`| 
-| `object` | `type`, `fields` | structs, classes (`TreeNode`, `ListNode`) | 
-| `ref` | `id` | pointers, references, object handles |
-| `int` | `value` (string) | `long long`, `uint64_t`, Python `int`, Java `long`, beyond ±(2^53 − 1) |
-| `float` | `value` (string) | NaN and ±Infinity from any floating-point type |
+Bare JSON primitives: numbers, strings, `true`/`false`, `null`. Everything else is tagged:
 
-Stacks, queues, dequeues, and heaps are **lists with a hint** in v0.1. If dedicated kinds become necessary, they will be added in a minor version ([Section 9](#9-versioning))
+| Kind | Fields | Typical source types | Notes |
+|---|---|---|---|
+| `int` | `value` (string) | `long long`, `uint64_t`, Python `int`, Java `long` | Only outside ±(2^53 − 1) |
+| `float` | `value` (string) | any floating-point type | Only `NaN`, `Infinity`, `-Infinity` |
+| `array` | `items` | `vector`, `std::array`, C arrays, Python `list`, Java arrays, `ArrayList` | Indexed sequence |
+| `list` | `items` | `std::list`, `std::forward_list` | Traversed via pointers/iterators |
+| `stack` | `items` | `std::stack`, Java `Stack` | Bottom to top: the last item is the top |
+| `queue` | `items` | `std::queue`, Java `Queue` | Front to back: the first item is the front |
+| `deque` | `items` | `std::deque`, Python `collections.deque` | Front to back, both ends open |
+| `heap` | `items`, `order` | `priority_queue`, Java `PriorityQueue` | `items` in storage order. `order` is `"max"`, `"min"`, or `"custom"` |
+| `tuple` | `items` | `pair`, `tuple`, Python `tuple` | Fixed size, may mix types |
+| `set` | `items` | `set`, `unordered_set`, `HashSet` | |
+| `map` | `entries` | `map`, `unordered_map`, `dict`, `HashMap` | Entries are raw `[key, value]` pairs |
+| `object` | `type`, `fields` | structs and classes (`TreeNode`, `ListNode`, `Node`) | Stored in the heap |
+| `ref` | `id` | pointers, references, object handles | Points into the heap |
 
-
+> **Key Insight: a kind is for what the type tells the adapter. A hint is for what only the problem knows.** `stack<int>` is a stack from its type alone, so it has a kind. A `vector<vector<int>>` could be a grid, an adjacency matrix, or an edge list, and nothing in the data says which, so that is a hint.
 
 ## 6. Steps
 A step is one snapshot of program state
