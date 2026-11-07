@@ -62,7 +62,25 @@
           "$ref": "#/$defs/float"
         },
         {
+          "$ref": "#/$defs/array"
+        },
+        {
           "$ref": "#/$defs/list"
+        },
+        {
+          "$ref": "#/$defs/stack"
+        },
+        {
+          "$ref": "#/$defs/queue"
+        },
+        {
+          "$ref": "#/$defs/deque"
+        },
+        {
+          "$ref": "#/$defs/heap"
+        },
+        {
+          "$ref": "#/$defs/tuple"
         },
         {
           "$ref": "#/$defs/set"
@@ -117,6 +135,26 @@
         }
       }
     },
+    "array": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "description": "Random-access sequence: the next item is reached by offset (a[i]). vector, std::array, C arrays, Python list, Java arrays.",
+      "properties": {
+        "kind": {
+          "const": "array"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
     "list": {
       "type": "object",
       "required": [
@@ -124,9 +162,119 @@
         "items"
       ],
       "additionalProperties": false,
+      "description": "Node-based sequence traversed by iterator, not by index: std::list, std::forward_list, Java LinkedList. items run front to back. Values only, no node identity; user-built ListNode chains are object + ref instead.",
       "properties": {
         "kind": {
           "const": "list"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "description": "items run bottom to top: the last item is the top.",
+      "properties": {
+        "kind": {
+          "const": "stack"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
+    "queue": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "description": "items run front to back: the first item is the front.",
+      "properties": {
+        "kind": {
+          "const": "queue"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
+    "deque": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "description": "Double-ended queue. items run front to back.",
+      "properties": {
+        "kind": {
+          "const": "deque"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        }
+      }
+    },
+    "heap": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items",
+        "order"
+      ],
+      "additionalProperties": false,
+      "description": "Priority queue. items are in storage (heap) order, not sorted. order says which end is on top.",
+      "properties": {
+        "kind": {
+          "const": "heap"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        "order": {
+          "enum": [
+            "max",
+            "min",
+            "custom"
+          ],
+          "description": "max: largest on top (std::less). min: smallest on top (std::greater). custom: any other comparator."
+        }
+      }
+    },
+    "tuple": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "description": "Fixed-size group that may mix types: pair, tuple.",
+      "properties": {
+        "kind": {
+          "const": "tuple"
         },
         "items": {
           "type": "array",
@@ -260,22 +408,24 @@
       }
     },
     "hint": {
+      "description": "How to draw a value whose kind alone is ambiguous. Inferred by the adapter, never supplied by the user.",
       "enum": [
-        "array",
         "grid",
-        "adjacency-list",
         "adjacency-matrix",
+        "adjacency-list",
+        "edge-list",
         "intervals",
         "tree",
         "linked-list",
         "graph",
-        "heap"
+        "heap",
+        "stack",
+        "queue"
       ]
     },
     "problem": {
       "type": "object",
       "required": [
-        "name",
         "method",
         "params",
         "input"
@@ -283,7 +433,8 @@
       "additionalProperties": false,
       "properties": {
         "name": {
-          "type": "string"
+          "type": "string",
+          "description": "Optional. A bare Solution class does not know which problem it solves."
         },
         "method": {
           "type": "string"
@@ -303,7 +454,7 @@
               },
               "type": {
                 "type": "string",
-                "description": "Neutral type name such as list<int> or TreeNode, never a language type like vector<int>&.",
+                "description": "Neutral type name such as array<int> or TreeNode, never a language type like vector<int>&.",
                 "not": {
                   "pattern": "(std::|vector<|unordered_|[&*])"
                 }
