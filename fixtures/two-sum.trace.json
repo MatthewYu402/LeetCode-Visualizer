@@ -1,17 +1,17 @@
 {
-  "version": "0.1",
+  "version": "0.2",
   "language": "cpp",
-  "problem": {"name": "Two Sum", "method": "twoSum", "params": [{"name": "nums", "type": "list<int>", "hint": "array"}, {"name": "target", "type": "int"}], "input": {"nums": [2, 7, 11, 15], "target": 9}},
+  "problem": {"name": "Two Sum", "method": "twoSum", "params": [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}], "input": {"nums": [2, 7, 11, 15], "target": 9}},
   "steps": [
-    {"step": 0, "line": 5, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9}, "heap": {}},
-    {"step": 1, "line": 8, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}, "heap": {}},
-    {"step": 2, "line": 9, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "compliment": 7}, "heap": {}},
-    {"step": 3, "line": 11, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "compliment": 7}, "heap": {}},
-    {"step": 4, "line": 16, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "compliment": 7}, "heap": {}},
-    {"step": 5, "line": 8, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1}, "heap": {}},
-    {"step": 6, "line": 9, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "compliment": 2}, "heap": {}},
-    {"step": 7, "line": 11, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "compliment": 2}, "heap": {}},
-    {"step": 8, "line": 12, "locals": {"nums": {"kind": "list", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "compliment": 2}, "heap": {}}
+    {"step": 0, "line": 5, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}, "heap": {}},
+    {"step": 1, "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}, "heap": {}},
+    {"step": 2, "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}, "heap": {}},
+    {"step": 3, "line": 11, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}, "heap": {}},
+    {"step": 4, "line": 16, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}, "heap": {}},
+    {"step": 5, "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1}, "heap": {}},
+    {"step": 6, "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}, "heap": {}},
+    {"step": 7, "line": 11, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}, "heap": {}},
+    {"step": 8, "line": 12, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}, "heap": {}}
   ],
-  "result": {"kind": "list", "items": [0, 1]}
+  "result": {"kind": "array", "items": [0, 1]}
 }

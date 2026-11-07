@@ -15,8 +15,8 @@ public:
 
     for (int i = 0; i < static_cast<int>(nums.size()); ++i)
     {
-      int compliment = target - nums[i];
-      auto it = numMap.find(compliment);
+      int complement = target - nums[i];
+      auto it = numMap.find(complement);
 
       if (it != numMap.end())
       {
