@@ -1,0 +1,42 @@
+# ---- C++ adapter ----
+# Makefile output (one folder per compiler)
+adapters/cpp/build/
+# Stray binaries and objects from building by hand
+*.o
+*.out
+*.dSYM/
+# clangd index and generated compile database
+.cache/
+compile_commands.json
+
+# ---- Generated traces ----
+# Recorder output from local runs. Golden fixtures live in fixtures/ and stay tracked.
+*.trace.json
+!fixtures/*.trace.json
+
+# ---- Frontend (Goal 3) ----
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+
+# ---- Python (validator, future adapter) ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- OS and editors ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~

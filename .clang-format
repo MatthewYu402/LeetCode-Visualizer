@@ -1,0 +1,9 @@
+BasedOnStyle: LLVM
+IndentWidth: 2
+BreakBeforeBraces: Attach
+NamespaceIndentation: All
+ColumnLimit: 0
+IndentCaseLabels: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: WithoutElse
+BreakTemplateDeclarations: No
