@@ -45,18 +45,17 @@ Start with the trace format. Everything else hangs off it.
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.2 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ serializers: native values to trace kinds | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
+| [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft |
+| [`docs/frontend.md`](docs/frontend.md) | Renderer registry, diffing, animation, the "view as" override | Draft |
+| [`docs/sandboxing.md`](docs/sandboxing.md) | Isolation, resource limits, where validation runs | Draft |
+| [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
+| [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, normalization rules | Draft |
 | [`LICENSE`](LICENSE) | MIT license terms | Done |
 
-Planned. These links are templates: create the file, then update its status.
-<!-- TODO: create each file below, then change "Planned" to its real status. -->
+Planned. This link is a template: create the file, then move it into the table above.
 
 | Document | Will cover | Status |
 |---|---|---|
-| [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Planned |
-| [`docs/frontend.md`](docs/frontend.md) | Renderer registry, diffing, animation, the "view as" override | Planned |
-| [`docs/sandboxing.md`](docs/sandboxing.md) | Isolation, resource limits, where validation runs | Planned |
-| [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Planned |
-| [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, normalization rules | Planned |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, how to add a language | Planned |
 
 **Suggested reading order:** this README, then `trace-format.md`, then `native-tracing.md` or `dap.md` depending on which part you are working on.
@@ -419,7 +418,13 @@ Items marked *(planned)* do not exist yet.
 ├── docs/
 │   ├── trace-format.md        the contract
 │   ├── native-tracing.md      runtime hooks and source instrumentation
-│   └── dap.md                 DAP-based tracing
+│   ├── dap.md                 DAP-based tracing
+│   ├── driver-generation.md   signatures, example parsing, helper types
+│   ├── frontend.md            renderer registry, diffing, animation
+│   ├── sandboxing.md          isolation, limits, where validation runs
+│   └── adapters/
+│       ├── cpp.md             the C++ adapter
+│       └── python.md          the Python adapter
 ├── schema/
 │   └── trace.schema.json      machine-readable contract
 ├── fixtures/

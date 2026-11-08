@@ -113,10 +113,15 @@ The normalizer dispatches on the debugger-reported `type`:
 
 | Debugger `type` | Rule |
 |---|---|
-| `int`, `long`, `size_t`, ... | Parse `value` as a number |
+| `int`, `long`, `size_t`, ... | Parse `value` as a number. Outside ±(2^53 − 1), emit the `int` kind |
+| `float`, `double` | Parse `value` as a number. NaN and ±Infinity become the `float` kind |
 | `bool` | Parse `value` as a boolean |
-| `std::vector<T>`, `std::array<T,N>`, Python `list` | Expand children into a `list` |
-| `std::unordered_map<K,V>`, Python `dict` | Expand children into `map` entries |
+| `std::vector<T>`, `std::array<T,N>`, Python `list` | Expand children into an `array` |
+| `std::list<T>`, `std::stack<T>`, `std::queue<T>`, `std::deque<T>` | Expand children into a `list`, `stack`, `queue`, or `deque` |
+| `std::priority_queue<T>`, Python `heapq` list | `priority-queue` (C++), or an `array` with the `priority-queue` hint (Python) |
+| `std::pair`, `std::tuple`, Python `tuple` | Expand children into a `tuple` |
+| `std::map<K,V>`, `std::unordered_map<K,V>`, Python `dict` | Expand children into `map` entries |
+| `std::set<T>`, `std::unordered_set<T>`, Python `set` | Expand children into a `set` |
 | `std::string`, Python `str` | Parse the quoted string |
 | Pointer to a user struct (`TreeNode*`) | Assign a stable id, `ref`, and expand the pointee into the heap |
 | null pointer (`0x0`, `nullptr`, `None`) | `null` |
@@ -127,7 +132,7 @@ Illustrative sketch:
 RULES = [  # (regex on the debugger-reported type, handler)
     (r"^(unsigned |signed )?(int|long|short|size_t|int\d+_t)$", parse_int),
     (r"^bool$",                                                 parse_bool),
-    (r"^(std::)?(__1::)?vector<",                               as_list),
+    (r"^(std::)?(__1::)?vector<",                               as_array),
     (r"^(std::)?(__1::)?unordered_map<",                        as_map),
     (r"^(TreeNode|ListNode) ?\*$",                              as_ref),
 ]
@@ -226,7 +231,7 @@ Both must produce traces that pass the same schema.
 
 ## 10. Relationship to the open questions
 
-`native-tracing.md` Section 8 lists gaps in `trace-format.md` v0.1. DAP handles two of them naturally:
+`native-tracing.md` Section 8 lists gaps in `trace-format.md`. DAP handles two of them naturally:
 
 - **Call stack:** `stackTrace` returns every frame, so a future `stack` field costs little here.
 - **Member variables:** `this` / `self` appears in the `Locals` scope with expandable children.

@@ -77,7 +77,7 @@
           "$ref": "#/$defs/deque"
         },
         {
-          "$ref": "#/$defs/heap"
+          "$ref": "#/$defs/priority-queue"
         },
         {
           "$ref": "#/$defs/tuple"
@@ -235,7 +235,7 @@
         }
       }
     },
-    "heap": {
+    "priority-queue": {
       "type": "object",
       "required": [
         "kind",
@@ -243,10 +243,10 @@
         "order"
       ],
       "additionalProperties": false,
-      "description": "Priority queue. items are in storage (heap) order, not sorted. order says which end is on top.",
+      "description": "Priority queue. items are the underlying array in storage order, not sorted; only items[0] is guaranteed to be the top. Named priority-queue, not heap, so it is never confused with a step's heap field.",
       "properties": {
         "kind": {
-          "const": "heap"
+          "const": "priority-queue"
         },
         "items": {
           "type": "array",
@@ -418,7 +418,7 @@
         "tree",
         "linked-list",
         "graph",
-        "heap",
+        "priority-queue",
         "stack",
         "queue"
       ]
