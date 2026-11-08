@@ -26,6 +26,14 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include <deque>
+#include <functional>
+#include <map>
+#include <queue>
+#include <set>
+#include <stack>
+#include <tuple>
+#include <unordered_set>
 
 namespace
 {
@@ -210,6 +218,94 @@ int main()
       check_contains("two entries: [7, 1]", two, R"([7, 1])");
       check_contains("two entries: separator", two, R"(], [)");
       check("two entries: no trailing comma", two.substr(two.size() - 3), R"(]]})");
+
+      std::cout << "tuple\n";
+      check("empty tuple", serialize(std::tuple<>{}, ctx), R"({"kind": "tuple", "items": []})");
+      check("mixed types", serialize(std::tuple<int, std::string, bool>{1, "a", true}, ctx),
+            R"({"kind": "tuple", "items": [1, "a", true]})");
+      check("NaN inside", serialize(std::tuple<int, double>{1, nan}, ctx),
+            R"({"kind": "tuple", "items": [1, {"kind": "float", "value": "NaN"}]})");
+      check("array of tuples", serialize(std::vector<std::tuple<int, int>>{{1, 2}}, ctx),
+            R"({"kind": "array", "items": [{"kind": "tuple", "items": [1, 2]}]})");
+
+      std::cout << "set\n";
+      check("empty set", serialize(std::set<int>{}, ctx), R"({"kind": "set", "items": []})");
+      check("std::set is sorted", serialize(std::set<int>{3, 1, 2}, ctx), R"({"kind": "set", "items": [1, 2, 3]})");
+      check("duplicates collapse", serialize(std::set<int>{2, 2}, ctx), R"({"kind": "set", "items": [2]})");
+      check("string set", serialize(std::set<std::string>{"b", "a"}, ctx), R"({"kind": "set", "items": ["a", "b"]})");
+      check("unordered_set one item", serialize(std::unordered_set<int>{5}, ctx), R"({"kind": "set", "items": [5]})");
+      const std::string uset = serialize(std::unordered_set<int>{4, 9}, ctx);
+      check_contains("unordered_set: opening", uset, R"({"kind": "set", "items": [)");
+      check_contains("unordered_set: 4", uset, "4");
+      check_contains("unordered_set: 9", uset, "9");
+      check_contains("unordered_set: separator", uset, ", ");
+
+      std::cout << "std::map -> map\n";
+      check("empty map", serialize(std::map<int, int>{}, ctx), R"({"kind": "map", "entries": []})");
+      check("std::map is key-sorted", serialize(std::map<int, int>{{2, 0}, {1, 5}}, ctx),
+            R"({"kind": "map", "entries": [[1, 5], [2, 0]]})");
+      check("map of arrays", serialize(std::map<std::string, std::vector<int>>{{"a", {1}}}, ctx),
+            R"({"kind": "map", "entries": [["a", {"kind": "array", "items": [1]}]]})");
+
+      std::cout << "deque\n";
+      check("empty deque", serialize(std::deque<int>{}, ctx), R"({"kind": "deque", "items": []})");
+      check("front to back", serialize(std::deque<int>{1, 2, 3}, ctx), R"({"kind": "deque", "items": [1, 2, 3]})");
+
+      std::cout << "stack (bottom to top)\n";
+      check("empty stack", serialize(std::stack<int>{}, ctx), R"({"kind": "stack", "items": []})");
+      std::stack<int> st;
+      st.push(1); st.push(2); st.push(3);
+      check("pushes 1 2 3", serialize(st, ctx), R"({"kind": "stack", "items": [1, 2, 3]})");
+      st.pop();
+      check("after pop", serialize(st, ctx), R"({"kind": "stack", "items": [1, 2]})");
+      std::stack<int, std::vector<int>> vst;
+      vst.push(7); vst.push(8);
+      check("vector-backed stack", serialize(vst, ctx), R"({"kind": "stack", "items": [7, 8]})");
+
+      std::cout << "queue (front to back)\n";
+      check("empty queue", serialize(std::queue<int>{}, ctx), R"({"kind": "queue", "items": []})");
+      std::queue<int> q;
+      q.push(1); q.push(2); q.push(3);
+      check("pushes 1 2 3", serialize(q, ctx), R"({"kind": "queue", "items": [1, 2, 3]})");
+      q.pop();
+      check("after pop", serialize(q, ctx), R"({"kind": "queue", "items": [2, 3]})");
+      std::queue<int, std::list<int>> lq;
+      lq.push(4);
+      check("list-backed queue", serialize(lq, ctx), R"({"kind": "queue", "items": [4]})");
+      std::queue<std::pair<int, int>> bfs; // BFS shape: (row, col)
+      bfs.push({0, 1});
+      check("queue of pairs", serialize(bfs, ctx),
+            R"({"kind": "queue", "items": [{"kind": "tuple", "items": [0, 1]}]})");
+
+      std::cout << "priority-queue (only items[0] and order are fixed)\n";
+      check("empty", serialize(std::priority_queue<int>{}, ctx),
+            R"({"kind": "priority-queue", "items": [], "order": "max"})");
+      std::priority_queue<int> one;
+      one.push(7);
+      check("one item", serialize(one, ctx), R"({"kind": "priority-queue", "items": [7], "order": "max"})");
+
+      std::priority_queue<int> maxq;
+      for (int x : {3, 1, 4, 1, 5}) maxq.push(x);
+      const std::string maxj = serialize(maxq, ctx);
+      check_contains("max: top first", maxj, R"({"kind": "priority-queue", "items": [5, )");
+      check_contains("max: order", maxj, R"(], "order": "max"})");
+
+      std::priority_queue<int, std::vector<int>, std::greater<int>> minq;
+      for (int x : {3, 1, 4}) minq.push(x);
+      const std::string minj = serialize(minq, ctx);
+      check_contains("min: top first", minj, R"({"kind": "priority-queue", "items": [1, )");
+      check_contains("min: order", minj, R"(], "order": "min"})");
+
+      std::priority_queue<int, std::vector<int>, std::greater<>> tminq;
+      tminq.push(2);
+      check("std::greater<> is min", serialize(tminq, ctx),
+            R"({"kind": "priority-queue", "items": [2], "order": "min"})");
+
+      auto by_desc = [](int a, int b) { return a > b; };
+      std::priority_queue<int, std::vector<int>, decltype(by_desc)> lamq(by_desc);
+      lamq.push(2);
+      check("lambda is custom", serialize(lamq, ctx),
+            R"({"kind": "priority-queue", "items": [2], "order": "custom"})");
 
       std::cout << "\n"
                 << passed << " passed, " << failed << " failed\n";

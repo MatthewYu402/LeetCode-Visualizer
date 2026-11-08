@@ -4,8 +4,14 @@
 #include <array>
 #include <list>
 #include <forward_list>
-#include <map>
+#include <unordered_set>
 #include <unordered_map>
+#include <map>
+#include <stack>
+#include <queue>
+#include <deque>
+#include <tuple>
+#include <string_view>
 #include <cstdint>
 #include <concepts>
 #include <set>
@@ -15,6 +21,7 @@
 #include <utility>
 #include <stdexcept>
 #include <ranges>
+#include <functional>
 
 namespace trace {
   // Aliases for integer & float types
@@ -84,11 +91,12 @@ namespace trace {
   inline std::string quote(const std::string& str) { return std::string(1, '"') + escape(str) + '"'; }
 
   // For array-style printing
-  template <typename Range> Json write_items(const std::string& kind, const Range& range, Ctx& ctx) {
+  template <typename Range> 
+  Json write_items(const std::string& kind, const Range& container, Ctx& ctx) {
     std::string result = std::format(R"({{"kind": {}, "items": [)", quote(kind));
 
     bool first = true;
-    for (const auto &item : range) {
+    for (const auto &item : container) {
       if (!first) {
         result += ", ";
       }
@@ -96,6 +104,40 @@ namespace trace {
       first = false;
       result += serialize(value, ctx);
     }
+
+    result += "]}";
+    return result;
+  }
+
+  // For map-style entries
+  template<typename Map> 
+  Json write_entries(const std::string& kind, const Map& container, Ctx& ctx) {
+    std::string result = std::format(R"({{"kind": {}, "entries": [)", quote(kind));
+    // For every pair, build the [p1, p2], entries
+    bool first = true;
+    for (const auto& elem : container) {
+      if (!first) {
+        result += ", ";
+      }
+      first = false;
+      result += std::format(R"([{}, {}])", serialize(elem.first, ctx), serialize(elem.second, ctx));
+    }
+
+    result += "]}";
+    return result;
+  }
+  
+  // for tuples as they have no iterator
+  template<typename... Args>
+  Json write_tuple(const std::tuple<Args...>& t, Ctx& ctx) {
+    std::string result = R"({"kind": "tuple", "items": [)";
+
+    bool first = true;
+    // unpack the tuple into lambda's parameters (args...)
+    std::apply([&ctx, &result, &first](const auto&... args) {
+      // Fold expressions using comma operator to append each serialized item from a comma separator
+      ((result += (first ? "" : ", "), result += serialize(args, ctx), first = false), ...);
+    }, t);
 
     result += "]}";
     return result;
@@ -229,43 +271,125 @@ namespace trace {
   // std::list
   template <typename T> struct Serializer<std::list<T>> {
     static Json write(const std::list<T>& li, Ctx& ctx) {
-      std::string kind = "list";
-      return write_items(kind, li, ctx);
+      return write_items("list", li, ctx);
     }
   };
 
   // std::forward_list
   template <typename T> struct Serializer<std::forward_list<T>> {
     static Json write(const std::forward_list<T>& li, Ctx& ctx) {
-      std::string kind = "list";
-      return write_items(kind, li, ctx);
+      return write_items("list", li, ctx);
     }
   };
 
   // std::pair<K, V>
   template <typename K, typename V> struct Serializer<std::pair<K, V>> {
-    static Json write(const std::pair<K, V>& val_pair, Ctx &ctx) {
+    static Json write(const std::pair<K, V>& val_pair, Ctx& ctx) {
       return std::format(R"({{"kind": "tuple", "items": [{}, {}]}})", serialize(val_pair.first, ctx), serialize(val_pair.second, ctx));
     }
   };
 
-  // unordered_map <K, V>
+  // std::tuple<Ts...> - variadic template as there can up up to N
+  template<typename... Ts> struct Serializer<std::tuple<Ts...>> {
+    static Json write(const std::tuple<Ts...>& tuple, Ctx& ctx) {
+      return write_tuple(tuple, ctx);
+    }
+  };
+
+  // std::unordered_set<T>
+  template<typename T> struct Serializer<std::unordered_set<T>>{
+    static Json write(const std::unordered_set<T>& set, Ctx& ctx) {
+      return write_items("set", set, ctx);
+    }
+  };
+
+  // std::set<T>
+  template<typename T> struct Serializer<std::set<T>>{
+    static Json write(const std::set<T>& set, Ctx& ctx) {
+      return write_items("set", set, ctx);
+    }
+  };
+
+  // std::unordered_map <K, V>
   template <typename K, typename V> struct Serializer<std::unordered_map<K, V>> {
     static Json write(const std::unordered_map<K, V>& umap, Ctx& ctx) {
-      std::string result = R"({"kind": "map", "entries": [)";
+      return write_entries("map", umap, ctx);
+    }
+  };
 
-      // For every pair, build the [p1, p2], entries
-      bool first = true;
-      for (const auto& elem : umap) {
-        if (!first) {
-          result += ", ";
-        }
-        first = false;
-        result += std::format(R"([{}, {}])", serialize(elem.first, ctx), serialize(elem.second, ctx));
+  // std::map <K, V> - omap = ordered map
+  template <typename K, typename V> struct Serializer<std::map<K, V>> {
+    static Json write(const std::map<K, V>& omap, Ctx& ctx) {
+      return write_entries("map", omap, ctx);
+    }
+  };
+
+  // -- Custom inherited wrapper to access the members of stack and queue -- //
+  template<typename Adapter>
+  const typename Adapter::container_type& get_container(const Adapter& adapter) {
+    struct accessor : Adapter {
+      static const auto& get(const Adapter& a) {
+        return a.*(&accessor::c);
       }
+    };
+    return accessor::get(adapter);
+  }
 
-      result += "]}";
-      return result;
+  // std::stack - wrapped to access protected member c
+  template<typename T, typename Container> 
+  struct Serializer<std::stack<T, Container>> {
+    static Json write(const std::stack<T, Container>& st, Ctx& ctx) {
+      return write_items("stack", get_container(st), ctx);
+    }
+  };
+  
+  // std::queue - wrapped to access protected member c
+  template<typename T, typename Container> 
+  struct Serializer<std::queue<T, Container>> {
+    static Json write(const std::queue<T, Container>& q, Ctx& ctx) {
+      return write_items("queue", get_container(q), ctx);
+    }
+  };
+
+  // std::deque
+  template<typename T> struct Serializer<std::deque<T>> {
+    static Json write(const std::deque<T>& dq, Ctx& ctx) {
+      return write_items("deque", dq, ctx);
+    }
+  };
+
+
+  // Primary template (fallback for custom comparators)
+  template<typename Compare>
+  struct comparator_name {
+    static constexpr std::string_view get() { return "custom"; }
+  };
+
+  // Specialization for std::less (max-heap)
+  template<typename T>
+  struct comparator_name<std::less<T>> {
+    static constexpr std::string_view get() { return "max"; }
+  };
+
+  // Specialization for std::greater (min-heap)
+   template<typename T>
+  struct comparator_name<std::greater<T>> {
+    static constexpr std::string_view get() { return "min"; }
+  };
+
+  // std::priority_queue 
+  template<typename T, typename Container, typename Compare>
+  struct Serializer<std::priority_queue<T, Container, Compare>> {
+    static Json write(const std::priority_queue<T, Container, Compare>& pq, Ctx& ctx) {
+      auto items_json = write_items("priority-queue", get_container(pq), ctx);
+      
+      // Inject order/comparator in the Json object
+      std::string comp_str{comparator_name<Compare>::get()};
+      items_json.pop_back(); // remove trailing '}'
+      items_json += std::format(R"(, "order": {})", quote(comp_str));
+      items_json += "}";
+
+      return items_json;
     }
   };
 
