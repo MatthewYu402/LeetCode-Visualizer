@@ -1,0 +1,29 @@
+/* Theme tokens: GitHub dark. Every colour in the app comes from here, including the
+   Monaco theme, which reads these variables at startup (src/editor/monaco.ts).
+   Keep values hex or rgb(a): Monaco needs them converted to hex. */
+:root {
+  --bg: #0d1117;
+  --bg-subtle: #161b22;
+  --bg-inset: #010409;
+  --border: #30363d;
+  --fg: #e6edf3;
+  --fg-muted: #7d8590;
+  --accent: #2f81f7;
+  --success: #3fb950;
+  --attention: #d29922;
+  --danger: #f85149;
+  --done: #a371f7;
+  --line-highlight: rgba(56, 139, 253, 0.15);
+
+  /* Editor syntax colours (GitHub dark), used only by the Monaco theme. */
+  --syntax-keyword: #ff7b72;
+  --syntax-string: #a5d6ff;
+  --syntax-number: #79c0ff;
+  --syntax-comment: #8b949e;
+  --syntax-type: #ffa657;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  color-scheme: dark;
+}
