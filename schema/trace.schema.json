@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.2).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.3).",
   "type": "object",
   "required": [
     "version",
@@ -86,7 +86,13 @@
           "$ref": "#/$defs/set"
         },
         {
+          "$ref": "#/$defs/multiset"
+        },
+        {
           "$ref": "#/$defs/map"
+        },
+        {
+          "$ref": "#/$defs/multimap"
         },
         {
           "$ref": "#/$defs/object"
@@ -299,9 +305,31 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/value"
+          },
+          "uniqueItems": true
+        }
+      },
+      "description": "Unique items: set, unordered_set, HashSet."
+    },
+    "multiset": {
+      "type": "object",
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "multiset"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
           }
         }
-      }
+      },
+      "description": "Like set, but items may repeat: multiset, unordered_multiset."
     },
     "map": {
       "type": "object",
@@ -330,7 +358,38 @@
             "maxItems": 2
           }
         }
-      }
+      },
+      "description": "Unique keys as raw [key, value] pairs: map, unordered_map, dict, HashMap. Key uniqueness is not checked by the schema."
+    },
+    "multimap": {
+      "type": "object",
+      "required": [
+        "kind",
+        "entries"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "multimap"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/value"
+              },
+              {
+                "$ref": "#/$defs/value"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      },
+      "description": "Like map, but keys may repeat: multimap, unordered_multimap."
     },
     "object": {
       "type": "object",

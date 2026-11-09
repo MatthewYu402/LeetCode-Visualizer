@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.2
+> **Status:** Draft v0.3
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.2",
+  "version": "0.3",
   "language": "cpp",
   "problem": { ... },
   "steps": [ ... ],
@@ -110,7 +110,9 @@ Hints are **inferred by the adapter**, never supplied by the user. Sources, from
 Every value in a trace is either a **primitive** or a **tagged object**. The `kind` field tells the frontend which renderer applies.
 
 #### Primitives
-Plain JSON: `5`, `3.14`, `"abc"`, `true`, `null`. `null` means a null pointer or `None`, and nothing else.
+Plain JSON: `5`, `3.14`, `"abc"`, `true`, `null`.
+
+`null` means **no value**: a null pointer, Python `None`, or an empty `std::optional`. A present optional is written as its value, so `std::optional<int>` holding `5` is `5`. Two rare cases become indistinguishable from an empty optional, and the trace accepts that: an optional holding a null pointer, and an optional of an optional.
 
 #### Containers
 ```json
@@ -122,15 +124,18 @@ Plain JSON: `5`, `3.14`, `"abc"`, `true`, `null`. `null` means a null pointer or
 {"kind": "priority-queue", "items": [5, 4, 3, 1, 1], "order": "max"}
 {"kind": "tuple",          "items": [0, "a"]}
 {"kind": "set",            "items": [1, 2, 3]}
+{"kind": "multiset",       "items": [1, 1, 3]}
 {"kind": "map",            "entries": [[2, 0], [7, 1]]}
+{"kind": "multimap",       "entries": [[1, "a"], [1, "b"]]}
 ```
 
-- `array` is an indexed sequence: the next item is reached by offset (`a[i]`).
+- `array` is an indexed sequence: the next item is reached by offset (`a[i]`). A `std::bitset` is an `array` of booleans in index order, so `items[0]` is bit 0 (not the order `to_string()` prints).
 - `list` is a node-based sequence traversed by iterator, front to back. It carries values only, with no identity. A user's `ListNode` chain is not a `list`. It is `object` + `ref` (below).
 - `stack` items run bottom to top: the last item is the top.
 - `queue` and `deque` items run front to back: the first item is the front.
 - `priority-queue` `items` are the underlying array **in storage order**, so they are not sorted. Only `items[0]` is guaranteed to be the top. `order` describes the comparator: `"max"` (the top is the largest), `"min"` (the top is the smallest), or `"custom"` (any other comparator, such as a lambda).
 - `tuple` is a fixed-size group that may mix types (`pair`, `tuple`).
+- `set` items are unique, and `map` keys are unique. `multiset` and `multimap` are the same shapes with duplicates allowed (`std::multiset`, `std::multimap`, and their unordered versions).
 - Maps use an array of `[key, value]` pairs instead of a JSON object, because JSON object keys must be strings and map keys can be ints or other types. The pairs are raw JSON arrays, never a tagged kind.
 
 #### Numbers JSON cannot carry exactly
@@ -149,7 +154,7 @@ These are tagged, with the exact value in a string:
 - `int.value` is decimal digits with an optional leading `-` and no leading zeros. Adapters **must** use it for integers outside the safe range and **must not** use it inside the range.
 - `float.value` is exactly `"NaN"`, `"Infinity"`, or `"-Infinity"`. Every finite float is a bare number, including large ones such as `1e300`, because JavaScript numbers are doubles too.
 - Finite floats are written as the shortest text that round-trips to the same value in their own type (C++ `std::to_chars`).
-- `null` never stands for NaN or infinity. It means a null pointer or `None`.
+- `null` never stands for NaN or infinity. It means no value ([Primitives](#primitives)).
 
 > **Key Insight 4: emit a bare JSON number when JSON carries the value exactly, and a tagged value otherwise.** It is the same reasoning as maps using `entries`: when plain JSON would lose information, the trace tags the value instead of approximating it.
 
@@ -184,15 +189,17 @@ Bare JSON primitives: numbers, strings, `true`/`false`, `null`. Everything else 
 |---|---|---|---|
 | `int` | `value` (string) | `long long`, `uint64_t`, Python `int`, Java `long` | Only outside ±(2^53 − 1) |
 | `float` | `value` (string) | any floating-point type | Only `NaN`, `Infinity`, `-Infinity` |
-| `array` | `items` | `vector`, `std::array`, C arrays, Python `list`, Java arrays, `ArrayList` | Indexed sequence |
+| `array` | `items` | `vector`, `std::array`, C arrays, `std::bitset`, Python `list`, Java arrays, `ArrayList` | Indexed sequence. A bitset is booleans in index order |
 | `list` | `items` | `std::list`, `std::forward_list` | Traversed via iterators, front to back. Values only, no identity |
 | `stack` | `items` | `std::stack`, Java `Stack` | Bottom to top: the last item is the top |
 | `queue` | `items` | `std::queue`, Java `Queue` | Front to back: the first item is the front |
 | `deque` | `items` | `std::deque`, Python `collections.deque` | Front to back, both ends open |
 | `priority-queue` | `items`, `order` | `priority_queue`, Java `PriorityQueue` | `items` in storage order. `order` is `"max"`, `"min"`, or `"custom"` |
 | `tuple` | `items` | `pair`, `tuple`, Python `tuple` | Fixed size, may mix types |
-| `set` | `items` | `set`, `unordered_set`, `HashSet` | |
-| `map` | `entries` | `map`, `unordered_map`, `dict`, `HashMap` | Entries are raw `[key, value]` pairs |
+| `set` | `items` | `set`, `unordered_set`, `HashSet` | Items are unique |
+| `multiset` | `items` | `multiset`, `unordered_multiset` | Items may repeat |
+| `map` | `entries` | `map`, `unordered_map`, `dict`, `HashMap` | Entries are raw `[key, value]` pairs. Keys are unique |
+| `multimap` | `entries` | `multimap`, `unordered_multimap` | Like `map`, but keys may repeat |
 | `object` | `type`, `fields` | structs and classes (`TreeNode`, `ListNode`, `Node`) | Stored in the heap |
 | `ref` | `id` | pointers, references, object handles | Points into the heap |
 
@@ -236,7 +243,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.2",
+  "version": "0.3",
   "language": "cpp",
   "problem": {
     "name": "Two Sum",
@@ -276,7 +283,7 @@ Adapters must:
 2. Never emit memory addresses, capacities, bucket counts, or other implementation details.
 3. Assign `id`s so that **distinct objects get distinct IDs and aliases share one**.
 4. Report line numbers relative to the user's original code, not the generated driver.
-5. Treat `map` and `set` ordering as **unspecified**. The frontend must not assume insertion order.
+5. Treat the ordering of `map`, `set`, `multimap`, and `multiset` as **unspecified**. The frontend must not assume insertion order.
 6. Stop at the step limit and flag truncation
 7. Pass schema validation ([Section 10](#10-validation-and-testing)) before being considered correct.
 8. Emit a bare JSON number only when JavaScript reads it back exactly. Otherwise use the `int` or `float` kind ([Section 5](#numbers-json-cannot-carry-exactly)). Never emit the bare tokens `NaN` or `Infinity`, which are not JSON.
@@ -291,6 +298,7 @@ Two adapters running the same algorithm may legitimately produce different trace
 | A pointer appears as a raw address | **Yes**: language detail leaked |
 | Same concept uses different field names across adapters | **Yes**: contract violation |
 | A `std::stack` appears as an `array` | **Yes**: the type determined the kind |
+| A `std::multiset` appears as a `set` with repeated items | **Yes**: `set` items must be unique |
 | An integer above 2^53 appears as a bare number | **Yes**: the frontend silently shows a different value |
 | Map entries appear in different order | No: iteration order is real language behavior |
 | `priority-queue` items differ after `items[0]` | No: heap layout is real standard-library behavior |
@@ -308,6 +316,11 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.3**:
+  - `null` also means an empty optional.
+  - Adds the `multiset` and `multimap` kinds.
+  - `set` items must be unique (the schema enforces it). A v0.2 trace is still valid unless it put duplicates in a `set`.
+  - Documents `std::bitset` as an `array` of booleans in index order.
 - **v0.2** (breaking):
   - Renames v0.1's `list` kind to `array`. `list` now means a node-based list (`std::list`).
   - Adds the `stack`, `queue`, `deque`, `priority-queue`, and `tuple` kinds, and the `int` and `float` kinds for numbers JSON cannot carry exactly.
@@ -349,8 +362,12 @@ These are mainly notes for me, to help me understand these concepts.
 
 > **Q4. If two adapters run the same algorithm and produce different traces, is that a bug?** Not necessarily. Differences in *behavior* (map ordering, overflow, line numbers) are legitimate. Differences in *representation* (a different kind for the same concept, leaked addresses) are bugs. Traces must match in structure and may differ in content.
 
-> **Q5. Why not emit NaN as `null`, or big integers as plain strings?** `null` already means a null pointer, so a NaN would be indistinguishable from one, and NaN, +Infinity, and −Infinity would collapse into one value. A plain string `"9007199254740993"` is indistinguishable from a real string. Tagging keeps each value unambiguous, and only the rare values pay the cost.
+> **Q5. Why not emit NaN as `null`, or big integers as plain strings?** `null` already means "no value", so a NaN would be indistinguishable from one, and NaN, +Infinity, and −Infinity would collapse into one value. A plain string `"9007199254740993"` is indistinguishable from a real string. Tagging keeps each value unambiguous, and only the rare values pay the cost.
 
 > **Q6. Why is the kind called `priority-queue` and not `heap`?** Every step already has a `heap` field, the store of objects that `ref`s point into. A `heap` kind and a `heap` hint next to it would make every mention ambiguous. `priority-queue` also names the concept rather than the usual implementation, the same way `stack`, `queue`, and `deque` do.
 
 > **Q7. Why are `array` and `list` separate kinds?** They are drawn differently. An array is a row of indexed boxes that pointers like `i` and `j` move along. A list is a chain of nodes reached one after another. The type tells the adapter which one it has, so by Key Insight 5 it is a kind, not a hint.
+
+> **Q8. Why do `multiset` and `multimap` get their own kinds instead of allowing duplicates in `set` and `map`?** The frontend animates a set by asking which items were added or removed, and a map by key. With duplicates those questions have no clear answer: if `{1, 1, 3}` becomes `{1, 3}`, was `1` removed? A separate kind tells the frontend to count copies instead. It also lets the schema require unique items in a real `set`, which catches an adapter that emits a multiset under the wrong kind.
+
+> **Q9. Why is an empty optional `null` and not its own kind?** In Python an optional value is just `None`, so a Python adapter cannot tell an empty optional from no value, and emits `null`. If C++ emitted something richer for the same idea, one concept would look different depending on the language, which is what the trace format exists to prevent. The cost is that an optional holding a null pointer also looks like `null`, which is rare enough to accept.
