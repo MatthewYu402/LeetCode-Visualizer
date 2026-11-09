@@ -1,32 +1,20 @@
-#include <iostream>
-#include <vector>
-#include <unordered_map>
-
-using std::unordered_map;
-using std::vector; // bring vector into the local scope
-
-class Solution
-{
+class Solution {
 public:
-  vector<int> twoSum(const vector<int> &nums, int target)
-  {
-    // key -> number from array; value -> index
-    unordered_map<int, int> numMap;
+    vector<int> twoSum(vector<int>& nums, int target) {
+        // key: a number from the array, value: its index
+        unordered_map<int, int> numMap;
 
-    for (int i = 0; i < static_cast<int>(nums.size()); ++i)
-    {
-      int complement = target - nums[i];
-      auto it = numMap.find(complement);
+        for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
+            int complement = target - nums[i];
+            auto it = numMap.find(complement);
 
-      if (it != numMap.end())
-      {
-        return {it->second, i};
-      }
+            if (it != numMap.end()) {
+                return {it->second, i};
+            }
 
-      // If not found, insert current number and its index into the map
-      numMap[nums[i]] = i;
+            // not found: remember this number and its index
+            numMap[nums[i]] = i;
+        }
+        return {};
     }
-    // no solution
-    return {};
-  }
 };
