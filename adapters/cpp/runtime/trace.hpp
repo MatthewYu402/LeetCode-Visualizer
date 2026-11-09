@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <string_view>
 #include <vector>
 #include <array>
 #include <list>
@@ -11,7 +12,6 @@
 #include <queue>
 #include <deque>
 #include <tuple>
-#include <string_view>
 #include <cstdint>
 #include <concepts>
 #include <set>
@@ -205,6 +205,13 @@ namespace trace {
     }
   };
 
+  // std::string_view
+  template<> struct Serializer<std::string_view> {
+    static Json write(const std::string_view sv, Ctx&) {
+      return quote(std::string{sv});
+    }
+  };
+
   // integral types - int, long, long long, etc
   template <std::integral T> struct Serializer<T> {
     static Json write(const T& value, Ctx&) {
@@ -247,79 +254,85 @@ namespace trace {
   // T[N] - C-type arrays
   template <typename T, std::size_t N> struct Serializer<T[N]> {
     static Json write(const T(&arr)[N], Ctx& ctx) {
-      std::string kind = "array";
-      return write_items(kind, arr, ctx);
+      return write_items("array", arr, ctx);
     }
   };
 
   // std::array
   template <typename T, std::size_t N> struct Serializer<std::array<T, N>> {
     static Json write(const std::array<T, N>& arr, Ctx& ctx) {
-      std::string kind = "array";
-      return write_items(kind, arr, ctx);
+      return write_items("array", arr, ctx);
     }
   };
 
   // std::vector<T>
-  template <typename T> struct Serializer<std::vector<T>> {
-    static Json write(const std::vector<T>& vec, Ctx& ctx) {
-      std::string kind = "array";
-      return write_items(kind, vec, ctx);
+  template <typename T, typename Allocator> 
+  struct Serializer<std::vector<T, Allocator>> {
+    static Json write(const std::vector<T, Allocator>& vec, Ctx& ctx) {
+      return write_items("array", vec, ctx);
     }
   };
 
   // std::list
-  template <typename T> struct Serializer<std::list<T>> {
-    static Json write(const std::list<T>& li, Ctx& ctx) {
+  template <typename T, typename Allocator> 
+  struct Serializer<std::list<T, Allocator>> {
+    static Json write(const std::list<T, Allocator>& li, Ctx& ctx) {
       return write_items("list", li, ctx);
     }
   };
 
   // std::forward_list
-  template <typename T> struct Serializer<std::forward_list<T>> {
-    static Json write(const std::forward_list<T>& li, Ctx& ctx) {
+  template <typename T, typename Allocator> 
+  struct Serializer<std::forward_list<T, Allocator>> {
+    static Json write(const std::forward_list<T, Allocator>& li, Ctx& ctx) {
       return write_items("list", li, ctx);
     }
   };
 
   // std::pair<K, V>
-  template <typename K, typename V> struct Serializer<std::pair<K, V>> {
+  template <typename K, typename V> 
+  struct Serializer<std::pair<K, V>> {
     static Json write(const std::pair<K, V>& val_pair, Ctx& ctx) {
       return std::format(R"({{"kind": "tuple", "items": [{}, {}]}})", serialize(val_pair.first, ctx), serialize(val_pair.second, ctx));
     }
   };
 
   // std::tuple<Ts...> - variadic template as there can up up to N
-  template<typename... Ts> struct Serializer<std::tuple<Ts...>> {
+  template<typename... Ts> 
+  struct Serializer<std::tuple<Ts...>> {
     static Json write(const std::tuple<Ts...>& tuple, Ctx& ctx) {
       return write_tuple(tuple, ctx);
     }
   };
 
-  // std::unordered_set<T>
-  template<typename T> struct Serializer<std::unordered_set<T>>{
-    static Json write(const std::unordered_set<T>& set, Ctx& ctx) {
+  // std::unordered_set<T, Hash, KeyEqual, Allocator>
+  template<typename T, typename Hash, typename KeyEqual, typename Allocator> 
+  struct Serializer<std::unordered_set<T, Hash, KeyEqual, Allocator>>{
+    static Json write(const std::unordered_set<T, Hash, KeyEqual, Allocator>& set, Ctx& ctx) {
       return write_items("set", set, ctx);
     }
   };
 
-  // std::set<T>
-  template<typename T> struct Serializer<std::set<T>>{
-    static Json write(const std::set<T>& set, Ctx& ctx) {
+  // std::set<T, Compare, Allocator>
+  template<typename T, typename Compare, typename Allocator> 
+  struct Serializer<std::set<T, Compare, Allocator>>{
+    static Json write(const std::set<T, Compare, Allocator>& set, Ctx& ctx) {
       return write_items("set", set, ctx);
     }
   };
 
-  // std::unordered_map <K, V>
-  template <typename K, typename V> struct Serializer<std::unordered_map<K, V>> {
-    static Json write(const std::unordered_map<K, V>& umap, Ctx& ctx) {
+  // std::unordered_map<K, V, Hash, KeyEqual, Allocator>
+  template <typename K, typename V, typename Hash, typename KeyEqual, typename Allocator> 
+  struct Serializer<std::unordered_map<K, V, Hash, KeyEqual, Allocator>> {
+    static Json write(const std::unordered_map<K, V, Hash, KeyEqual, Allocator>& umap, Ctx& ctx) {
       return write_entries("map", umap, ctx);
     }
   };
 
-  // std::map <K, V> - omap = ordered map
-  template <typename K, typename V> struct Serializer<std::map<K, V>> {
-    static Json write(const std::map<K, V>& omap, Ctx& ctx) {
+  // std::map<K, V, Compare, Allocator> - omap = ordered map
+  template <typename K, typename V, typename Compare, typename Allocator> 
+  struct Serializer<std::map<K, V, Compare, Allocator>> {
+    static Json write(const std::map<K, V, Compare, Allocator>& omap, Ctx& ctx) {
       return write_entries("map", omap, ctx);
     }
   };
@@ -352,12 +365,11 @@ namespace trace {
   };
 
   // std::deque
-  template<typename T> struct Serializer<std::deque<T>> {
-    static Json write(const std::deque<T>& dq, Ctx& ctx) {
+  template<typename T, typename Allocator> struct Serializer<std::deque<T, Allocator>> {
+    static Json write(const std::deque<T, Allocator>& dq, Ctx& ctx) {
       return write_items("deque", dq, ctx);
     }
   };
-
 
   // Primary template (fallback for custom comparators)
   template<typename Compare>
@@ -372,7 +384,7 @@ namespace trace {
   };
 
   // Specialization for std::greater (min-heap)
-   template<typename T>
+  template<typename T>
   struct comparator_name<std::greater<T>> {
     static constexpr std::string_view get() { return "min"; }
   };

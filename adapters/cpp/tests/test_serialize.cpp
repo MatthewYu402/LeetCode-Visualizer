@@ -80,6 +80,13 @@ namespace
 
 } // namespace
 
+// Custom hash for pair keys, as used in grid problems.
+struct PairHash {
+      std::size_t operator()(const std::pair<int, int> &p) const {
+      return std::hash<int>{}(p.first) * 31 + std::hash<int>{}(p.second);
+    }
+};
+
 int main()
 {
       using namespace trace;
@@ -94,10 +101,12 @@ int main()
       const double inf = std::numeric_limits<double>::infinity();
       const double nan = std::numeric_limits<double>::quiet_NaN();
 
+      // ---- BOOL TESTS ---- //
       std::cout << "bool\n";
       check("true", serialize(true, ctx), R"(true)");
       check("false", serialize(false, ctx), R"(false)");
 
+      // ---- INTEGRAL TESTS ---- //
       std::cout << "integers\n";
       check("int", serialize(42, ctx), R"(42)");
       check("negative int", serialize(-7, ctx), R"(-7)");
@@ -122,6 +131,7 @@ int main()
       check("u64 max safe stays bare", serialize(u64{9007199254740991ULL}, ctx), R"(9007199254740991)");
       check("u64 max is tagged", serialize(u64{ULLONG_MAX}, ctx), R"({"kind": "int", "value": "18446744073709551615"})");
 
+      // ---- FLOATING POINT TESTS ---- //
       std::cout << "floating point\n";
       check("2.5", serialize(2.5, ctx), R"(2.5)");
       check("-2.5", serialize(-2.5, ctx), R"(-2.5)");
@@ -137,12 +147,14 @@ int main()
       check("float inf is tagged", serialize(std::numeric_limits<float>::infinity(), ctx),
             R"({"kind": "float", "value": "Infinity"})");
 
+      // ---- CHAR TESTS ---- //
       std::cout << "char\n";
       check("letter", serialize('a', ctx), R"("a")");
       check("double quote", serialize('"', ctx), R"("\"")");
       check("backslash", serialize('\\', ctx), R"("\\")");
       check("newline", serialize('\n', ctx), R"("\n")");
 
+      // ---- C-STRING TESTS ---- //
       std::cout << "C strings\n";
       check("literal", serialize("abc", ctx), R"("abc")"); // must not become true
       check("empty literal", serialize("", ctx), R"("")");
@@ -153,6 +165,7 @@ int main()
       char buffer[8] = "hi"; // spare capacity: stops at the first NUL
       check("char array buffer", serialize(buffer, ctx), R"("hi")");
 
+      // ---- STRING TESTS ---- //
       std::cout << "std::string\n";
       check("plain", serialize(std::string("abc"), ctx), R"("abc")");
       check("empty", serialize(std::string(""), ctx), R"("")");
@@ -168,7 +181,11 @@ int main()
       check("embedded NUL", serialize(std::string("a\0b", 3), ctx), R"("a\u0000b")");
       check("space (0x20) as-is", serialize(std::string(" "), ctx), R"(" ")");
       check("UTF-8 passes through", serialize(std::string("caf\xc3\xa9"), ctx), "\"caf\xc3\xa9\"");
+        
+      std::string_view sv_part = std::string_view("hello world").substr(0, 5); // not NUL-terminated
+      check("string_view stops at its length", serialize(sv_part, ctx), R"("hello")");
 
+      // ---- VECTOR TESTS ---- //
       std::cout << "vector -> array\n";
       check("empty", serialize(std::vector<int>{}, ctx), R"({"kind": "array", "items": []})");
       check("one item", serialize(std::vector<int>{7}, ctx), R"({"kind": "array", "items": [7]})");
@@ -191,6 +208,7 @@ int main()
       check("nested empty", serialize(std::vector<std::vector<int>>{{}}, ctx),
             R"({"kind": "array", "items": [{"kind": "array", "items": []}]})");
 
+      // ---- PAIR TESTS ---- //
       std::cout << "pair -> tuple\n";
       check("int pair", serialize(std::pair<int, int>{1, 2}, ctx),
             R"({"kind": "tuple", "items": [1, 2]})");
@@ -199,6 +217,7 @@ int main()
       check("vector of pairs (intervals)", serialize(std::vector<std::pair<int, int>>{{1, 3}, {2, 6}}, ctx),
             R"({"kind": "array", "items": [{"kind": "tuple", "items": [1, 3]}, {"kind": "tuple", "items": [2, 6]}]})");
 
+      // ---- MAP TESTS ---- //
       std::cout << "unordered_map -> map\n";
       check("empty", serialize(std::unordered_map<int, int>{}, ctx),
             R"({"kind": "map", "entries": []})");
@@ -219,6 +238,7 @@ int main()
       check_contains("two entries: separator", two, R"(], [)");
       check("two entries: no trailing comma", two.substr(two.size() - 3), R"(]]})");
 
+      // ---- TUPLE TESTS TESTS ---- //
       std::cout << "tuple\n";
       check("empty tuple", serialize(std::tuple<>{}, ctx), R"({"kind": "tuple", "items": []})");
       check("mixed types", serialize(std::tuple<int, std::string, bool>{1, "a", true}, ctx),
@@ -228,6 +248,7 @@ int main()
       check("array of tuples", serialize(std::vector<std::tuple<int, int>>{{1, 2}}, ctx),
             R"({"kind": "array", "items": [{"kind": "tuple", "items": [1, 2]}]})");
 
+      // ---- SET TESTS ---- //
       std::cout << "set\n";
       check("empty set", serialize(std::set<int>{}, ctx), R"({"kind": "set", "items": []})");
       check("std::set is sorted", serialize(std::set<int>{3, 1, 2}, ctx), R"({"kind": "set", "items": [1, 2, 3]})");
@@ -240,6 +261,7 @@ int main()
       check_contains("unordered_set: 9", uset, "9");
       check_contains("unordered_set: separator", uset, ", ");
 
+      // ---- MAP TESTS ---- //
       std::cout << "std::map -> map\n";
       check("empty map", serialize(std::map<int, int>{}, ctx), R"({"kind": "map", "entries": []})");
       check("std::map is key-sorted", serialize(std::map<int, int>{{2, 0}, {1, 5}}, ctx),
@@ -247,10 +269,25 @@ int main()
       check("map of arrays", serialize(std::map<std::string, std::vector<int>>{{"a", {1}}}, ctx),
             R"({"kind": "map", "entries": [["a", {"kind": "array", "items": [1]}]]})");
 
+      std::cout << "custom comparators and hashes\n";
+      check("set with greater<int> keeps its order", serialize(std::set<int, std::greater<int>>{1, 2, 3}, ctx), R"({"kind": "set", "items": [3, 2, 1]})");
+      check("set with transparent less<>", serialize(std::set<int, std::less<>>{2, 1}, ctx), R"({"kind": "set", "items": [1, 2]})");
+      check("map with greater<int> keeps its order", serialize(std::map<int, int, std::greater<int>>{{1, 0}, {2, 5}}, ctx), R"({"kind": "map", "entries": [[2, 5], [1, 0]]})");
+
+      std::unordered_set<std::pair<int, int>, PairHash> seen;
+      seen.insert({1, 2});
+      check("unordered_set with a custom hash", serialize(seen, ctx), R"({"kind": "set", "items": [{"kind": "tuple", "items": [1, 2]}]})");
+
+      std::unordered_map<std::pair<int, int>, int, PairHash> dist;
+      dist[{0, 1}] = 5;
+      check("unordered_map with a custom hash", serialize(dist, ctx), R"({"kind": "map", "entries": [[{"kind": "tuple", "items": [0, 1]}, 5]]})");
+
+      // ---- DEQUE TESTS ---- //
       std::cout << "deque\n";
       check("empty deque", serialize(std::deque<int>{}, ctx), R"({"kind": "deque", "items": []})");
       check("front to back", serialize(std::deque<int>{1, 2, 3}, ctx), R"({"kind": "deque", "items": [1, 2, 3]})");
 
+      // ---- STACK TESTS ---- //
       std::cout << "stack (bottom to top)\n";
       check("empty stack", serialize(std::stack<int>{}, ctx), R"({"kind": "stack", "items": []})");
       std::stack<int> st;
@@ -262,6 +299,7 @@ int main()
       vst.push(7); vst.push(8);
       check("vector-backed stack", serialize(vst, ctx), R"({"kind": "stack", "items": [7, 8]})");
 
+      // ---- QUEUE TESTS ---- //
       std::cout << "queue (front to back)\n";
       check("empty queue", serialize(std::queue<int>{}, ctx), R"({"kind": "queue", "items": []})");
       std::queue<int> q;
@@ -277,6 +315,7 @@ int main()
       check("queue of pairs", serialize(bfs, ctx),
             R"({"kind": "queue", "items": [{"kind": "tuple", "items": [0, 1]}]})");
 
+      // ---- PRIORITY QUEUE TESTS ---- //
       std::cout << "priority-queue (only items[0] and order are fixed)\n";
       check("empty", serialize(std::priority_queue<int>{}, ctx),
             R"({"kind": "priority-queue", "items": [], "order": "max"})");
