@@ -17,7 +17,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 ## Status
 
-> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind except pointers (`object` and `ref`). Update this table as pieces land.
+> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind except pointers (`object` and `ref`). The frontend's sandbox page replays the Two Sum fixture. Update this table as pieces land.
 
 | Area | Status |
 |---|---|
@@ -27,7 +27,8 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | C++ adapter: value serializers | Done for every kind except `object` and `ref`, with tests |
 | C++ adapter: recorder, pointers, driver, rewriter | Planned |
 | Python adapter | Planned |
-| Frontend and renderers | Planned |
+| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, replays the Two Sum fixture |
+| Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
 | API service + sandbox | Planned |
 
 ---
@@ -46,7 +47,8 @@ Start with the trace format. Everything else hangs off it.
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ serializers: native values to trace kinds | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft |
-| [`docs/frontend.md`](docs/frontend.md) | Renderer registry, diffing, animation, the "view as" override | Draft |
+| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, diffing, playback, theme | Draft v0.1 |
+| [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
 | [`docs/sandboxing.md`](docs/sandboxing.md) | Isolation, resource limits, where validation runs | Draft |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
 | [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, normalization rules | Draft |
@@ -420,7 +422,7 @@ Items marked *(planned)* do not exist yet.
 │   ├── native-tracing.md      runtime hooks and source instrumentation
 │   ├── dap.md                 DAP-based tracing
 │   ├── driver-generation.md   signatures, example parsing, helper types
-│   ├── frontend.md            renderer registry, diffing, animation
+│   ├── frontend.md            the sandbox page: registry, diff, playback
 │   ├── sandboxing.md          isolation, limits, where validation runs
 │   └── adapters/
 │       ├── cpp.md             the C++ adapter
@@ -437,7 +439,19 @@ Items marked *(planned)* do not exist yet.
 │       │   └── trace.hpp      serializers: C++ values -> trace kinds
 │       └── tests/
 │           └── test_serialize.cpp
-├── frontend/                  (planned)
+├── frontend/                  sandbox page (React + TypeScript + Vite)
+│   ├── CLAUDE.md              commands, structure, rules
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── src/
+│       ├── App.tsx            the page: layout, language select, shortcuts
+│       ├── fixtures.ts        stand-in for the backend (imports fixtures/)
+│       ├── trace/             types, loader, value formatting, diff
+│       ├── player/            playback reducer and Run timer
+│       ├── render/            renderer registry and renderers
+│       ├── components/        toolbar, code, visual, state panels
+│       ├── editor/            Monaco setup, theme, starter templates
+│       └── styles/            theme tokens and layout
 └── backend/                   (planned) API service and sandbox runner
 ```
 
@@ -470,7 +484,7 @@ Tentative. The architecture does not depend on these choices.
 
 ## Getting started
 
-There is nothing to run end to end yet. You can run the C++ adapter's tests and validate the fixture.
+There is nothing to run end to end yet. You can run the C++ adapter's tests, validate the fixture, and open the frontend's sandbox page, which replays the Two Sum fixture.
 
 ```bash
 # Prerequisites: clang++ or g++ with C++20 <format> support, make, Python 3
@@ -482,6 +496,16 @@ make -C adapters/cpp both          # with clang++ and with g++
 # Validate a trace against the schema
 pip install jsonschema
 # then run the validation command in CLAUDE.md
+```
+
+```bash
+# Prerequisites: Node.js 20.19+ and npm
+
+cd frontend
+npm install
+npm run dev        # sandbox page on http://localhost:5173
+npm test           # vitest
+npm run build      # typecheck + production build
 ```
 
 ## Adding a new language

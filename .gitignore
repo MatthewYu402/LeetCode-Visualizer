@@ -15,6 +15,9 @@ compile_commands.json
 !fixtures/*.trace.json
 
 # ---- Frontend (Goal 3) ----
+# The generic node_modules/ and dist/ below already match these; listed so the frontend's are explicit.
+frontend/node_modules/
+frontend/dist/
 node_modules/
 dist/
 .vite/
