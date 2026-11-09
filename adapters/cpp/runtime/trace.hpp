@@ -12,6 +12,8 @@
 #include <queue>
 #include <deque>
 #include <tuple>
+#include <optional>
+#include <bitset>
 #include <cstdint>
 #include <concepts>
 #include <set>
@@ -313,6 +315,14 @@ namespace trace {
     }
   };
 
+  // std::unordered_multiset<T, Hash, KeyEqual, Allocator>
+  template<typename T, typename Hash, typename KeyEqual, typename Allocator> 
+  struct Serializer<std::unordered_multiset<T, Hash, KeyEqual, Allocator>>{
+    static Json write(const std::unordered_multiset<T, Hash, KeyEqual, Allocator>& set, Ctx& ctx) {
+      return write_items("multiset", set, ctx);
+    }
+  };
+
   // std::set<T, Compare, Allocator>
   template<typename T, typename Compare, typename Allocator> 
   struct Serializer<std::set<T, Compare, Allocator>>{
@@ -321,19 +331,43 @@ namespace trace {
     }
   };
 
-  // std::unordered_map<K, V, Hash, KeyEqual, Allocator>
-  template <typename K, typename V, typename Hash, typename KeyEqual, typename Allocator> 
-  struct Serializer<std::unordered_map<K, V, Hash, KeyEqual, Allocator>> {
-    static Json write(const std::unordered_map<K, V, Hash, KeyEqual, Allocator>& umap, Ctx& ctx) {
-      return write_entries("map", umap, ctx);
+  // std::multiset <T, Compare, Allocator>
+  template <typename T, typename Compare, typename Allocator>
+  struct Serializer<std::multiset<T, Compare, Allocator>>{
+    static Json write(const std::multiset<T, Compare, Allocator>& set, Ctx& ctx) {
+      return write_items("multiset", set, ctx);
     }
   };
 
-  // std::map<K, V, Compare, Allocator> - omap = ordered map
+  // std::unordered_map<K, V, Hash, KeyEqual, Allocator>
+  template <typename K, typename V, typename Hash, typename KeyEqual, typename Allocator> 
+  struct Serializer<std::unordered_map<K, V, Hash, KeyEqual, Allocator>> {
+    static Json write(const std::unordered_map<K, V, Hash, KeyEqual, Allocator>& map, Ctx& ctx) {
+      return write_entries("map", map, ctx);
+    }
+  };
+
+  // std::unordered_multimap<K, V, Hash, KeyEqual, Allocator>
+  template <typename K, typename V, typename Hash, typename KeyEqual, typename Allocator> 
+  struct Serializer<std::unordered_multimap<K, V, Hash, KeyEqual, Allocator>> {
+    static Json write(const std::unordered_multimap<K, V, Hash, KeyEqual, Allocator>& map, Ctx& ctx) {
+      return write_entries("multimap", map, ctx);
+    }
+  };
+
+  // std::map<K, V, Compare, Allocator> 
   template <typename K, typename V, typename Compare, typename Allocator> 
   struct Serializer<std::map<K, V, Compare, Allocator>> {
-    static Json write(const std::map<K, V, Compare, Allocator>& omap, Ctx& ctx) {
-      return write_entries("map", omap, ctx);
+    static Json write(const std::map<K, V, Compare, Allocator>& map, Ctx& ctx) {
+      return write_entries("map", map, ctx);
+    }
+  };
+
+  // std::multimap<K, V, Compare, Allocator> 
+  template <typename K, typename V, typename Compare, typename Allocator> 
+  struct Serializer<std::multimap<K, V, Compare, Allocator>> {
+    static Json write(const std::multimap<K, V, Compare, Allocator>& map, Ctx& ctx) {
+      return write_entries("multimap", map, ctx);
     }
   };
 
@@ -405,4 +439,32 @@ namespace trace {
     }
   };
 
+  // std::optional<T>
+  template<typename T>
+  struct Serializer<std::optional<T>> {
+    static Json write(const std::optional<T>& option, Ctx& ctx) {
+      if (option == std::nullopt) return "null";
+      return serialize(*option, ctx);
+    }
+  };
+
+  // std::bitset<Size> - needs indexing b/c no begin() or end()
+  template<std::size_t Size>
+  struct Serializer<std::bitset<Size>> {
+    static Json write(const std::bitset<Size>& bs, Ctx&) {
+      std::string json_object = R"({"kind": "array", "items": [)";
+
+      bool first = true;
+      for (std::size_t i = 0; i < bs.size(); ++i) {
+        if (!first) {
+          json_object += ", ";
+        }
+        first = false;
+        json_object += bs[i] ? "true" : "false";
+      }
+
+      json_object += "]}";
+      return json_object;
+    }
+  };
 }

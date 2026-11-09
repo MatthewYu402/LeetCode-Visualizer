@@ -340,6 +340,40 @@ int main()
       check("std::greater<> is min", serialize(tminq, ctx),
             R"({"kind": "priority-queue", "items": [2], "order": "min"})");
 
+      std::cout << "optional (value or null)\n";
+      check("holds an int", serialize(std::optional<int>{5}, ctx), R"(5)");
+      check("empty is bare null", serialize(std::optional<int>{}, ctx), R"(null)");
+      check("holds a string", serialize(std::optional<std::string>{"hi"}, ctx), R"("hi")");
+      check("holds a vector", serialize(std::optional<std::vector<int>>(std::vector<int>{1, 2}), ctx),
+            R"({"kind": "array", "items": [1, 2]})");
+      check("array of optionals", serialize(std::vector<std::optional<int>>{1, std::nullopt}, ctx),
+            R"({"kind": "array", "items": [1, null]})");
+
+      std::cout << "multiset and multimap\n";
+      check("multiset keeps repeats in order", serialize(std::multiset<int>{3, 1, 1}, ctx),
+            R"({"kind": "multiset", "items": [1, 1, 3]})");
+      check("multiset with greater<int>", serialize(std::multiset<int, std::greater<int>>{1, 3, 1}, ctx),
+            R"({"kind": "multiset", "items": [3, 1, 1]})");
+      check("empty multiset", serialize(std::multiset<int>{}, ctx), R"({"kind": "multiset", "items": []})");
+      check("multimap keeps repeated keys", serialize(std::multimap<int, char>{{2, 'x'}, {1, 'a'}, {1, 'b'}}, ctx),
+            R"({"kind": "multimap", "entries": [[1, "a"], [1, "b"], [2, "x"]]})");
+      check("unordered_multiset with one value", serialize(std::unordered_multiset<int>{4, 4}, ctx),
+            R"({"kind": "multiset", "items": [4, 4]})");
+      const std::string umm = serialize(std::unordered_multimap<int, char>{{1, 'a'}, {1, 'b'}}, ctx);
+      check_contains("unordered_multimap: kind", umm, R"({"kind": "multimap", "entries": [)");
+      check_contains("unordered_multimap: [1, a]", umm, R"([1, "a"])");
+      check_contains("unordered_multimap: [1, b]", umm, R"([1, "b"])");
+
+      // ---- BITSET TESTS ---- //
+      std::cout << "bitset -> array of bools (index order)\n";
+      std::bitset<4> bits;
+      bits[1] = true;
+      check("bit 1 set: index order, not to_string order", serialize(bits, ctx),
+            R"({"kind": "array", "items": [false, true, false, false]})");
+      check("all clear", serialize(std::bitset<3>{}, ctx), R"({"kind": "array", "items": [false, false, false]})");
+      check("from a string", serialize(std::bitset<3>("110"), ctx), R"({"kind": "array", "items": [false, true, true]})");
+      check("empty bitset", serialize(std::bitset<0>{}, ctx), R"({"kind": "array", "items": []})");
+
       auto by_desc = [](int a, int b) { return a > b; };
       std::priority_queue<int, std::vector<int>, decltype(by_desc)> lamq(by_desc);
       lamq.push(2);
