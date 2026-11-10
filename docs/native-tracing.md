@@ -17,11 +17,11 @@ user's Solution ──► driver ──► TRACER ──► normalizer ──►
 ## 1. What "native" means here
 A tracer is *native* when we write the observation logic for that specific language, either:
 - **A. Runtime hooks**: the language runtime calls our code as the program executes (Python `sys.settrace`, JVM debug interfaces, the V8 inspector).
-- **B. Source instrumentation**: we rewrite the user's code to call a recording function (`TRACE(...)`) before each statement, then compile and run the rewritten program.
+- **B. Source instrumentation**: we rewrite the user's code to call a recording function (`trace::record(...)` in C++) before each statement, then compile and run the rewritten program.
 
 A tracer is *DAP-based* when one generic client drives an external debugger through the Debug Adapter Protocol (see `dap.md`).
 
-> **Key insight 1: the dividing line is who writes the per-language logic.** The dividing line is who writes the per-language logic. Native means we write it for each language. DAP means we reuse one client and only write a normalizer per language. The boundary is blurry (the V8 inspector and JDI are debugger protocols too), so treat this as a design choice rather than a strict taxonomy.
+> **Key insight 1: the dividing line is who writes the per-language logic.** Native means we write it for each language. DAP means we reuse one client and only write a normalizer per language. The boundary is blurry (the V8 inspector and JDI are debugger protocols too), so treat this as a design choice rather than a strict taxonomy.
 
 ## 2. What every tracer must do
 Regardless of the mechanism, a tracer does three jobs:
@@ -145,15 +145,19 @@ for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
 Instrumented (Illustrative):
 ```cpp
 for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
-    TRACE(8, V(nums), V(target), V(numMap), V(i));
+    ::trace::record(8, ::trace::var("nums", nums), ::trace::var("target", target),
+                    ::trace::var("numMap", numMap), ::trace::var("i", i));
     int complement = target - nums[i];
-    TRACE(9, V(nums), V(target), V(numMap), V(i), V(complement));
+    ::trace::record(9, ::trace::var("nums", nums), ::trace::var("target", target),
+                    ::trace::var("numMap", numMap), ::trace::var("i", i),
+                    ::trace::var("complement", complement));
     auto it = numMap.find(complement);
 ```
 
-- `TRACE` is a templated function that serializes each argument into a trace value (`vector` -> `array`, `stack` -> `stack`, `unordered_map` -> `map`, `TreeNode*` -> `ref` + heap object). The C++ runtime is `adapters/cpp/runtime/trace.hpp`.
+- `record` is a variadic function template that serializes each argument into a trace value (`vector` -> `array`, `stack` -> `stack`, `unordered_map` -> `map`, `TreeNode*` -> `ref` + heap object) and stores one finished step. `var` pairs a variable's name with a reference to its live value. The C++ runtime is `adapters/cpp/runtime/trace.hpp`, and [`adapters/cpp.md`](adapters/cpp.md) explains how a step is built.
+- The names are string literals written by the rewriter, which reads them from the AST. No macros are needed, and the fully qualified `::trace::` names cannot collide with the user's code.
 - Each call lists only the variables **already declared** at that point. `complement` is absent from the line-8 snapshot because it does not exist yet, matching the pre-execution rule. Working out what is in scope at each statement needs a real parser, such as Clang's AST via LibTooling (Go's `go/ast` plays the same role for Go).
-- Insert the `TRACE` calls on the same line as the statement they precede, or use `#line` directives, so the original line numbers are preserved.
+- The line number is passed explicitly, because only the rewriter knows the line in the user's original source. Insert the calls so they do not shift the user's lines (for example, on the same line as the statement they precede), or use `#line` directives.
 
 | Language | Typical Approach |
 |---|---|
