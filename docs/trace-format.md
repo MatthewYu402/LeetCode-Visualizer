@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.3
+> **Status:** Draft v0.4
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.3",
+  "version": "0.4",
   "language": "cpp",
   "problem": { ... },
   "steps": [ ... ],
@@ -70,8 +70,23 @@ A trace is one JSON object:
 | `language` | Informational only. The frontend must **not** branch on this. |
 | `problem` | Metadata about the problem and input ([Section 4](#4-problem-metadata)) |
 | `steps` | Ordered list of snapshots ([Section 6](#6-steps)) |
-| `result` | Final return value, as a normalized value |
-| `truncated` | Optional. `true` if recording stopped at the step limit ([Section 6](#limits)) |
+| `result` | Optional. Final return value, as a normalized value. Absent means the method did not return ([Unfinished runs](#unfinished-runs)) |
+| `truncated` | Optional. Present only as `true`, when recording stopped at the step limit ([Section 6](#limits)). Never `false` |
+
+#### Unfinished runs
+Two top-level fields describe how the run ended. Each is written only when it has something to say:
+
+- **`result` is present only when the method returned.** If the run was truncated at the step limit, crashed, or was killed, there is no return value, so the field is left out. It is never filled with `null` as a placeholder, because `null` is a real return value ("no value", see [Primitives](#primitives)).
+- **`truncated` is present only as `true`.** A trace that was not truncated leaves the field out. `"truncated": false` is invalid.
+
+An absent `result` does **not** mean a wrong answer. A wrong solution still returns a value, and that value is the `result`. The visualizer has no expected answer to compare against.
+
+| `result` | `truncated` | What happened |
+|---|---|---|
+| present | absent | The method returned. This is the normal case |
+| absent | `true` | Recording stopped at the step limit before the method returned. Usually an infinite loop, or an input that is too large |
+| absent | absent | The run ended early for another reason, such as a crash. The format allows this, but v0.4 does not yet require adapters to produce a trace here |
+| present | `true` | Recording stopped at the limit, the adapter let the program run on, and the method returned |
 
 ## 4. Problem metadata
 This describes what was run. It also gives the frontend hints so it can pick a renderer (for example, "this `array` of `array`s is a grid").
@@ -236,6 +251,12 @@ The diff between two adjacent snapshots is used only to **animate** what changes
 ### Limits
 Adapters must stop recording at a configured maximum (default: 2,000 steps) and set `"truncated": true` at the top level. Traces are intended for small example inputs.
 
+**A truncated trace must survive the program.** The adapter writes the complete trace at the moment it reaches the limit. It does not wait for the program to end, because the program may never end. An infinite loop is the most common reason to reach the limit, and it is exactly the bug a visualizer should show: the user gets the steps recorded so far to step through, instead of only a timeout error. That trace has no `result` ([Unfinished runs](#unfinished-runs)).
+
+After writing it, the adapter may stop the program or let it run on. If the program runs on and the method returns, the adapter writes the trace again, this time with `result`.
+
+The sandbox's time limit is still needed for a loop that never reaches the tracer, for example one inside library code. That run ends in an error, not a trace.
+
 ## 7. Full Example: Two Sum
 Input: `nums = [2, 7, 11, 15]`, `target = 9`. Source line numbers refer to the user's `Solution` class as pasted. Each snapshot is taken **before** its line executes.
 
@@ -243,7 +264,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.3",
+  "version": "0.4",
   "language": "cpp",
   "problem": {
     "name": "Two Sum",
@@ -284,10 +305,11 @@ Adapters must:
 3. Assign `id`s so that **distinct objects get distinct IDs and aliases share one**.
 4. Report line numbers relative to the user's original code, not the generated driver.
 5. Treat the ordering of `map`, `set`, `multimap`, and `multiset` as **unspecified**. The frontend must not assume insertion order.
-6. Stop at the step limit and flag truncation
+6. Stop at the step limit, flag truncation, and write the trace at that moment instead of when the program ends ([Section 6](#limits)).
 7. Pass schema validation ([Section 10](#10-validation-and-testing)) before being considered correct.
 8. Emit a bare JSON number only when JavaScript reads it back exactly. Otherwise use the `int` or `float` kind ([Section 5](#numbers-json-cannot-carry-exactly)). Never emit the bare tokens `NaN` or `Infinity`, which are not JSON.
 9. Use the kind the type determines. A `std::stack` is a `stack`, never an `array` with a hint. Hints are only for what the type cannot say.
+10. Write `result` only when the method returned, and `truncated` only when it is `true` ([Unfinished runs](#unfinished-runs)). Never write `"result": null` for a run that did not finish, and never write `"truncated": false`.
 
 ### What is a bug and what is not
 Two adapters running the same algorithm may legitimately produce different traces
@@ -300,6 +322,8 @@ Two adapters running the same algorithm may legitimately produce different trace
 | A `std::stack` appears as an `array` | **Yes**: the type determined the kind |
 | A `std::multiset` appears as a `set` with repeated items | **Yes**: `set` items must be unique |
 | An integer above 2^53 appears as a bare number | **Yes**: the frontend silently shows a different value |
+| A run that did not finish has `"result": null` | **Yes**: `null` is a real return value, so the field must be absent |
+| A trace contains `"truncated": false` | **Yes**: the field is present only as `true` |
 | Map entries appear in different order | No: iteration order is real language behavior |
 | `priority-queue` items differ after `items[0]` | No: heap layout is real standard-library behavior |
 | Different step counts or line numbers | No: different source files |
@@ -316,6 +340,10 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.4**:
+  - `result` is optional. Absent means the method did not return.
+  - `truncated` is present only as `true`. A v0.3 trace is still valid unless it wrote `"truncated": false`.
+  - Adapters write the trace when they reach the step limit, so a truncated trace survives a program that never ends.
 - **v0.3**:
   - `null` also means an empty optional.
   - Adds the `multiset` and `multimap` kinds.
@@ -371,3 +399,9 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q8. Why do `multiset` and `multimap` get their own kinds instead of allowing duplicates in `set` and `map`?** The frontend animates a set by asking which items were added or removed, and a map by key. With duplicates those questions have no clear answer: if `{1, 1, 3}` becomes `{1, 3}`, was `1` removed? A separate kind tells the frontend to count copies instead. It also lets the schema require unique items in a real `set`, which catches an adapter that emits a multiset under the wrong kind.
 
 > **Q9. Why is an empty optional `null` and not its own kind?** In Python an optional value is just `None`, so a Python adapter cannot tell an empty optional from no value, and emits `null`. If C++ emitted something richer for the same idea, one concept would look different depending on the language, which is what the trace format exists to prevent. The cost is that an optional holding a null pointer also looks like `null`, which is rare enough to accept.
+
+> **Q10. Why is an unfinished run's `result` absent instead of `null`?** `null` already means "no value", and a method can really return it: a null pointer, `None`, an empty optional. If `null` also meant "the method never returned", the frontend could not tell a finished run that returned nothing from a run that was cut off. Leaving the field out keeps the two apart, for the same reason Q5 keeps NaN apart from `null`.
+
+> **Q11. Why write the trace at the step limit instead of when the program ends?** Because the program may never end. A solution stuck in an infinite loop reaches the limit and keeps looping until the sandbox kills it. If the trace were only written at the end, that run would produce nothing but a timeout, and the user would lose the 2,000 steps that show the loop. Writing at the limit turns the most common failure into something the user can watch.
+
+> **Q12. Why is `"truncated": false` invalid instead of just unnecessary?** So there is one way to say each thing. If "absent" and `false` both meant "not truncated", two adapters could write different traces for the same run, and every comparison against a golden trace would have to treat them as equal. With one spelling, the schema can catch the other.

@@ -12,12 +12,12 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.2) is specified and validated. The C++ adapter serializes every value kind except `object` and `ref`, with tests. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind except `object` and `ref`, with tests. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
 | [`README.md`](README.md) | Overview, architecture diagrams, doc map |
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.2). Source of truth |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.4). Source of truth |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | Runtime hooks and source instrumentation |
 | [`docs/dap.md`](docs/dap.md) | Tracing through a debugger via the Debug Adapter Protocol |
 | [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md) | Design notes for later stages |
@@ -101,7 +101,8 @@ print('INVALID' if errs else 'OK', *[e.message for e in errs], sep='\n' if errs 
 - **Value kinds** are exactly: bare primitives, plus the tagged kinds `int`, `float`, `array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `map`, `object`, `ref`. `array` is indexed (`vector`); `list` is node-based (`std::list`). Maps use `entries` as raw `[key, value]` pairs because JSON object keys must be strings.
 - **Tagged numbers.** Integers outside ±(2^53 − 1) use the `int` kind, and NaN/±Infinity use the `float` kind. Everything else is a bare JSON number.
 - **Hints** (`grid`, `adjacency-matrix`, `adjacency-list`, `edge-list`, `intervals`, `tree`, `linked-list`, `graph`, `priority-queue`, `stack`, `queue`) are only for what the type cannot say.
-- **Step cap** is 2,000. Adapters set `"truncated": true` when they stop at the cap.
+- **Step cap** is 2,000. Adapters set `"truncated": true` when they stop at the cap, and write the trace at that moment so it survives a program that never ends.
+- **`result` and `truncated` are written only when they say something.** `result` is present only when the method returned. Absent means the run did not finish, never that the answer was wrong. `truncated` is present only as `true`. Never write `"result": null` as a placeholder, and never write `"truncated": false`.
 - **Schema strictness is intentional** (`additionalProperties: false`). It is how leaked language details get caught. Do not loosen it to make an adapter pass.
 - The schema checks structure only. It does not check that every `ref` resolves to a heap entry, that ids are unique, or that line numbers are in range. Those need a separate checker (not written yet).
 - **C++ style** is set by `.clang-format`: attached braces, 2-space indent, indented namespace bodies, no automatic line wrapping.

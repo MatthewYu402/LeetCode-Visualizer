@@ -2,14 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.3).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.4).",
   "type": "object",
   "required": [
     "version",
     "language",
     "problem",
-    "steps",
-    "result"
+    "steps"
   ],
   "additionalProperties": false,
   "properties": {
@@ -33,10 +32,11 @@
       }
     },
     "truncated": {
-      "type": "boolean",
-      "description": "True if recording stopped at the step limit."
+      "const": true,
+      "description": "Present only when recording stopped at the step limit. A trace that was not truncated omits this field. false is invalid."
     },
     "result": {
+      "description": "Final return value. Present only when the method returned. Absent when the run did not finish (truncated, crashed, or killed). Never null as a placeholder.",
       "$ref": "#/$defs/value"
     }
   },
