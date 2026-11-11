@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.4).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.5).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -80,10 +80,18 @@ export interface Param {
   hint?: Hint;
 }
 
+/** The method's return type. `type` is a neutral name, or "void" for no return value. */
+export interface Returns {
+  type: string;
+  hint?: Hint;
+}
+
 export interface Problem {
   name?: string;
   method: string;
   params: Param[];
+  /** Optional. Always present for a void method, which is how its null result is recognized. */
+  returns?: Returns;
   input: Record<string, unknown>;
 }
 
@@ -102,6 +110,8 @@ export interface Trace {
   steps: Step[];
   /** Present only when the method returned. Absent means the run did not finish, never a wrong answer. */
   result?: Value;
+  /** The objects `result` refers to, with the ids the steps use. Present only when `result` contains a ref. */
+  result_heap?: Record<string, ObjectValue>;
   /** Present only as true. Absent means false. */
   truncated?: boolean;
 }
@@ -117,6 +127,14 @@ export type RunEnd = "returned" | "truncated" | "stopped";
 export function runEnd(trace: Trace): RunEnd {
   if ("result" in trace && trace.result !== undefined) return "returned";
   return trace.truncated === true ? "truncated" : "stopped";
+}
+
+/**
+ * True when the method has no return value (spec §3, The return value). Its result is
+ * null, which would otherwise read as a returned null pointer.
+ */
+export function returnsVoid(problem: Problem): boolean {
+  return problem.returns?.type === "void";
 }
 
 /** The page title: the problem's name when the trace has one, else its method name. */

@@ -1,6 +1,6 @@
 import type { StepDiff } from "../trace/diff";
 import { formatValue, kindOf } from "../trace/format";
-import { runEnd, type RunEnd, type Step, type Trace, type Value } from "../trace/types";
+import { returnsVoid, runEnd, type RunEnd, type Step, type Trace, type Value } from "../trace/types";
 import { diffClass } from "../render/ArrayRenderer";
 
 interface Props {
@@ -11,8 +11,8 @@ interface Props {
 }
 
 /**
- * The snapshot as a table: one row per local, plus, on the last step, the result or
- * why there is none. A missing result means the method never returned. It is never
+ * The snapshot as a table: one row per local, plus, on the last step, the result, a
+ * note that a void method returned no value, or why there is no result. A missing result means the method never returned. It is never
  * shown as a wrong answer: the visualizer has no expected answer to compare against.
  */
 export function StatePanel({ trace, step, index, diff }: Props) {
@@ -57,7 +57,13 @@ export function StatePanel({ trace, step, index, diff }: Props) {
         </tbody>
         {index === last && (
           <tbody className="state-result">
-            {end === "returned" ? <Row name="result" value={trace.result as Value} cls="result-row" /> : <NoResultRow end={end} />}
+            {end !== "returned" ? (
+              <NoResultRow end={end} />
+            ) : returnsVoid(trace.problem) ? (
+              <VoidResultRow />
+            ) : (
+              <Row name="result" value={trace.result as Value} cls="result-row" />
+            )}
           </tbody>
         )}
       </table>
@@ -84,6 +90,19 @@ function NoResultRow({ end }: { end: Exclude<RunEnd, "returned"> }) {
       <td className="state-kind">none</td>
       <td className="state-value" title={why}>
         {text}
+      </td>
+    </tr>
+  );
+}
+
+/** A void method that returned. Its result is null in the trace, but "null" would read as a null pointer. */
+function VoidResultRow() {
+  return (
+    <tr className="result-row result-void">
+      <td className="state-name">result</td>
+      <td className="state-kind">void</td>
+      <td className="state-value" title="The method returned. It has no return value: its answer is the input it changed.">
+        returned, no value
       </td>
     </tr>
   );

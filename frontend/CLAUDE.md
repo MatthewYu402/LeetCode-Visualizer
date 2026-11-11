@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.4).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.5).
 
 Claude writes the frontend code; the author writes the adapter runtime and rewriter.
 
@@ -34,7 +34,7 @@ src/
 ├── fixtures.ts          stand-in for the backend: language -> source + trace (imports ../fixtures with ?raw)
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.4")
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.5")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   └── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap
 ├── player/

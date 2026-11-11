@@ -5,7 +5,7 @@ import type { RendererProps } from "./types";
 
 /**
  * Generic fallback: a labelled row of boxes plus the kind name.
- * Handles every v0.4 kind without a dedicated renderer (list, stack, queue, deque,
+ * Handles every v0.5 kind without a dedicated renderer (list, stack, queue, deque,
  * priority-queue, tuple, set, multiset), plus object, ref, and kinds from future minor
  * versions. A set's boxes are coloured per member (diff.keys); a multiset may repeat a
  * member, so its boxes are coloured per position (diff.items, matched by count).

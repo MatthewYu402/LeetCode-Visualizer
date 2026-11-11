@@ -83,6 +83,31 @@ describe("a run that did not finish", () => {
   });
 });
 
+describe("a void method", () => {
+  const voidTrace = { ...trace, problem: { ...trace.problem, returns: { type: "void" } }, result: null };
+
+  it("a null result with returns void says the method returned no value", () => {
+    const html = renderStep(voidTrace, 8, false);
+    expect(html).toContain("returned, no value");
+    expect(html).toContain("result-void");
+    expect(html).not.toContain("did not return");
+  });
+
+  it("a null result from a method that returns a value is still shown as null", () => {
+    const html = renderStep({ ...trace, problem: { ...trace.problem, returns: { type: "ListNode" } }, result: null }, 8, false);
+    expect(html).not.toContain("returned, no value");
+    expect(html).toContain("result-row");
+  });
+
+  it("a void method that did not return is reported as unfinished, not as void", () => {
+    const { result: _gone, ...unfinished } = voidTrace;
+    void _gone;
+    const html = renderStep({ ...unfinished, truncated: true }, 8, false);
+    expect(html).toContain("did not return: stopped at the step limit");
+    expect(html).not.toContain("returned, no value");
+  });
+});
+
 describe("title", () => {
   const toolbar = (title: string | null) =>
     renderToStaticMarkup(
@@ -111,7 +136,7 @@ describe("title", () => {
   });
 });
 
-describe("every v0.4 kind renders without crashing", () => {
+describe("every v0.5 kind renders without crashing", () => {
   const values: Record<string, Value> = {
     arr: { kind: "array", items: [1, { kind: "int", value: "9007199254740993" }] },
     lst: { kind: "list", items: [1, 2] },
