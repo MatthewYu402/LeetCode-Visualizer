@@ -503,7 +503,7 @@ namespace trace {
     std::string version {VERSION};
     std::string language {LANGUAGE};
     std::string problem;
-
+    bool exit_at_cap = true;
     void begin(std::string problem_json) { problem = std::move(problem_json); }
   };
 
@@ -605,6 +605,10 @@ namespace trace {
     if (tracer.truncated) return;
     if (tracer.steps.size() >= tracer.max_steps) {
       tracer.truncated = true;
+      if (tracer.exit_at_cap) {
+        write_document();
+        std::exit(0);
+      }
       return;
     }
 

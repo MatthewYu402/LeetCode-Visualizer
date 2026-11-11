@@ -215,6 +215,7 @@ int main() {
   reset();
   {
     int k = 0;
+    tracer.exit_at_cap = false;
     for (std::size_t n = 0; n < trace::Tracer::max_steps; ++n) record(1, var("k", k));
     check_true("exactly the cap: all steps kept", tracer.steps.size() == trace::Tracer::max_steps);
     check_true("exactly the cap: not truncated", !tracer.truncated);
