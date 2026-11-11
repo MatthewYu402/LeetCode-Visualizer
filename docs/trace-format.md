@@ -95,7 +95,6 @@ There is no problem catalog. The system knows only the user's `Solution` source 
 
 ```json
 {
-  "name": "Two Sum",
   "method": "twoSum",
   "params": [
     {"name": "nums",   "type": "array<int>"},
@@ -105,7 +104,7 @@ There is no problem catalog. The system knows only the user's `Solution` source 
 }
 ```
 
-`name` is optional, since the adapter may not know it.
+`name` is optional and usually absent. A bare Solution class does not say which problem it solves, so an adapter never writes it. The field is for a title that comes from somewhere else, such as one the user types. When it is absent, the frontend shows method as the title.
 
 `type` uses neutral names that mirror the kinds in [Section 5](#5-the-value-model) (`array<int>`, `list<int>`, `map<int, int>`, `stack<int>`, `TreeNode`, `ListNode`), never language types like `vector<int>&`.
 
@@ -267,7 +266,6 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
   "version": "0.4",
   "language": "cpp",
   "problem": {
-    "name": "Two Sum",
     "method": "twoSum",
     "params": [
       {"name": "nums",   "type": "array<int>"},

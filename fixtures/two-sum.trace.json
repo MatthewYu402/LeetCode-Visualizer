@@ -1,7 +1,7 @@
 {
   "version": "0.4",
   "language": "cpp",
-  "problem": {"name": "Two Sum", "method": "twoSum", "params": [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}], "input": {"nums": [2, 7, 11, 15], "target": 9}},
+  "problem": {"method": "twoSum", "params": [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}], "input": {"nums": [2, 7, 11, 15], "target": 9}},
   "steps": [
     {"step": 0, "line": 5, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}, "heap": {}},
     {"step": 1, "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}, "heap": {}},
