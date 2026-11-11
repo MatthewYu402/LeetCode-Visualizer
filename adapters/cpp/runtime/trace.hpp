@@ -7,8 +7,11 @@
 //  3. Dispatch: the primary Serializer and serialize(), declared before any use
 //  4. Json  text helpers: escape, quote
 //  5. Writing helpers shared by several serializers
-//  6. Serializers, grouped by kind
-//  7. The recorder: Tracer, Value, var, record (uses everything above)
+//  6. Serializers, grouped by kind. 6i holds Fields<T> and the pointer serializer
+//  7. The recorder: Tracer, Value, var, the document writer, record (uses everything above)
+//
+// trace.hpp knows no node types. ListNode and TreeNode, and their Fields tables,
+// are in leetcode_types.hpp, which includes this file.
 
 // Strings and text
 #include <format>
@@ -182,7 +185,12 @@ namespace trace {
         result += ", ";
       }
       first = false;
-      result += std::format(R"([{}, {}])", serialize(elem.first, ctx), serialize(elem.second, ctx));
+      // Key first, then value, as two statements. Inside one call the compiler may
+      // evaluate the arguments in either order, and ids are handed out in the
+      // order objects are first seen, so the order has to be fixed.
+      const Json key = serialize(elem.first, ctx);
+      const Json value = serialize(elem.second, ctx);
+      result += std::format(R"([{}, {}])", key, value);
     }
 
     result += "]}";
@@ -372,11 +380,14 @@ namespace trace {
   // ---- 6e. Tuples ----
   template <typename K, typename V> struct Serializer<std::pair<K, V>> {
     static Json write(const std::pair<K, V>& val_pair, Ctx& ctx) {
-      return std::format(R"({{"kind": "tuple", "items": [{}, {}]}})", serialize(val_pair.first, ctx), serialize(val_pair.second, ctx));
+      // Two statements, so `first` is always serialized before `second` (see write_entries).
+      const Json first = serialize(val_pair.first, ctx);
+      const Json second = serialize(val_pair.second, ctx);
+      return std::format(R"({{"kind": "tuple", "items": [{}, {}]}})", first, second);
     }
   };
 
-  template<typename... Ts> struct Serializer<std::tuple<Ts...>> {
+  template <typename... Ts> struct Serializer<std::tuple<Ts...>> {
     static Json write(const std::tuple<Ts...>& tuple, Ctx& ctx) {
       return write_tuple(tuple, ctx);
     }
@@ -385,14 +396,14 @@ namespace trace {
   // ---- 6f. Sets ----
   // Comparators and hashes only affect order, which is unspecified for set kinds.
 
-  template<typename T, typename Compare, typename Allocator> 
+  template <typename T, typename Compare, typename Allocator> 
   struct Serializer<std::set<T, Compare, Allocator>>{
     static Json write(const std::set<T, Compare, Allocator>& set, Ctx& ctx) {
       return write_items("set", set, ctx);
     }
   };
 
-  template<typename T, typename Hash, typename KeyEqual, typename Allocator> 
+  template <typename T, typename Hash, typename KeyEqual, typename Allocator> 
   struct Serializer<std::unordered_set<T, Hash, KeyEqual, Allocator>>{
     static Json write(const std::unordered_set<T, Hash, KeyEqual, Allocator>& set, Ctx& ctx) {
       return write_items("set", set, ctx);
@@ -406,7 +417,7 @@ namespace trace {
     }
   };
 
-  template<typename T, typename Hash, typename KeyEqual, typename Allocator> 
+  template <typename T, typename Hash, typename KeyEqual, typename Allocator> 
   struct Serializer<std::unordered_multiset<T, Hash, KeyEqual, Allocator>>{
     static Json write(const std::unordered_multiset<T, Hash, KeyEqual, Allocator>& set, Ctx& ctx) {
       return write_items("multiset", set, ctx);
@@ -445,25 +456,25 @@ namespace trace {
   
   // ---- 6h. Containers adapters and deque ----
 
-  template<typename T, typename Container> struct Serializer<std::stack<T, Container>> {
+  template <typename T, typename Container> struct Serializer<std::stack<T, Container>> {
     static Json write(const std::stack<T, Container>& st, Ctx& ctx) {
       return write_items("stack", get_container(st), ctx);
     }
   };
   
-  template<typename T, typename Container> struct Serializer<std::queue<T, Container>> {
+  template <typename T, typename Container> struct Serializer<std::queue<T, Container>> {
     static Json write(const std::queue<T, Container>& q, Ctx& ctx) {
       return write_items("queue", get_container(q), ctx);
     }
   };
 
-  template<typename T, typename Allocator> struct Serializer<std::deque<T, Allocator>> {
+  template <typename T, typename Allocator> struct Serializer<std::deque<T, Allocator>> {
     static Json write(const std::deque<T, Allocator>& dq, Ctx& ctx) {
       return write_items("deque", dq, ctx);
     }
   };
 
-  template<typename T, typename Container, typename Compare>
+  template <typename T, typename Container, typename Compare>
   struct Serializer<std::priority_queue<T, Container, Compare>> {
     static Json write(const std::priority_queue<T, Container, Compare>& pq, Ctx& ctx) {
       auto items_json = write_items("priority-queue", get_container(pq), ctx);
@@ -478,10 +489,89 @@ namespace trace {
     }
   };
 
-  // ---- 6i. Wrappers
+  // ---- 6i. Pointers to objects -> ref, plus an object in the heap
+
+  // Field declarations. C++ cannot list a struct's fields, so each struct that
+  // should appear as an object gets a small table, written as a specialization
+  // next to the struct (see leetcode_types.hpp):
+  //
+  //   template <> struct Fields<ListNode> {
+  //     static constexpr const char* type = "ListNode";
+  //     static constexpr auto fields = std::make_tuple(
+  //       std::pair{"val", &ListNode::val},
+  //       std::pair{"next", &ListNode::next});
+  //   };
+  //
+  // `type` is the name written into the trace. `fields` pairs each field's name
+  // with a pointer to that member, so the serializer can read it as ptr->*member.
+  // The primary template is declared and never defined: a type with no table
+  // simply has no Fields.
+  template <typename T> struct Fields;
+
+  // True only for types that have a table. The pointer serializer uses it so
+  // that it applies to ListNode* and TreeNode*, and not to int* or void*.
+  template <typename T> concept HasFields = requires { Fields<T>::type; Fields<T>::fields; };
+
+  // One serializer for every pointer to a struct that has a Fields table:
+  // ListNode*, TreeNode*, each problem's Node*, and later the user's own structs.
+  //
+  // It returns a small ref, {"kind": "ref", "id": "n1"}. The object itself is
+  // written into this step's heap as a side effect.
+  template <HasFields T> struct Serializer<T*> {
+    static Json write(T* ptr, Ctx& ctx) {
+      // 1. A null pointer is "no value".
+      if (ptr == nullptr) return "null";
+
+      // 2. Find this object's id, or give it the next one. The address is only
+      //    a lookup key: it is never dereferenced through the table and never
+      //    written to the trace. An id is assigned once and kept for the whole
+      //    run, so the same node is "n2" at every step.
+      const void* address = ptr;
+      auto found = ctx.id_table.find(address);
+      if (found == ctx.id_table.end()) {
+        // size() is read before the insert, so the first object is n1.
+        found = ctx.id_table.emplace(address, std::format("n{}", ctx.id_table.size() + 1)).first;
+      }
+      const std::string id = found->second; // a copy, safe across the recursion below
+
+      // 3. Every path from here returns this ref.
+      const Json ref = std::format(R"({{"kind": "ref", "id": {}}})", quote(id));
+
+      // 4. Already in this step's heap: this is an alias (two pointers to one
+      //    node) or a cycle (we are still inside this node's own fields).
+      //    Either way the object is taken care of, so only the ref is needed.
+      if (ctx.heap.contains(id)) return ref;
+
+      // 5. Put a placeholder in the heap BEFORE following any pointer. This is
+      //    what makes a cycle such as a -> b -> a stop at step 4.
+      ctx.heap[id] = "";
+
+      // 6. Serialize each declared field as "name": value. A pointer field
+      //    calls this same function for the next node, so a whole list or tree
+      //    is written by following its pointers.
+      std::string fields = "{";
+      bool first = true;
+      std::apply([&](const auto&... field) {
+        ((fields += (first ? "" : ", "),
+          fields += quote(field.first) + ": " + serialize(ptr->*(field.second), ctx),
+          first = false), ...);
+      }, Fields<T>::fields);
+      fields += "}";
+
+      // 7. Replace the placeholder with the finished object. The heap is
+      //    looked up again here on purpose, instead of holding a reference
+      //    to the entry while step 6 was adding other entries.
+      ctx.heap[id] = std::format(R"({{"kind": "object", "type": {}, "fields": {}}})", quote(Fields<T>::type), fields);
+
+      // 8. The caller gets the ref.
+      return ref;
+    }
+  };
+
+  // ---- 6j. Wrappers
 
   // An empty optional is "no value", so bare null. A present one is written as its value.
-  template<typename T>struct Serializer<std::optional<T>> {
+  template <typename T>struct Serializer<std::optional<T>> {
     static Json write(const std::optional<T>& option, Ctx& ctx) {
       if (option == std::nullopt) return "null";
       return serialize(*option, ctx);
