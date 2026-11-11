@@ -12,7 +12,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind except `object` and `ref`, records steps, and writes the trace to a file, with tests. A hand-instrumented Two Sum reproduces the golden trace, and a looping program proves the step cap writes a truncated trace; `make e2e` checks both. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind, including pointers as `ref` and `object`, records steps, and writes the trace to a file, with tests. A hand-instrumented Two Sum reproduces the golden trace, and a looping program proves the step cap writes a truncated trace; `make e2e` checks both. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
@@ -26,7 +26,8 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | Golden trace for Two Sum |
 | [`fixtures/two_sum_trace.cpp`](fixtures/two_sum_trace.cpp) | The Two Sum solution the golden trace records |
 | [`fixtures/two_sum_hand_inst.cpp`](fixtures/two_sum_hand_inst.cpp) | The same solution with `record` calls placed by hand, plus a hand-written `main`. Running it writes a trace equal to the golden one |
-| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind, the recorder (`record`, `var`, step cap), and the document writer |
+| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind (pointers through `Fields<T>` tables), the recorder (`record`, `var`, step cap), and the document writer |
+| [`adapters/cpp/runtime/leetcode_types.hpp`](adapters/cpp/runtime/leetcode_types.hpp) | `ListNode` and `TreeNode` as LeetCode defines them, with their field tables |
 | [`adapters/cpp/tests/`](adapters/cpp/tests/) | Runtime tests, one `test_<name>.cpp` per area |
 | [`adapters/cpp/tests/programs/loop_forever.cpp`](adapters/cpp/tests/programs/loop_forever.cpp) | A hand-instrumented Solution that never returns. `make e2e` runs it to prove the step cap writes a truncated trace and exits 0 |
 | [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests and the end-to-end check (`e2e`) |
@@ -35,7 +36,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
-Still planned: pointers (`object` and `ref`), driver generation, the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
+Still planned: objects held by value and a heap for a returned pointer, driver generation, the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
 
 Reusable procedures for this repo are in [`Skills.md`](Skills.md).
 

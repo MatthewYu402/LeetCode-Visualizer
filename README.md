@@ -17,17 +17,18 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 ## Status
 
-> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind except pointers (`object` and `ref`), record steps, and write a trace file: a hand-instrumented Two Sum reproduces the golden trace. The frontend's sandbox page replays the Two Sum fixture. Update this table as pieces land.
+> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind, including pointers (`ref` and `object`), record steps, and write a trace file: a hand-instrumented Two Sum reproduces the golden trace. The frontend's sandbox page replays the Two Sum fixture. Update this table as pieces land.
 
 | Area | Status |
 |---|---|
 | Trace format specification | Draft v0.4 |
 | JSON Schema + golden fixture (Two Sum) | v0.4, validated |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
-| C++ adapter: value serializers | Done for every kind except `object` and `ref`, with tests |
+| C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object` |
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace and that a looping program stops at the step cap with a truncated trace |
 | CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
-| C++ adapter: pointers, driver, rewriter | Planned |
+| C++ adapter: objects held by value, a heap for a returned pointer | Planned |
+| C++ adapter: driver, rewriter | Planned |
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.4 (every kind, unfinished runs) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
@@ -448,11 +449,13 @@ Items marked *(planned)* do not exist yet.
 │   └── cpp/
 │       ├── Makefile           the adapter's tests and end-to-end check
 │       ├── runtime/
-│       │   └── trace.hpp      serializers, recorder, document writer
+│       │   ├── trace.hpp      serializers, recorder, document writer
+│       │   └── leetcode_types.hpp  ListNode, TreeNode, and their field tables
 │       └── tests/
 │           ├── test_serialize.cpp
 │           ├── test_record.cpp
 │           ├── test_write_file.cpp
+│           ├── test_pointers.cpp
 │           ├── test_document.cpp
 │           └── programs/
 │               └── loop_forever.cpp  never returns; proves the step cap
@@ -489,7 +492,7 @@ Tentative. The architecture does not depend on these choices.
 
 - [x] Trace format specification and JSON Schema (v0.4)
 - [x] Tracing strategy docs (native, DAP)
-- [x] C++ serializers for every value kind except `object` and `ref`
+- [x] C++ serializers for every value kind, including pointers as `ref` and `object`
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
 - [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
 - [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
