@@ -70,6 +70,7 @@ namespace {
   int write_file_with_size_limit(const std::string& path, const std::string& text, rlim_t limit) {
     // Going over the limit also sends SIGXFSZ, which would kill the test.
     // Ignored, the write simply fails instead.
+    std::cout.flush();
     auto old_handler = std::signal(SIGXFSZ, SIG_IGN);
 
     rlimit old_limit{};
@@ -86,6 +87,7 @@ namespace {
     // error message and left std::cerr in a failed state. Clear it so later
     // messages still appear.
     std::cerr.clear();
+    std::cout.clear();
     return status;
   }
 
