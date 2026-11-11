@@ -8,8 +8,9 @@
 #   make both                  run the tests with clang++ and with g++
 #   make header                check that trace.hpp compiles on its own
 #   make e2e                   run the end-to-end checks (needs python3 and jsonschema):
-#                                fixtures/two_sum_hand_inst.cpp must write a trace equal
-#                                to fixtures/two-sum.trace.json,
+#                                each fixtures/<name>_hand_inst.cpp must write a trace
+#                                equal to its golden fixtures/<name>.trace.json (with
+#                                _ in the name written as -),
 #                                tests/programs/loop_forever.cpp must exit 0 at the step
 #                                cap with a truncated trace, and return_pointer.cpp and
 #                                void_method.cpp must write valid traces whose refs all
@@ -89,7 +90,10 @@ E2E_TIMEOUT := 20
 # time is up and the shell sees exit code 142.
 RUN_LIMITED := perl -e 'alarm shift; exec @ARGV or die "cannot run $$ARGV[0]: $$!\n"' $(E2E_TIMEOUT)
 
-$(BUILD)/two_sum_hand_inst: $(ROOT)/fixtures/two_sum_hand_inst.cpp | $(BUILD)
+# Each fixture is a hand-instrumented program, fixtures/<name>_hand_inst.cpp,
+# with a golden trace, fixtures/<name>.trace.json, where the name's _ is -.
+FIXTURES := two_sum reverse_list preorder_traversal clone_graph
+$(addprefix $(BUILD)/,$(addsuffix _hand_inst,$(FIXTURES))): $(BUILD)/%: $(ROOT)/fixtures/%.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -I $(RUNTIME) -MMD -MP $< -o $@
 
 # Every program under tests/programs/ builds the same way.
@@ -97,12 +101,15 @@ PROGRAMS := loop_forever return_pointer void_method
 $(addprefix $(BUILD)/,$(PROGRAMS)): $(BUILD)/%: $(TESTDIR)/programs/%.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -I $(RUNTIME) -MMD -MP $< -o $@
 
-e2e: $(BUILD)/two_sum_hand_inst $(addprefix $(BUILD)/,$(PROGRAMS))
+e2e: $(addprefix $(BUILD)/,$(addsuffix _hand_inst,$(FIXTURES))) $(addprefix $(BUILD)/,$(PROGRAMS))
 	@mkdir -p $(TRACES)
-	@echo "== e2e: two_sum_hand_inst ($(CXX))"
-	@rm -f $(TRACES)/two-sum.trace.json
-	@TRACE_OUT=$(TRACES)/two-sum.trace.json $(RUN_LIMITED) ./$(BUILD)/two_sum_hand_inst
-	@$(CHECK) --equals $(ROOT)/fixtures/two-sum.trace.json $(TRACES)/two-sum.trace.json
+	@for f in $(FIXTURES); do \
+	  name=$$(printf '%s' "$$f" | tr _ -); \
+	  echo "== e2e: $${f}_hand_inst ($(CXX))"; \
+	  rm -f $(TRACES)/$$name.trace.json; \
+	  TRACE_OUT=$(TRACES)/$$name.trace.json $(RUN_LIMITED) ./$(BUILD)/$${f}_hand_inst || exit 1; \
+	  $(CHECK) --equals $(ROOT)/fixtures/$$name.trace.json $(TRACES)/$$name.trace.json || exit 1; \
+	done
 	@echo "== e2e: loop_forever ($(CXX))"
 	@rm -f $(TRACES)/loop-forever.trace.json
 	@TRACE_OUT=$(TRACES)/loop-forever.trace.json $(RUN_LIMITED) ./$(BUILD)/loop_forever; \

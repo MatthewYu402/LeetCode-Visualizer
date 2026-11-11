@@ -441,9 +441,10 @@ Items marked *(planned)* do not exist yet.
 ├── schema/
 │   └── trace.schema.json      machine-readable contract
 ├── fixtures/
-│   ├── two-sum.trace.json     golden trace
-│   ├── two_sum_trace.cpp      the Two Sum solution the trace records
-│   └── two_sum_hand_inst.cpp  the same solution, instrumented by hand
+│   ├── <name>.trace.json      golden traces: two-sum, reverse-list,
+│   │                          preorder-traversal, clone-graph
+│   ├── <name>_trace.cpp       the solution each golden trace records
+│   └── <name>_hand_inst.cpp   the same solution, instrumented by hand
 ├── tools/
 │   └── check_trace.py         validate a trace; compare with a fixture
 ├── adapters/

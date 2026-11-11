@@ -1,4 +1,4 @@
-d
+# CLAUDE.md
 
 Guidance for Claude Code (and any contributor) working in this repository.
 
@@ -26,6 +26,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | Golden trace for Two Sum |
 | [`fixtures/two_sum_trace.cpp`](fixtures/two_sum_trace.cpp) | The Two Sum solution the golden trace records |
 | [`fixtures/two_sum_hand_inst.cpp`](fixtures/two_sum_hand_inst.cpp) | The same solution with `record` calls placed by hand, plus a hand-written `main`. Running it writes a trace equal to the golden one |
+| `fixtures/reverse-list`, `preorder-traversal`, `clone-graph` (`.trace.json`, `_trace.cpp`, `_hand_inst.cpp`) | The same three files for Reverse Linked List, an iterative preorder traversal, and Clone Graph. `make e2e` checks every `_hand_inst.cpp` against its golden trace |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind (pointers and by-value objects through `Fields<T>` tables), the recorder (`record`, `var`, step cap), and the document writer |
 | [`adapters/cpp/runtime/leetcode_types.hpp`](adapters/cpp/runtime/leetcode_types.hpp) | `ListNode` and `TreeNode` as LeetCode defines them, with their field tables |
 | [`adapters/cpp/tests/`](adapters/cpp/tests/) | Runtime tests, one `test_<name>.cpp` per area |
@@ -141,4 +142,4 @@ Architecture diagrams are ASCII with box-drawing characters. Keep every box the 
 - Before claiming an example is valid, run it through the schema.
 - Do not add dependencies, frameworks, or directories that the docs have not proposed without checking first.
 - When a doc and the code disagree, the spec in `docs/trace-format.md` wins until it is deliberately changed.
-- Keep `README.md`'s status table, doc map, and repository layout accurate whenever files are added or remo
+- Keep `README.md`'s status table, doc map, and repository layout accurate whenever files are added or removed.
