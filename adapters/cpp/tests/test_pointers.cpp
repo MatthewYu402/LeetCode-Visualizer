@@ -1,4 +1,5 @@
-// Tests for the pointer serializer: trace::Serializer<T*> and trace::Fields.
+// Tests for objects: trace::Fields, the pointer serializer Serializer<T*>, and
+// the serializer for objects held by value.
 //
 // Run from the repository root:
 //   make -C adapters/cpp test T=pointers
@@ -8,7 +9,8 @@
 // the heap entries it left behind.
 //
 // The serializer tests build their own Ctx, like test_serialize.cpp. The last
-// section goes through record(), to check ids across steps.
+// sections go through record(), to check ids across steps, and through the
+// same steps write_result() takes, to check the result's own heap.
 
 #include "leetcode_types.hpp"
 
@@ -204,6 +206,127 @@ int main() {
           R"({"kind": "object", "type": "Node", "fields": {"val": 1, "neighbors": {"kind": "array", "items": [{"kind": "ref", "id": "n2"}]}}})");
     check("the cycle closes with a ref", entry("n2"),
           R"({"kind": "object", "type": "Node", "fields": {"val": 2, "neighbors": {"kind": "array", "items": [{"kind": "ref", "id": "n1"}]}}})");
+  }
+
+  std::cout << "pointers to const\n";
+  {
+    reset();
+    ListNode b(2), a(1, &b);
+    const ListNode *head = &a;
+    check("const pointer is a ref", serialize(head, ctx), R"({"kind": "ref", "id": "n1"})");
+    check("the object is written the same way", entry("n1"), R"({"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}})");
+
+    ListNode *plain = &a;
+    check("a plain pointer to the same node shares the id", serialize(plain, ctx), R"({"kind": "ref", "id": "n1"})");
+    check_true("still two heap entries", heap.size() == 2);
+
+    reset();
+    const TreeNode *none = nullptr;
+    check("a null const pointer is bare null", serialize(none, ctx), R"(null)");
+
+    reset();
+    const ListNode fixed(4); // the node itself is const, so &fixed is a const ListNode*
+    ListNode *const pinned = &a;
+    check("const pointer to a plain node (ListNode *const)", serialize(pinned, ctx), R"({"kind": "ref", "id": "n1"})");
+    std::vector<const ListNode *> views{&fixed, &a};
+    check("vector of const pointers", serialize(views, ctx), R"({"kind": "array", "items": [{"kind": "ref", "id": "n3"}, {"kind": "ref", "id": "n1"}]})");
+  }
+
+  std::cout << "objects held by value\n";
+  {
+    reset();
+    ListNode dummy(0);
+    check("the variable is a ref, not an inline object", serialize(dummy, ctx), R"({"kind": "ref", "id": "n1"})");
+    check("the object is in the heap under its own id", entry("n1"), R"({"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": null}})");
+
+    ListNode *tail = &dummy;
+    check("a pointer to it shares the id", serialize(tail, ctx), R"({"kind": "ref", "id": "n1"})");
+    check_true("one node, one heap entry", heap.size() == 1);
+
+    reset();
+    ListNode second(0);
+    ListNode *to_second = &second;
+    serialize(to_second, ctx);
+    check("pointer first, value second: still one id", serialize(second, ctx), R"({"kind": "ref", "id": "n1"})");
+
+    reset();
+    ListNode a(1), b(2, &a);
+    check("a by-value node's fields are followed", serialize(b, ctx), R"({"kind": "ref", "id": "n1"})");
+    check("its next is a ref to the other node", entry("n1"), R"({"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": {"kind": "ref", "id": "n2"}}})");
+
+    reset();
+    ListNode copy = b; // a copy is a different object at a different address
+    serialize(b, ctx);
+    check("a copy gets its own id", serialize(copy, ctx), R"({"kind": "ref", "id": "n3"})");
+    check("but points to the same next node", entry("n3"), R"({"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": {"kind": "ref", "id": "n2"}}})");
+
+    reset();
+    const TreeNode leaf(8);
+    check("a const object held by value", serialize(leaf, ctx), R"({"kind": "ref", "id": "n1"})");
+    check("is written like any other", entry("n1"), R"({"kind": "object", "type": "TreeNode", "fields": {"val": 8, "left": null, "right": null}})");
+
+    reset();
+    std::vector<ListNode> pool{ListNode(1), ListNode(2)};
+    pool[0].next = &pool[1];
+    check("vector of nodes: each element is a ref", serialize(pool, ctx), R"({"kind": "array", "items": [{"kind": "ref", "id": "n1"}, {"kind": "ref", "id": "n2"}]})");
+    check("a pointer into the vector lands on that element", entry("n1"), R"({"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}})");
+    check_true("two heap entries", heap.size() == 2);
+
+    reset();
+    Node solo(7);
+    check("a problem's own Node by value", serialize(solo, ctx), R"({"kind": "ref", "id": "n1"})");
+    check("with its array field", entry("n1"), R"({"kind": "object", "type": "Node", "fields": {"val": 7, "neighbors": {"kind": "array", "items": []}}})");
+  }
+
+  std::cout << "the dummy-head pattern through record()\n";
+  {
+    trace::tracer = trace::Tracer{};
+    ListNode one(1);
+    ListNode dummy(0);
+    ListNode *tail = &dummy;
+
+    record(1, var("dummy", dummy), var("tail", tail));
+    check("step 0: dummy and tail are the same node", last_step(),
+          R"({"step": 0, "line": 1, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": null}}}})");
+
+    tail->next = &one;
+    record(2, var("dummy", dummy), var("tail", tail));
+    check("step 1: a change through tail shows on dummy", last_step(),
+          R"({"step": 1, "line": 2, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": null}}}})");
+
+    tail = tail->next;
+    record(3, var("dummy", dummy), var("tail", tail));
+    check("step 2: tail moves on, dummy stays", last_step(),
+          R"({"step": 2, "line": 3, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n2"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": null}}}})");
+    trace::tracer = trace::Tracer{};
+  }
+
+  std::cout << "a returned pointer: the result has a heap of its own\n";
+  {
+    // What write_result() does, without the file: a fresh heap, the run-long ids.
+    trace::tracer = trace::Tracer{};
+    trace::tracer.begin(R"({"method": "f", "params": [], "returns": {"type": "ListNode"}, "input": {}})");
+    ListNode b(2), a(1, &b);
+    ListNode *head = &a;
+    record(1, var("head", head)); // a is n1, b is n2
+
+    ListNode *returned = &b;
+    trace::Heap result_heap;
+    trace::Ctx result_ctx{trace::tracer.id_table, result_heap};
+    const std::string result = serialize(returned, result_ctx);
+    check("the returned node keeps the id it had in the steps", result, R"({"kind": "ref", "id": "n2"})");
+    check_true("the result heap holds only what the result reaches", result_heap.size() == 1 && result_heap.contains("n2"));
+    check("the document carries result and result_heap", trace::build_document(result, result_heap),
+          R"({"version": "0.5", "language": "cpp", "problem": {"method": "f", "params": [], "returns": {"type": "ListNode"}, "input": {}}, "steps": [{"step": 0, "line": 1, "locals": {"head": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}}], "result": {"kind": "ref", "id": "n2"}, "result_heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
+
+    ListNode *nothing = nullptr;
+    trace::Heap empty_heap;
+    trace::Ctx empty_ctx{trace::tracer.id_table, empty_heap};
+    const std::string null_result = serialize(nothing, empty_ctx);
+    check("a returned null pointer is a null result", null_result, R"(null)");
+    check_true("with nothing in its heap", empty_heap.empty());
+    check_true("so the document has no result_heap", trace::build_document(null_result, empty_heap).find("\"result_heap\"") == std::string::npos);
+    trace::tracer = trace::Tracer{};
   }
 
   std::cout << "through record(): ids last the run, the heap lasts one step\n";
