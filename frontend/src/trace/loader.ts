@@ -1,7 +1,7 @@
 import type { Trace } from "./types";
 
 /** The only trace version this frontend reads. Spec §9: while the major is 0, every minor may break. */
-export const SUPPORTED_VERSION = "0.2";
+export const SUPPORTED_VERSION = "0.4";
 
 export type LoadResult = { ok: true; trace: Trace } | { ok: false; error: string };
 
@@ -42,7 +42,8 @@ export function checkTrace(data: unknown): LoadResult {
       return fail(`Step ${i} is malformed: it needs a numeric line and a locals object.`);
     }
   }
-  if (!("result" in data)) return fail("Trace has no result.");
+  // `result` is optional: absent means the run did not finish (spec §3). `truncated`
+  // is present only as true. Neither is required here; see runEnd() in types.ts.
 
   return { ok: true, trace: data as unknown as Trace };
 }

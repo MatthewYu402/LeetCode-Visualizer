@@ -9,6 +9,7 @@ import { fixtureFor, NO_TRACE_NOTICE } from "./fixtures";
 import { usePlayer } from "./player/usePlayer";
 import type { PlayerAction } from "./player/playback";
 import { diffForStep } from "./trace/diff";
+import { problemTitle } from "./trace/types";
 
 /** The sandbox page: replays a fixture trace. */
 export function App() {
@@ -45,7 +46,15 @@ export function App() {
 
   return (
     <div className="app">
-      <Toolbar language={language} onLanguage={onLanguage} player={state} dispatch={dispatch} speed={speed} onSpeed={setSpeed} />
+      <Toolbar
+        language={language}
+        onLanguage={onLanguage}
+        player={state}
+        dispatch={dispatch}
+        speed={speed}
+        onSpeed={setSpeed}
+        title={trace ? problemTitle(trace.problem) : null}
+      />
       <main className="workspace">
         <Split
           direction="row"

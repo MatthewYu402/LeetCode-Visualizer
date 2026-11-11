@@ -5,8 +5,10 @@ import type { RendererProps } from "./types";
 
 /**
  * Generic fallback: a labelled row of boxes plus the kind name.
- * Handles every v0.2 kind without a dedicated renderer (list, stack, queue, deque,
- * priority-queue, tuple, set), plus object, ref, and kinds from future minor versions.
+ * Handles every v0.4 kind without a dedicated renderer (list, stack, queue, deque,
+ * priority-queue, tuple, set, multiset), plus object, ref, and kinds from future minor
+ * versions. A set's boxes are coloured per member (diff.keys); a multiset may repeat a
+ * member, so its boxes are coloured per position (diff.items, matched by count).
  */
 export function FallbackRenderer({ name, value, diff }: RendererProps) {
   const kind = isTagged(value) ? value.kind : typeof value;
@@ -21,7 +23,8 @@ export function FallbackRenderer({ name, value, diff }: RendererProps) {
       cls: diffClass(isSet ? diff?.keys?.get(canonical(v)) : diff?.items?.[i]),
     }));
     for (const r of diff?.removedItems ?? []) boxes.push({ key: `removed-${r.index}`, text: formatValue(r.value), cls: "diff-removed" });
-    for (const r of diff?.removedKeys ?? []) boxes.push({ key: `removed-${canonical(r.key)}`, text: formatValue(r.value), cls: "diff-removed" });
+    // Keyed by position: a multiset can lose two copies of the same member at once.
+    (diff?.removedKeys ?? []).forEach((r, i) => boxes.push({ key: `removed-key-${i}`, text: formatValue(r.value), cls: "diff-removed" }));
   } else {
     boxes = [{ key: "v", text: formatValue(value), cls: diff && diff.status !== "same" ? "diff-changed" : "" }];
   }

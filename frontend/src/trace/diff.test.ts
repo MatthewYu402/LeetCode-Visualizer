@@ -56,11 +56,41 @@ describe("diffValue inside containers", () => {
   });
 
   it("sets diff by member; a reordered set is unchanged", () => {
-    expect(diffValue({ kind: "set", items: [1, 2] }, { kind: "set", items: [2, 1] }).status).toBe("changed");
+    expect(diffValue({ kind: "set", items: [1, 2] }, { kind: "set", items: [2, 1] }).status).toBe("same");
     const d = diffValue({ kind: "set", items: [1, 2] }, { kind: "set", items: [2, 3] });
     expect(d.keys?.get(canonical(2))).toBe("same");
     expect(d.keys?.get(canonical(3))).toBe("added");
     expect(d.removedKeys).toEqual([{ key: 1, value: 1 }]);
+  });
+
+  it("a reordered map is unchanged", () => {
+    expect(diffValue({ kind: "map", entries: [[1, "a"], [2, "b"]] }, { kind: "map", entries: [[2, "b"], [1, "a"]] }).status).toBe("same");
+  });
+
+  it("multisets diff by count, per position of the current items", () => {
+    expect(diffValue({ kind: "multiset", items: [1, 1, 2] }, { kind: "multiset", items: [2, 1, 1] }).status).toBe("same");
+    // One more 1, one fewer 2, and a new 3.
+    const d = diffValue({ kind: "multiset", items: [1, 2, 2] }, { kind: "multiset", items: [1, 1, 2, 3] });
+    expect(d.status).toBe("changed");
+    expect(d.items).toEqual(["same", "added", "same", "added"]);
+    expect(d.removedKeys).toEqual([{ key: 2, value: 2 }]);
+    expect(d.keys).toBeUndefined();
+  });
+
+  it("multisets can lose several copies of one member", () => {
+    const d = diffValue({ kind: "multiset", items: [5, 5, 5] }, { kind: "multiset", items: [5] });
+    expect(d.items).toEqual(["same"]);
+    expect(d.removedKeys).toEqual([{ key: 5, value: 5 }, { key: 5, value: 5 }]);
+  });
+
+  it("multimaps diff per entry by count; a changed value is the new pair added and the old removed", () => {
+    const d = diffValue(
+      { kind: "multimap", entries: [[1, "a"], [1, "b"], [2, "c"]] },
+      { kind: "multimap", entries: [[1, "b"], [1, "z"], [2, "c"], [2, "c"]] },
+    );
+    expect(d.entries).toEqual(["same", "added", "same", "added"]);
+    expect(d.removedKeys).toEqual([{ key: 1, value: "a" }]);
+    expect(d.keys).toBeUndefined();
   });
 
   it("compares tagged ints by digits", () => {

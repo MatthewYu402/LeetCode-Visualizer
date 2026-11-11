@@ -9,9 +9,11 @@ interface Props {
   dispatch: Dispatch<PlayerAction>;
   speed: Speed;
   onSpeed: (s: Speed) => void;
+  /** The problem's name, or its method name when the trace has no name. null with no trace. */
+  title: string | null;
 }
 
-export function Toolbar({ language, onLanguage, player, dispatch, speed, onSpeed }: Props) {
+export function Toolbar({ language, onLanguage, player, dispatch, speed, onSpeed, title }: Props) {
   const has = player.count > 0;
   const last = Math.max(0, player.count - 1);
   const atStart = player.index === 0;
@@ -29,6 +31,12 @@ export function Toolbar({ language, onLanguage, player, dispatch, speed, onSpeed
           ))}
         </select>
       </label>
+
+      {title !== null && (
+        <h1 className="toolbar-title" title={title}>
+          {title}
+        </h1>
+      )}
 
       <div className="toolbar-group" role="group" aria-label="Playback">
         <Btn label="First step" shortcut="Home" disabled={!has || atStart} onClick={() => dispatch({ type: "first" })}>

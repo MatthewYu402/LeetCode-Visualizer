@@ -1,4 +1,4 @@
-import { isTagged, type Value } from "./types";
+import { isTagged, isUnorderedKind, UNORDERED_KINDS, type Value } from "./types";
 
 const FLOAT_TEXT = { NaN: "NaN", Infinity: "∞", "-Infinity": "-∞" } as const;
 
@@ -28,8 +28,10 @@ export function formatValue(v: Value): string {
     case "tuple":
       return `(${v.items.map(formatValue).join(", ")})`;
     case "set":
+    case "multiset":
       return `{${v.items.map(formatValue).join(", ")}}`;
     case "map":
+    case "multimap":
       return `{${v.entries.map(([k, val]) => `${formatValue(k)}: ${formatValue(val)}`).join(", ")}}`;
     case "object":
       return `${v.type} {${Object.entries(v.fields)
@@ -54,13 +56,25 @@ export function kindOf(v: Value): string {
 
 /**
  * Canonical string used to compare values and to match map keys and set members.
- * Object keys are sorted, so two equal values always produce the same string.
+ * Object keys are sorted, so two equal values always produce the same string. The
+ * members of set, multiset, map, and multimap are sorted too, because their order is
+ * unspecified (spec §8): the same set listed in another order is the same value.
+ * The sort is only for comparing. Nothing is ever drawn in this order.
  */
 export function canonical(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
   if (typeof v === "object" && v !== null) {
-    const keys = Object.keys(v).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}`;
+    const rec = v as Record<string, unknown>;
+    const unorderedField = isUnorderedKind(rec.kind) ? UNORDERED_KINDS[rec.kind] : null;
+    const keys = Object.keys(rec).sort();
+    return `{${keys
+      .map((k) => {
+        const field = rec[k];
+        const text =
+          k === unorderedField && Array.isArray(field) ? `[${field.map(canonical).sort().join(",")}]` : canonical(field);
+        return `${JSON.stringify(k)}:${text}`;
+      })
+      .join(",")}}`;
   }
   return JSON.stringify(v);
 }

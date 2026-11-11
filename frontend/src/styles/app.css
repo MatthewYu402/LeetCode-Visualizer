@@ -119,6 +119,16 @@ select {
   accent-color: var(--accent);
 }
 
+.toolbar-title {
+  margin: 0;
+  max-width: 240px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .toolbar-notice {
   margin-left: auto;
   color: var(--fg-muted);
@@ -475,6 +485,13 @@ select {
 .state-result td {
   border-top: 2px solid var(--done);
   color: var(--done);
+}
+
+/* No result: the method never returned. Muted, not an error colour: it is not a wrong answer. */
+.state-result .result-missing td {
+  border-top-color: var(--border);
+  color: var(--fg-muted);
+  font-style: italic;
 }
 
 /* ---- Diff colours (animation only: correct drawing never depends on them) ---- */

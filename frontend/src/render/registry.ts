@@ -11,6 +11,7 @@ export const byHint: Partial<Record<Hint, Renderer>> = {};
 export const byKind: Partial<Record<Kind, Renderer>> = {
   array: ArrayRenderer,
   map: MapRenderer,
+  multimap: MapRenderer,
 };
 
 export const fallback: Renderer = FallbackRenderer;

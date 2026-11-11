@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatValue, kindOf } from "./format";
+import { canonical, formatValue, kindOf, valuesEqual } from "./format";
 import { loadTrace } from "./loader";
 import type { Value } from "./types";
 
@@ -26,7 +26,7 @@ describe("tagged numbers", () => {
 
   it("survives the loader", () => {
     const t = {
-      version: "0.2", language: "x", problem: { method: "f", params: [], input: {} },
+      version: "0.4", language: "x", problem: { method: "f", params: [], input: {} },
       steps: [{ step: 0, line: 1, heap: {}, locals: { a: { kind: "int", value: "18446744073709551615" }, b: { kind: "float", value: "-Infinity" } } }],
       result: null,
     };
@@ -39,7 +39,9 @@ describe("tagged numbers", () => {
 });
 
 describe("formatValue", () => {
-  it("formats every v0.2 kind compactly", () => {
+  it("formats every v0.4 kind compactly", () => {
+    expect(formatValue({ kind: "multiset", items: [1, 1, 3] })).toBe("{1, 1, 3}");
+    expect(formatValue({ kind: "multimap", entries: [[1, "a"], [1, "b"]] })).toBe('{1: "a", 1: "b"}');
     expect(formatValue({ kind: "array", items: [2, 7, 11, 15] })).toBe("[2, 7, 11, 15]");
     expect(formatValue({ kind: "map", entries: [[2, 0]] })).toBe("{2: 0}");
     expect(formatValue({ kind: "tuple", items: [0, "a"] })).toBe('(0, "a")');
@@ -47,5 +49,28 @@ describe("formatValue", () => {
     expect(formatValue({ kind: "ref", id: "n1" })).toBe("→ n1");
     expect(formatValue(null)).toBe("null");
     expect(formatValue(true)).toBe("true");
+  });
+});
+
+describe("canonical ignores the order of unordered kinds", () => {
+  it("set, multiset, map, multimap: same members in another order are equal", () => {
+    expect(valuesEqual({ kind: "set", items: [1, 2] }, { kind: "set", items: [2, 1] })).toBe(true);
+    expect(valuesEqual({ kind: "multiset", items: [1, 1, 2] }, { kind: "multiset", items: [2, 1, 1] })).toBe(true);
+    expect(valuesEqual({ kind: "map", entries: [[1, "a"], [2, "b"]] }, { kind: "map", entries: [[2, "b"], [1, "a"]] })).toBe(true);
+    expect(
+      valuesEqual({ kind: "multimap", entries: [[1, "a"], [1, "b"]] }, { kind: "multimap", entries: [[1, "b"], [1, "a"]] }),
+    ).toBe(true);
+  });
+
+  it("counts still matter, and so does the order of ordered kinds", () => {
+    expect(valuesEqual({ kind: "multiset", items: [1, 1, 2] }, { kind: "multiset", items: [1, 2, 2] })).toBe(false);
+    expect(valuesEqual({ kind: "array", items: [1, 2] }, { kind: "array", items: [2, 1] })).toBe(false);
+    expect(valuesEqual({ kind: "set", items: [1] }, { kind: "multiset", items: [1] })).toBe(false);
+  });
+
+  it("applies inside other values", () => {
+    const a = { kind: "array", items: [{ kind: "set", items: [1, 2] }] } as const;
+    const b = { kind: "array", items: [{ kind: "set", items: [2, 1] }] } as const;
+    expect(canonical(a)).toBe(canonical(b));
   });
 });

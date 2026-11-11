@@ -9,13 +9,21 @@ export interface ValueDiff {
   status: Change;
   /** The value in the previous step. Set for `removed` and `changed`, so a removed value can be drawn faded. */
   prev?: Value;
-  /** Indexed kinds (array, list, stack, queue, deque, priority-queue, tuple): status per index of the current items. */
+  /**
+   * Indexed kinds (array, list, stack, queue, deque, priority-queue, tuple): status per index of the current items.
+   * multiset: also per index of the current items, but matched by count, not position (see matchByCount).
+   */
   items?: Change[];
   /** Indexed kinds: items past the new length, with their old index, to draw faded. */
   removedItems?: { index: number; value: Value }[];
+  /** multimap: status per index of the current entries, matched by count (see matchByCount). */
+  entries?: Change[];
   /** set and map: status per canonical key (member for set, key for map) present in the current value. */
   keys?: Map<string, Change>;
-  /** set: members gone since prev. map: entries whose key is gone since prev. */
+  /**
+   * set: members gone since prev. map: entries whose key is gone since prev.
+   * multiset: copies gone since prev (key and value are the member). multimap: entries gone since prev.
+   */
   removedKeys?: { key: Value; value: Value }[];
 }
 
@@ -63,6 +71,19 @@ export function diffValue(prev: Value, curr: Value): ValueDiff {
     return { status: "changed", prev, keys, removedKeys };
   }
 
+  if (curr.kind === "multiset" && prev.kind === "multiset") {
+    const { status, removed } = matchByCount(prev.items, curr.items);
+    return { status: "changed", prev, items: status, removedKeys: removed.map((m) => ({ key: m, value: m })) };
+  }
+
+  if (curr.kind === "multimap" && prev.kind === "multimap") {
+    // An entry is a [key, value] pair, so a value that changed under a repeated key
+    // shows as the new pair added and the old pair removed. With repeated keys there
+    // is no way to tell which old value became which new one.
+    const { status, removed } = matchByCount(prev.entries, curr.entries);
+    return { status: "changed", prev, entries: status, removedKeys: removed.map(([key, value]) => ({ key, value })) };
+  }
+
   if (hasItems(prev) && hasItems(curr)) {
     const items: Change[] = curr.items.map((v, i) =>
       i >= prev.items.length ? "added" : valuesEqual(prev.items[i], v) ? "same" : "changed",
@@ -73,6 +94,32 @@ export function diffValue(prev: Value, curr: Value): ValueDiff {
 
   // object, ref, or a future kind: no per-item detail in this version.
   return { status: "changed", prev };
+}
+
+/**
+ * Matches the members of two unordered lists that may repeat (multiset items,
+ * multimap entries). Each current member is "same" while prev still has an unmatched
+ * equal copy, and "added" once those run out. The prev copies left unmatched are the
+ * removed ones. Order never matters, so a reordered multiset is all "same".
+ */
+export function matchByCount<T>(prev: T[], curr: T[]): { status: Change[]; removed: T[] } {
+  const left = new Map<string, number>();
+  for (const m of prev) left.set(canonical(m), (left.get(canonical(m)) ?? 0) + 1);
+  const status: Change[] = curr.map((m) => {
+    const n = left.get(canonical(m)) ?? 0;
+    if (n === 0) return "added";
+    left.set(canonical(m), n - 1);
+    return "same";
+  });
+  const removed: T[] = [];
+  for (const m of prev) {
+    const n = left.get(canonical(m)) ?? 0;
+    if (n > 0) {
+      removed.push(m);
+      left.set(canonical(m), n - 1);
+    }
+  }
+  return { status, removed };
 }
 
 /**
