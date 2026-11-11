@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.2
+> **Status:** Draft v0.3
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -122,7 +122,7 @@ Serialization is recursive (a `vector<ListNode*>` serializes pointers, which ser
 
 ### 3.4 Two questions per pointer
 
-One serializer, `Serializer<T*>`, handles every pointer to a struct that has a field table (§3.5). Each pointer goes through two lookups:
+One serializer, `Serializer<T*>`, handles every pointer to a struct that has a field table (§3.5), including a pointer to `const` (`const ListNode*`). Each pointer goes through two lookups:
 
 1. **`id_table`:** "Have I ever seen this address?" If not, assign the next id. The answer holds for the whole run.
 2. **`heap`:** "Have I already written this object in this step?" If not, insert its entry **before** serializing its fields, then fill it in. The answer holds for this step only.
@@ -148,8 +148,46 @@ template <> struct trace::Fields<ListNode> {
 - **`ListNode` and `TreeNode`** and their tables are in `adapters/cpp/runtime/leetcode_types.hpp`. They are in the global namespace, because the user's code names them with no prefix.
 - **`Node` has no shared definition.** It is a different struct in different problems, so each problem supplies its own struct and table. Later the driver generates them.
 - **A pointer to a type with no table does not compile**, so an `int*` is still an error and never a pass-through.
+- **`const` is ignored when the table is looked up.** The `HasFields` concept and the serializer both ask for `Fields<std::remove_cv_t<T>>`, so one table for `ListNode` also serves `const ListNode`.
 
 > **Key insight 2: the table is the only per-type code.** Ids, the heap, aliases, and cycles are written once, in the generic serializer. Supporting a new struct means writing a few lines of table, which is something the rewriter can generate.
+
+### 3.6 Objects held by value
+
+A variable can hold a node itself instead of pointing to one. The usual case is the dummy head:
+
+```cpp
+ListNode dummy(0);        // the node lives in this variable
+ListNode* tail = &dummy;  // a pointer to that same node
+```
+
+A second serializer, `Serializer<T>` for any `T` with a field table, covers this. It is one line: it takes the address of the object and hands it to the pointer serializer. So `dummy` is written exactly as a pointer to it would be: the object goes in the heap under its own address, and the local is a `ref`.
+
+```json
+"locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}},
+"heap":   {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": null}}}
+```
+
+- **`dummy` and `tail` share one id**, because they are one object. Writing `dummy` inline would draw two nodes, and a change through `tail->next` would show on only one.
+- **The address is the real one.** `Value` holds a reference to the live variable (§4.2), so `&obj` is the address of `dummy`, not of a copy.
+- **It applies inside containers too.** Each element of a `std::vector<ListNode>` is a `ref`, and a pointer into the vector lands on that element.
+- **A copy is a different object.** `ListNode copy = *head;` has its own address, so it gets its own id.
+
+### 3.7 Limits of address identity
+
+> **Key insight 3: an id is only as good as the address behind it.** The runtime identifies an object by its address, and follows every pointer it is given. C++ lets an address outlive its object, and lets a pointer exist before it points anywhere. In those cases the trace can be wrong, or the program can crash while recording. These are accepted limitations for now, not bugs to work around in a solution.
+
+| Situation | Example | What happens |
+|---|---|---|
+| **Dangling pointer** | `delete node;` while a local still holds the address | The next `record` reads freed memory. That is undefined behavior: usually garbage values, sometimes a crash |
+| **Uninitialized pointer** | `ListNode* p;` recorded before it is assigned | The same. `p` holds whatever was in memory, and it is followed like a real address |
+| **Address reuse after `delete`** | `delete a; ListNode* b = new ListNode(5);` | `new` may return the address `a` had. The id table says "seen before", so `b` gets `a`'s id, and two objects look like one that changed |
+| **Address reuse on the stack** | `ListNode tmp(i);` declared inside a loop body | Each iteration's `tmp` usually has the same address, so the trace shows one object changing instead of a new object each time |
+| **A container that moves its elements** | `std::vector<ListNode>` that grows | The elements get new addresses, so they get new ids, and pointers to the old elements are dangling |
+
+- **Why it is not fixed yet.** A real fix needs to know which objects are alive, by tracking every `new` and `delete`, and it needs a way to say "this pointer points at nothing valid" in the trace, which is a spec change. The rewriter is the natural place for the tracking, and it does not exist yet.
+- **What to do meanwhile.** Most LeetCode solutions never `delete`, so most are unaffected. Fixtures should not `delete`, and should initialize every pointer where it is declared. The sandbox contains a crash.
+- **Planned first step** (with the rewriter): rewrite `delete p;` so the id is removed from the table first. That fixes reuse after `delete`. Dangling and uninitialized pointers still need the spec change.
 
 ## 4. The recording API
 
@@ -171,12 +209,12 @@ The rewriter emits one call before each statement:
 1. **Check the cap.** If already truncated, return. If `steps.size()` has reached 2,000, set `truncated`, write the trace, and end the program (§7.4).
 2. **Start this step's state.** Create an empty `Heap`, and wrap it with `tracer.id_table` in a `Ctx`.
 3. **Serialize the locals.** For each `Value`, write `"name": <serialize(value, ctx)>`. This is the only moment the live variables are read, and it is what fills the heap.
-4. **Serialize the heap.** Write `"id": <json>` for each entry. This must come after step 3, because step 3 fills it.
+4. **Serialize the heap** with `write_heap`: `"id": <json>` for each entry. This must come after step 3, because step 3 fills it.
 5. **Store the step.** Push `{"step": N, "line": L, "locals": {...}, "heap": {...}}` onto `tracer.steps`.
 
 When `record` returns, the `Value`s, the `Ctx`, and the heap are gone. Only the finished step and any new `id_table` entries remain.
 
-> **Key insight 3: serialize at the call, store text.** A step holds finished JSON, never a reference to program state. A later mutation cannot reach back and change an earlier step.
+> **Key insight 4: serialize at the call, store text.** A step holds finished JSON, never a reference to program state. A later mutation cannot reach back and change an earlier step.
 
 ### 4.2 Why `Value` holds a reference
 
@@ -213,7 +251,8 @@ The line number is passed explicitly rather than taken from `std::source_locatio
 | `std::deque` | `deque` |
 | `std::priority_queue` | `priority-queue`, storage order, with `order` |
 | `std::optional<T>` | `null` when empty, otherwise the value |
-| `TreeNode*`, `ListNode*`, `Node*` | `ref`, plus an `object` in the heap. `nullptr` is `null`. Needs a field table (§3.5) |
+| `TreeNode*`, `ListNode*`, `Node*`, and pointers to `const` | `ref`, plus an `object` in the heap. `nullptr` is `null`. Needs a field table (§3.5) |
+| `TreeNode`, `ListNode`, `Node` held by value | The same `ref` a pointer to it would give (§3.6) |
 
 Any other type fails to compile at the primary `Serializer` template's `static_assert`, so an unknown type is an error, never a pass-through.
 
@@ -227,51 +266,55 @@ Each section uses only what is above it, so no part depends on something declare
 | 2. Core types | `Json`, `Heap`, `IdTable`, `Ctx` |
 | 3. Dispatch | The primary `Serializer` and `serialize()`, declared before any use |
 | 4. JSON text helpers | `escape`, `quote` |
-| 5. Writing helpers | `write_items`, `write_entries`, `write_tuple`, `get_container`, `comparator_name` |
-| 6. Serializers | Grouped by the kind they produce. The last group holds `Fields`, `HasFields`, and the pointer serializer |
-| 7. The recorder | `Tracer`, `tracer`, `Value`, `var`, then the document writer (`output_path`, `write_file`, `build_document`, `write_document`), then `record` |
+| 5. Writing helpers | `write_items`, `write_entries`, `write_tuple`, `get_container`, `write_heap`, `comparator_name` |
+| 6. Serializers | Grouped by the kind they produce. Group 6i holds `Fields`, `HasFields`, the pointer serializer, and the serializer for objects held by value |
+| 7. The recorder | `Tracer`, `tracer`, `Value`, `var`, then the document writer (`output_path`, `write_file`, `build_document`, `write_document`, `write_result`, `write_void_result`), then `record` |
 
 The recorder comes last because it uses everything else. Nothing above it touches the global `tracer`. Inside it, the document writer sits above `record`, because `record` calls it at the step cap.
 
 ## 7. Writing the trace
 
-The steps stay in memory until the trace is written to a file as one JSON document. Four functions do this, and each one uses the ones above it:
+The steps stay in memory until the trace is written to a file as one JSON document. These functions do this, and each one uses the ones above it:
 
 | Function | What it does |
 |---|---|
-| `build_document(result)` | Returns the whole trace as text. It does no file I/O, so it is easy to test |
+| `build_document(result, result_heap)` | Returns the whole trace as text. It does no file I/O, so it is easy to test |
 | `output_path()` | Returns the value of the `TRACE_OUT` environment variable, or `trace.json` when it is unset or empty |
 | `write_file(path, text)` | Writes text to a path atomically. Returns 0 on success and 1 on failure |
-| `write_document(result)` | Calls the three above. Ends the program with exit code 1 if the file cannot be written |
+| `write_document(result, result_heap)` | Calls the three above. Ends the program with exit code 1 if the file cannot be written |
+| `write_result(value)` | For the driver: serializes the return value with a heap of its own, then calls `write_document` |
+| `write_void_result()` | For the driver: writes `"result": null` for a `void` method that returned |
 
 ### 7.1 What the driver does
 
 Until driver generation exists, `main` is written by hand. This is the one in `fixtures/two_sum_hand_inst.cpp`:
 
 ```cpp
-trace::tracer.begin(R"({"method": "twoSum", "params": [...], "input": {...}})");
+trace::tracer.begin(R"({"method": "twoSum", "params": [...], "returns": {"type": "array<int>"}, "input": {...}})");
 
 vector<int> nums{2, 7, 11, 15};
 vector<int> answer = Solution().twoSum(nums, 9);
 
-trace::Heap heap;
-trace::Ctx ctx{trace::tracer.id_table, heap};
-trace::write_document(trace::serialize(answer, ctx));
+trace::write_result(answer);
 ```
 
 - **`begin` stores the problem metadata** as finished JSON, before the Solution runs. The runtime never looks inside it. It has to be stored up front because `record` may need to write a whole document from inside the Solution (§7.4).
-- **The result is serialized with its own heap.** `serialize` is a template, so the return type is deduced from the call and the driver never names it.
-- **`write_document` is called once**, after the method returns.
+- **`write_result` serializes the return value with a heap of its own.** It is a template, so the return type is deduced from the call and the driver never names it. When the method returns a pointer, the objects it reaches land in that heap, which becomes `result_heap` ([`trace-format.md` §3, The return value](../trace-format.md#the-return-value)). The id table is the run-long one, so a returned node keeps the id it had in the steps.
+- **A `void` method** has no `answer`. The driver calls `trace::write_void_result()`, which writes `"result": null`, and the metadata says `"returns": {"type": "void"}`.
+- **The document is written once**, after the method returns.
+
+**A step at the closing brace.** For a `void` method the answer is the input it changed, and a step is taken before its line runs, so the last statement's effect would never be seen. The rewriter will add one more `record` at the method's closing brace (*planned*). `tests/programs/void_method.cpp` does it by hand.
 
 ### 7.2 What the document contains
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.4"`) |
+| `version` | Always | The `VERSION` constant (`"0.5"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `steps` | Always | `tracer.steps`, joined with `", "` |
-| `result` | Only when the caller passes one | The serialized return value |
+| `result` | Only when the caller passes one | The serialized return value, or `null` for a `void` method |
+| `result_heap` | Only with a `result`, and only when the heap is not empty | The heap filled while serializing the return value |
 | `truncated` | Only as `true` | `tracer.truncated` |
 
 A document written at the step cap has no `result`, and a normal one has no `truncated`. Both rules come from the spec ([`trace-format.md` §3, Unfinished runs](../trace-format.md#unfinished-runs)).
@@ -295,7 +338,7 @@ The 2,001st call to `record` does not add a step. It sets `truncated`, calls `wr
 
 The sandbox's time limit is still needed for a loop that never calls `record`, for example one inside library code. That run ends in a timeout, not a trace.
 
-> **Key insight 4: the trace is written exactly once, by whichever comes first: the method returning, or the step cap.**
+> **Key insight 5: the trace is written exactly once, by whichever comes first: the method returning, or the step cap.**
 
 ## 8. Testing
 
@@ -309,21 +352,25 @@ The test programs are built into `adapters/cpp/build/<compiler>/`, and the trace
 
 - `tests/test_serialize.cpp` checks the exact JSON text of every serializer, with its own `Ctx` and no `Tracer`.
 - `tests/test_record.cpp` checks that `record` reproduces the nine Two Sum steps character for character, the rules for `locals`, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
-- `tests/test_pointers.cpp` checks the pointer serializer: null, one node, a chain, aliases, cycles, `TreeNode`, pointers inside containers, a problem's own graph `Node`, and ids staying stable across steps while the heap is rebuilt.
-- `tests/test_document.cpp` checks the exact text of `build_document`: no steps, one step and several joined with `", "`, steps written by `record` itself, a result (including a `null` one), no `result` key at all when there is none, no `truncated` key unless it is `true`, a problem pasted in unchanged (odd spacing, escapes, UTF-8), and that building the document twice gives the same text and changes nothing.
+- `tests/test_pointers.cpp` checks the object serializers: null, one node, a chain, aliases, cycles, `TreeNode`, pointers inside containers, a problem's own graph `Node`, pointers to `const`, objects held by value (alone, next to a pointer to them, copied, and inside a `vector`), the dummy-head pattern through `record`, ids staying stable across steps while the heap is rebuilt, and a returned pointer's own heap.
+- `tests/test_document.cpp` checks the exact text of `build_document`: no steps, one step and several joined with `", "`, steps written by `record` itself, a result (including a `null` one), no `result` key at all when there is none, `result_heap` after a `ref` result and absent when the heap is empty or there is no result, no `truncated` key unless it is `true`, a problem pasted in unchanged (odd spacing, escapes, UTF-8), and that building the document twice gives the same text and changes nothing.
 - `tests/test_write_file.cpp` checks `output_path` and `write_file`: a successful write, a failed open, a failed write, and a failed rename. After every failure the old file must be unchanged and the `.tmp` file gone. Its files go in a private folder in the system's temp directory, which it removes at the end. It is POSIX only (`setenv`, `setrlimit`).
 
-`make e2e` is the end-to-end check. It runs two hand-instrumented programs with `TRACE_OUT` set, then checks what they wrote with [`tools/check_trace.py`](../../tools/check_trace.py):
+`make e2e` is the end-to-end check. It runs four hand-instrumented programs with `TRACE_OUT` set, then checks what they wrote with [`tools/check_trace.py`](../../tools/check_trace.py):
 
 | Program | Must | Checked with |
 |---|---|---|
 | `fixtures/two_sum_hand_inst.cpp` | Write a trace equal to the golden one | `--equals fixtures/two-sum.trace.json` |
 | `tests/programs/loop_forever.cpp` | Exit with code 0 from inside `record` at the step cap | `--expect-truncated`: `"truncated": true`, no `result`, exactly 2,000 steps numbered 0 to 1999 |
+| `tests/programs/return_pointer.cpp` | Return a `ListNode*` out of a dummy-head method | `--expect-result-heap`: `result` contains a `ref`, and `result_heap` is present |
+| `tests/programs/void_method.cpp` | Return from a `void` method | `--expect-void`: `returns.type` is `"void"` and `result` is `null` |
+
+Every trace is also checked for dangling refs: each `ref` must name an object in the heap that travels with it.
 
 - **Equality is after parsing**, not byte for byte, so spacing can change. Types must still match, and `set` items and `map` entries compare in any order, because their order is unspecified ([`trace-format.md` §10](../trace-format.md#10-validation-and-testing)).
 - **The old trace is deleted before each run**, so a program that writes nothing cannot pass on a stale file.
 - **Each run has a 20-second limit** (`E2E_TIMEOUT`). If the cap stops ending the run, `loop_forever` spins until the limit kills it, and the target fails with exit code 142 instead of hanging. The limit uses `perl`'s `alarm`, because coreutils `timeout` is not on macOS by default.
-- **`loop_forever.cpp` is not a `tests/test_*.cpp`**, so `make test` never builds it: it is meant to end the process.
+- **The files in `tests/programs/` are not `tests/test_*.cpp`**, so `make test` never builds them. Each is a whole program that writes a trace, and `loop_forever.cpp` is meant to end the process.
 
 CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make both header e2e` on Ubuntu 24.04 with GCC 14 and Clang 18, which both use libstdc++, and `make test header e2e` on macOS with Apple Clang and libc++. On macOS `g++` is Apple Clang too, so `make both` there would build with the same compiler twice.
 
@@ -333,10 +380,8 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 - **Iterators** have no kind, so they are left out of `record` calls.
 - **Container aliasing.** Two references to the same `vector` appear as two copies. Only objects have identity.
 - **Wide character types** (`wchar_t`, `char8_t`, `char16_t`, `char32_t`) are rejected by the integer serializer's comparisons.
-- **Objects held by value** (`ListNode dummy(0);`) have no serializer yet. Only pointers to objects do.
-- **Pointers to `const`** (`const ListNode*`) have no serializer yet, because the table is looked up for the exact type.
-- **A returned pointer.** `result` would be a `ref` with no heap to point into. This needs a spec change ([`native-tracing.md` §8](../native-tracing.md#8-open-questions)).
-- **`delete`.** A pointer to a deleted node is read as if it were alive, which is undefined behavior. A new node that reuses a deleted node's address also reuses its id.
+- **Dangling and uninitialized pointers, and reused addresses.** A pointer to a deleted node, or one that was never assigned, is followed as if it were valid, which is undefined behavior. An object that reuses an address also reuses its id. See §3.7.
+- **A table must be declared before its type is first serialized.** `HasFields<T>` is decided the first time it is asked, so a `Fields<T>` specialization that appears later in the file is not seen. Keeping each table next to its struct avoids this.
 - **Very long chains.** The serializer recurses once per node it follows, so a list of many thousands of nodes can overflow the stack. Traces are meant for small examples.
 - **A crash writes no trace.** A solution that crashes before the cap (a segfault, an uncaught exception) never reaches `write_document`, so the steps recorded so far are lost. The spec allows a trace with no `result` and no `truncated` for this case, but the runtime does not produce one yet.
 
@@ -355,3 +400,9 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 **Q6. Why does `record` end the program at the step cap instead of only stopping the recording?** A solution that reaches the cap is usually in an infinite loop, so it would never return to `main` and no trace would be written. Writing inside `record` saves the 2,000 steps, and exiting right after means the document is written once and no time is spent on a run nobody is recording. See §7.4.
 
 **Q7. Why is the problem metadata one JSON string and not a struct?** The runtime never reads the method name, the parameters, or the input. It only pastes them into the document. Whoever calls `begin` already has them as text: a person today, the driver generator later. A struct would add types and a serializer for data that is never used as data.
+
+**Q8. Why does an object held by value reuse the pointer serializer instead of writing itself inline?** Because the two must agree. A pointer to the object is a `ref` to a heap entry found by address. If the object also wrote itself inline, the same node would appear twice with no link between the copies. Forwarding the address means there is one code path, one id, and one heap entry, however the object is reached.
+
+**Q9. Why does the result get a new heap instead of the last step's?** The heap is per step so that "already written" means "already written now" (§3.2). The return value is read after the last step, when the objects may have changed, so it needs the same fresh start. `write_result` creates one, exactly as `record` does for a step.
+
+**Q10. Why are dangling pointers a documented limit instead of something the runtime checks?** A raw address cannot be asked whether its object is still alive. Checking would mean tracking every allocation, and reporting a dead pointer would need a value the trace format does not have. Both belong with the rewriter and a spec change (§3.7), so for now the limit is written down where a fixture author will see it.

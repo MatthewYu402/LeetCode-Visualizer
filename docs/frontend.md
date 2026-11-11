@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.2 (reads trace format v0.4)
+> **Status:** Draft v0.2 (reads trace format v0.5)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace this version replays), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -82,13 +82,13 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The trace is imported as text, not as a JSON module, so it goes through the same `JSON.parse` call in the loader that a response from the API will. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.4"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.5"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.4 only.
+Unsupported trace version "0.2". This frontend reads version 0.5 only.
 ```
 
-Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids.
+Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
 
 #### How the run ended
 `result` and `truncated` are optional ([trace-format.md §3, Unfinished runs](trace-format.md#unfinished-runs)), so the loader requires neither. `runEnd(trace)` in `trace/types.ts` reads them once:
@@ -98,6 +98,10 @@ Spec [§9](trace-format.md#9-versioning): while the major version is 0, any mino
 | present | absent or `true` | `returned` | The `result` row, even when it is `null` (a real return value) |
 | absent | `true` | `truncated` | `did not return: stopped at the step limit` |
 | absent | absent | `stopped` | `did not return: the run ended early` |
+
+A `void` method that returned has `"result": null`, which alone would read as a returned null pointer. `returnsVoid(problem)` in `trace/types.ts` checks `problem.returns.type === "void"` ([trace-format.md §3, The return value](trace-format.md#the-return-value)), and the state panel then shows `returned, no value` with the kind `void` instead of `null`.
+
+`result_heap` (the objects a `ref` result points to) is in the `Trace` type but nothing draws it yet. It arrives with the `object` / `ref` renderers.
 
 A missing `truncated` is treated as `false`. A missing `result` is never shown as a wrong answer: the visualizer has no expected answer, so the row is muted, not red.
 

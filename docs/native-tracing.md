@@ -189,9 +189,11 @@ These are gaps in `trace-format.md` that native tracers expose. They should be r
 1. **Call stack.** A step records one frame's `locals`. Recursive solutions (DFS on a tree, backtracking) need a stack of frames, each with its own locals and line. A `stack` field is the likely addition.
 2. **Aliasing of containers.** Only `object`s have ids. If two variables refer to the *same* container, the trace shows two separate copies. That is acceptable for most problems, but hides in-place mutation through aliases.
 3. **Member variables.** LeetCode solutions often use fields on the `Solution` instance (memo tables, visited sets). The sketch above skips `self`. The tracer should surface these, either as extra locals or in a separate `members` field.
-4. **A `ref` result has no heap.** Heaps are per-step, so a returned `TreeNode*` has nothing to resolve against. A top-level result heap is the likely fix.
+4. **Pointers that do not point at a live object.** A native tracer in a language with manual memory (C++) can be handed a dangling or uninitialized pointer, and the trace has no way to say "this points at nothing valid". Today that is a documented limit of the C++ adapter ([`adapters/cpp.md` §3.7](adapters/cpp.md#37-limits-of-address-identity)).
 
 Resolved in v0.2: tuples, which used to flatten to `list`, now have their own `tuple` kind.
+
+Resolved in v0.5: a `ref` result had no heap to point into. It now has the top-level `result_heap`. A `void` method's result is `null`, with `"returns": {"type": "void"}` in the problem metadata ([`trace-format.md` §3, The return value](trace-format.md#the-return-value)).
 
 ## 9. Design Questions
 **Q1. Why is this a separate document from `trace-format.md`?** The trace format is a stable contract that every adapter and frontend depend on. How a tracer observes a program is an implementation choice that differs per language and can change without touching the contract.

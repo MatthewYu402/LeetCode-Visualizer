@@ -1,4 +1,4 @@
-# CLAUDE.md
+d
 
 Guidance for Claude Code (and any contributor) working in this repository.
 
@@ -12,31 +12,32 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind, including pointers as `ref` and `object`, records steps, and writes the trace to a file, with tests. A hand-instrumented Two Sum reproduces the golden trace, and a looping program proves the step cap writes a truncated trace; `make e2e` checks both. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.5) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps, and writes the trace to a file, with tests. A hand-instrumented Two Sum reproduces the golden trace, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks all four. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
 | [`README.md`](README.md) | Overview, architecture diagrams, doc map |
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.4). Source of truth |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.5). Source of truth |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | Runtime hooks and source instrumentation |
 | [`docs/dap.md`](docs/dap.md) | Tracing through a debugger via the Debug Adapter Protocol |
-| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes for later stages. `driver-generation.md` is still empty, and the last two are proposals |
+| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes for later stages. The last two are proposals |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md), [`docs/adapters/python.md`](docs/adapters/python.md) | Per-language adapter notes |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | Machine-readable form of the contract |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | Golden trace for Two Sum |
 | [`fixtures/two_sum_trace.cpp`](fixtures/two_sum_trace.cpp) | The Two Sum solution the golden trace records |
 | [`fixtures/two_sum_hand_inst.cpp`](fixtures/two_sum_hand_inst.cpp) | The same solution with `record` calls placed by hand, plus a hand-written `main`. Running it writes a trace equal to the golden one |
-| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind (pointers through `Fields<T>` tables), the recorder (`record`, `var`, step cap), and the document writer |
+| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind (pointers and by-value objects through `Fields<T>` tables), the recorder (`record`, `var`, step cap), and the document writer |
 | [`adapters/cpp/runtime/leetcode_types.hpp`](adapters/cpp/runtime/leetcode_types.hpp) | `ListNode` and `TreeNode` as LeetCode defines them, with their field tables |
 | [`adapters/cpp/tests/`](adapters/cpp/tests/) | Runtime tests, one `test_<name>.cpp` per area |
 | [`adapters/cpp/tests/programs/loop_forever.cpp`](adapters/cpp/tests/programs/loop_forever.cpp) | A hand-instrumented Solution that never returns. `make e2e` runs it to prove the step cap writes a truncated trace and exits 0 |
+| [`adapters/cpp/tests/programs/return_pointer.cpp`](adapters/cpp/tests/programs/return_pointer.cpp), [`void_method.cpp`](adapters/cpp/tests/programs/void_method.cpp) | Hand-instrumented Solutions that return a `ListNode*` and `void`. `make e2e` runs them to prove `result_heap` and the `null` result |
 | [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests and the end-to-end check (`e2e`) |
-| [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`) |
+| [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, checks that every `ref` names an object in its heap, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`), a returned pointer (`--expect-result-heap`), or a `void` method (`--expect-void`) |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, and the frontend's tests and build |
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
-Still planned: objects held by value and a heap for a returned pointer, driver generation, the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
+Still planned: driver generation, the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
 
 Reusable procedures for this repo are in [`Skills.md`](Skills.md).
 
@@ -63,7 +64,7 @@ The spec, schema, fixtures, and docs describe one contract and must stay in sync
 - A change to `docs/trace-format.md` means a matching change to `schema/trace.schema.json`, to every affected fixture, and to any doc that quotes the affected part (the README's "trace format in brief" and renderer table, `docs/native-tracing.md` and `docs/dap.md` examples).
 - Versioning is `MAJOR.MINOR` (spec section 9). Adding optional fields or new kinds is a **minor** bump. Anything that breaks existing traces is **major**, except while the major version is 0, when a minor bump may break.
 - The `version` string in fixtures must match the spec.
-- Known gaps are listed in `docs/native-tracing.md` section 8 and the README's open questions: **call stack**, **container aliasing**, **member variables**, **a `ref` result has no heap**. Do not silently implement one of them. Propose the change, then follow the procedure in `Skills.md`.
+- Known gaps are listed in `docs/native-tracing.md` section 8 and the README's open questions: **call stack**, **container aliasing**, **member variables**, **pointers that do not point at a live object**. Do not silently implement one of them. Propose the change, then follow the procedure in `Skills.md`.
 
 ## Commands
 
@@ -74,7 +75,7 @@ make -C adapters/cpp                     # build and run every test
 make -C adapters/cpp test T=serialize    # one test file
 make -C adapters/cpp both                # with clang++ and with g++
 make -C adapters/cpp header              # trace.hpp compiles on its own
-make -C adapters/cpp e2e                 # end-to-end: Two Sum equals the fixture, the step cap writes a truncated trace
+make -C adapters/cpp e2e                 # end-to-end: Two Sum equals the fixture, the step cap truncates, result_heap, void
 make -C adapters/cpp test EXTRA="-fsanitize=address,undefined"
 ```
 
@@ -94,7 +95,7 @@ npm test                                 # vitest
 npm run build                            # typecheck + production build
 ```
 
-Check traces with `tools/check_trace.py`. Needs `pip install jsonschema`. It loads each file with `parse_constant` set to raise, so the bare tokens `NaN` and `Infinity` (which Python's `json` accepts by default) are rejected, then validates it against the schema. It prints one `OK` or `FAIL` line per file and exits nonzero if any failed:
+Check traces with `tools/check_trace.py`. Needs `pip install jsonschema`. It loads each file with `parse_constant` set to raise, so the bare tokens `NaN` and `Infinity` (which Python's `json` accepts by default) are rejected, then validates it against the schema and checks that every `ref` names an object in the heap that travels with it (a step's `heap`, or `result_heap` for the result). It prints one `OK` or `FAIL` line per file and exits nonzero if any failed:
 
 ```bash
 python3 -I tools/check_trace.py fixtures/*.trace.json                          # schema only, several files
@@ -107,14 +108,16 @@ python3 -I tools/check_trace.py --expect-truncated adapters/cpp/build/traces/cla
 ## Conventions
 
 - **Neutral type names** in problem metadata mirror the kinds: `array<int>`, `list<int>`, `map<int,int>`, `stack<int>`, `TreeNode`. Never language types such as `vector<int>&` (the schema rejects `std::`, `vector<`, `unordered_`, `&`, `*`).
-- **Value kinds** are exactly: bare primitives, plus the tagged kinds `int`, `float`, `array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `map`, `object`, `ref`. `array` is indexed (`vector`); `list` is node-based (`std::list`). Maps use `entries` as raw `[key, value]` pairs because JSON object keys must be strings.
+- **Value kinds** are exactly: bare primitives, plus the tagged kinds `int`, `float`, `array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `multiset`, `map`, `multimap`, `object`, `ref`. `array` is indexed (`vector`); `list` is node-based (`std::list`). Maps use `entries` as raw `[key, value]` pairs because JSON object keys must be strings.
 - **Tagged numbers.** Integers outside ±(2^53 − 1) use the `int` kind, and NaN/±Infinity use the `float` kind. Everything else is a bare JSON number.
 - **Hints** (`grid`, `adjacency-matrix`, `adjacency-list`, `edge-list`, `intervals`, `tree`, `linked-list`, `graph`, `priority-queue`, `stack`, `queue`) are only for what the type cannot say.
 - **Step cap** is 2,000. Adapters set `"truncated": true` when they stop at the cap, and write the trace at that moment so it survives a program that never ends.
-- **`result` and `truncated` are written only when they say something.** `result` is present only when the method returned. Absent means the run did not finish, never that the answer was wrong. `truncated` is present only as `true`. Never write `"result": null` as a placeholder, and never write `"truncated": false`.
+- **`result`, `result_heap`, and `truncated` are written only when they say something.** `result` is present only when the method returned. Absent means the run did not finish, never that the answer was wrong. `truncated` is present only as `true`. Never write `"result": null` as a placeholder, and never write `"truncated": false`. `result_heap` is present only when `result` contains a `ref`, and holds the objects it reaches under the same ids the steps use.
+- **A `void` method that returned has `"result": null`**, and `problem.returns.type` is `"void"`. `problem.returns` holds the neutral return type and is what tells that `null` apart from a returned null pointer.
+- **Objects are never inline.** An object a variable holds by value (`ListNode dummy(0);`) goes in the heap and the variable is a `ref`, so a pointer to it shares its id.
 - **Trace output goes to a file**, never stdout, because the user's own prints share stdout. The path comes from the `TRACE_OUT` environment variable and defaults to `trace.json`.
 - **Schema strictness is intentional** (`additionalProperties: false`). It is how leaked language details get caught. Do not loosen it to make an adapter pass.
-- The schema checks structure only. It does not check that every `ref` resolves to a heap entry, that ids are unique, or that line numbers are in range. Those need a separate checker (not written yet).
+- The schema checks structure only. It does not check that every `ref` resolves to a heap entry (`tools/check_trace.py` does), that ids are unique, or that line numbers are in range (not checked anywhere yet).
 - **C++ style** is set by `.clang-format`: attached braces, 2-space indent, indented namespace bodies, no automatic line wrapping.
 
 ## Documentation style
@@ -138,4 +141,4 @@ Architecture diagrams are ASCII with box-drawing characters. Keep every box the 
 - Before claiming an example is valid, run it through the schema.
 - Do not add dependencies, frameworks, or directories that the docs have not proposed without checking first.
 - When a doc and the code disagree, the spec in `docs/trace-format.md` wins until it is deliberately changed.
-- Keep `README.md`'s status table, doc map, and repository layout accurate whenever files are added or removed.
+- Keep `README.md`'s status table, doc map, and repository layout accurate whenever files are added or remo

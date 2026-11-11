@@ -21,16 +21,15 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 | Area | Status |
 |---|---|
-| Trace format specification | Draft v0.4 |
-| JSON Schema + golden fixture (Two Sum) | v0.4, validated |
+| Trace format specification | Draft v0.5 |
+| JSON Schema + golden fixture (Two Sum) | v0.5, validated |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
-| C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object` |
-| C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace and that a looping program stops at the step cap with a truncated trace |
+| C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object`, and so do those objects held by value |
+| C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
 | CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
-| C++ adapter: objects held by value, a heap for a returned pointer | Planned |
 | C++ adapter: driver, rewriter | Planned |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.4 (every kind, unfinished runs) and replays the Two Sum fixture |
+| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.5 (every kind, unfinished runs, `void` results) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
 | API service + sandbox | Planned |
 
@@ -42,11 +41,11 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.4 |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.5 |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.4 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.4 |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.5 |
+| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.5 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft |
@@ -312,6 +311,8 @@ Numbers are plain JSON whenever JavaScript can read them back exactly. Two cases
 
 A trace also says how the run ended. `result` is present only when the method returned, and `"truncated": true` appears only when recording stopped at the 2,000-step limit. At the limit the adapter writes the trace straight away, so a solution stuck in an infinite loop still gives you a trace to step through instead of only a timeout. See [unfinished runs](docs/trace-format.md#unfinished-runs).
 
+When the method returns a pointer, `result` is a `ref`, and the objects it points to come in a top-level `result_heap` with the same shape as a step's `heap` and the same ids. A `void` method that returned has `"result": null`, and the problem metadata says `"returns": {"type": "void"}`, which tells it apart from a returned null pointer. See [the return value](docs/trace-format.md#the-return-value).
+
 For linked structures (trees, linked lists, graphs) the trace uses Python Tutor's approach: a **heap of objects with ids**, plus **references** between them. A C++ `TreeNode*`, a Python `TreeNode` object, and a Java `TreeNode` reference all become the same thing:
 
 ```json
@@ -406,9 +407,9 @@ Gaps in the trace format that the tracing work exposed. They are planned for a m
 1. **Call stack.** A step records one frame's `locals`. Recursive solutions (tree DFS, backtracking) need a stack of frames.
 2. **Aliasing of containers.** Only objects have ids, so two variables pointing at the same container appear as two copies.
 3. **Member variables.** Fields on the `Solution` instance (memo tables, visited sets) have nowhere to go yet.
-4. **A `ref` result has no heap.** Heaps are per-step, so a returned `TreeNode*` has nothing to resolve against. A top-level result heap is the likely fix.
+4. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
 
-Tuples, which v0.1 flattened to `list`, are resolved in v0.2 by the `tuple` kind.
+Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5.
 
 ---
 
@@ -458,7 +459,9 @@ Items marked *(planned)* do not exist yet.
 │           ├── test_pointers.cpp
 │           ├── test_document.cpp
 │           └── programs/
-│               └── loop_forever.cpp  never returns; proves the step cap
+│               ├── loop_forever.cpp    never returns; proves the step cap
+│               ├── return_pointer.cpp  returns a ListNode*; proves result_heap
+│               └── void_method.cpp     returns void; proves the null result
 ├── frontend/                  sandbox page (React + TypeScript + Vite)
 │   ├── CLAUDE.md              commands, structure, rules
 │   ├── package.json
@@ -490,9 +493,9 @@ Tentative. The architecture does not depend on these choices.
 
 ## Roadmap
 
-- [x] Trace format specification and JSON Schema (v0.4)
+- [x] Trace format specification and JSON Schema (v0.5)
 - [x] Tracing strategy docs (native, DAP)
-- [x] C++ serializers for every value kind, including pointers as `ref` and `object`
+- [x] C++ serializers for every value kind, including pointers and by-value objects as `ref` and `object`
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
 - [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
 - [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers

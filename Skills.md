@@ -29,7 +29,9 @@ Read [`CLAUDE.md`](CLAUDE.md) first. It holds the rules these procedures must re
 
 **Done when:** the script prints `OK` for the file and exits with code 0.
 
-**Also check by hand** (the schema cannot): every `ref` id exists in that step's `heap`, ids are unique and never raw addresses, `line` is a line in the user's source, and nothing depends on the order of `set`, `multiset`, `map`, or `multimap` contents.
+`tools/check_trace.py` also checks what the schema cannot: every `ref` names an object in its step's `heap`, or in `result_heap` for the result.
+
+**Also check by hand**: ids are unique and never raw addresses, `line` is a line in the user's source, and nothing depends on the order of `set`, `multiset`, `map`, or `multimap` contents.
 
 ---
 
@@ -56,7 +58,7 @@ Read [`CLAUDE.md`](CLAUDE.md) first. It holds the rules these procedures must re
 
 ## 3. Change the trace format
 
-**Use when:** adding a field or value kind, resolving one of the known gaps (call stack, container aliasing, member variables, a `ref` result has no heap, hints for locals), or correcting the spec.
+**Use when:** adding a field or value kind, resolving one of the known gaps (call stack, container aliasing, member variables, pointers that do not point at a live object, hints for locals), or correcting the spec.
 
 The spec, schema, fixtures, and docs are one contract. Change them together. Propose the change and get agreement before editing anything.
 
