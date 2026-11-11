@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.4
+> **Status:** Draft v0.5
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,11 +56,12 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.4",
+  "version": "0.5",
   "language": "cpp",
   "problem": { ... },
   "steps": [ ... ],
-  "result": ...
+  "result": ...,
+  "result_heap": { ... }
 }
 ```
 
@@ -70,7 +71,8 @@ A trace is one JSON object:
 | `language` | Informational only. The frontend must **not** branch on this. |
 | `problem` | Metadata about the problem and input ([Section 4](#4-problem-metadata)) |
 | `steps` | Ordered list of snapshots ([Section 6](#6-steps)) |
-| `result` | Optional. Final return value, as a normalized value. Absent means the method did not return ([Unfinished runs](#unfinished-runs)) |
+| `result` | Optional. Final return value, as a normalized value. Absent means the method did not return ([Unfinished runs](#unfinished-runs)). `null` for a `void` method that returned ([The return value](#the-return-value)) |
+| `result_heap` | Optional. The objects `result` refers to, in the same shape as a step's `heap`. Present only when `result` contains a `ref` ([The return value](#the-return-value)) |
 | `truncated` | Optional. Present only as `true`, when recording stopped at the step limit ([Section 6](#limits)). Never `false` |
 
 #### Unfinished runs
@@ -85,8 +87,43 @@ An absent `result` does **not** mean a wrong answer. A wrong solution still retu
 |---|---|---|
 | present | absent | The method returned. This is the normal case |
 | absent | `true` | Recording stopped at the step limit before the method returned. Usually an infinite loop, or an input that is too large |
-| absent | absent | The run ended early for another reason, such as a crash. The format allows this, but v0.4 does not yet require adapters to produce a trace here |
+| absent | absent | The run ended early for another reason, such as a crash. The format allows this, but it does not yet require adapters to produce a trace here |
 | present | `true` | Recording stopped at the limit, the adapter let the program run on, and the method returned |
+
+#### The return value
+`result` is a normalized value like any other, with two cases that need more than the value itself.
+
+**A returned object needs a heap.** A method such as Reverse Linked List returns a pointer, so its `result` is a `ref`. Every step carries its own `heap`, but `result` sits at the top level, outside every step. `result_heap` is the heap for the result:
+
+```json
+{
+  "result": {"kind": "ref", "id": "n2"},
+  "result_heap": {
+    "n2": {"kind": "object", "type": "ListNode",
+           "fields": {"val": 2, "next": {"kind": "ref", "id": "n3"}}},
+    "n3": {"kind": "object", "type": "ListNode",
+           "fields": {"val": 3, "next": null}}
+  }
+}
+```
+
+- It has the same shape as a step's `heap`, and it holds every object reachable from `result`. Every `ref` in `result` and in `result_heap` names an entry of `result_heap`.
+- **Ids are the same ones the steps use.** `n2` here is the object that was `n2` in every step, so the frontend can show the returned node as the node the user has been watching.
+- It is written only when it says something: present only when `result` contains a `ref`, so it is never empty and never appears without `result`.
+- It shows the objects **as they are when the method returns**. The last step cannot stand in for it, because a step is taken before its line runs ([Q13](#12-design-questions)).
+
+**A `void` method returns no value.** Problems that change their input in place (Sort Colors, Rotate Image) have nothing to return. When such a method returns, `result` is `null`: the method did return, and there is no value. Leaving `result` out would say the run never finished.
+
+`null` alone is ambiguous, because a method that returns a pointer can return a null pointer. The return type settles it: `problem.returns.type` is `"void"` for a method with no return value ([Section 4](#4-problem-metadata)). An adapter **must** write `returns` for a `void` method.
+
+| `result` | `problem.returns.type` | What happened |
+|---|---|---|
+| absent | anything | The method did not return ([Unfinished runs](#unfinished-runs)) |
+| `null` | `"void"` | The method returned. It has no return value |
+| `null` | any other type, or `returns` absent | The method returned "no value": a null pointer, `None`, an empty optional |
+| a value | not `"void"` | The method returned that value |
+
+For a `void` method the answer the user cares about is the input it changed. Steps are taken before each line, so the last statement's effect is not in any ordinary step. Adapters should record one more step when the method is about to return, with `line` set to the line that ends the method (in C++, its closing brace). That step shows the final state.
 
 ## 4. Problem metadata
 This describes what was run. It also gives the frontend hints so it can pick a renderer (for example, "this `array` of `array`s is a grid").
@@ -100,6 +137,7 @@ There is no problem catalog. The system knows only the user's `Solution` source 
     {"name": "nums",   "type": "array<int>"},
     {"name": "target", "type": "int"}
   ],
+  "returns": {"type": "array<int>"},
   "input": {"nums": [2, 7, 11, 15], "target": 9}
 }
 ```
@@ -107,6 +145,8 @@ There is no problem catalog. The system knows only the user's `Solution` source 
 `name` is optional and usually absent. A bare Solution class does not say which problem it solves, so an adapter never writes it. The field is for a title that comes from somewhere else, such as one the user types. When it is absent, the frontend shows method as the title.
 
 `type` uses neutral names that mirror the kinds in [Section 5](#5-the-value-model) (`array<int>`, `list<int>`, `map<int, int>`, `stack<int>`, `TreeNode`, `ListNode`), never language types like `vector<int>&`.
+
+`returns` is optional and describes the method's return value: a `type`, written with the same neutral names as a parameter's, and an optional `hint` with the same meaning. A method with no return value has the type `"void"`, which is how a `null` result is told apart from a returned null pointer ([The return value](#the-return-value)). An adapter that reads the signature should always write `returns`, and must write it for a `void` method.
 
 `hint` is optional and resolves ambiguity. An `array<array<int>>` could be a grid, an adjacency matrix, an edge list, or intervals, and the data alone cannot say which. Allowed hints: `grid`, `adjacency-matrix`, `adjacency-list`, `edge-list`, `intervals`, `tree`, `linked-list`, `graph`, `priority-queue`, `stack`, `queue`.
 
@@ -191,7 +231,9 @@ These are represented as objects stored in a per-step `heap`, referenced by ID:
 }
 ```
 
-This is how C++ `TreeNode*`, a Python `TreeNode` instance, and a Go `*TreeNode` all become the same thing. The frontend recognizes a tree from the object's shape (`val`, `left`, `right`) or from the problem hint.
+This is how C++ `TreeNode*`, a Python `TreeNode` instance, and a Go `*TreeNode` all become the same thing. So does an object a variable holds directly, such as C++ `ListNode dummy(0);`: the object goes in the heap and the variable is a `ref` to it, so a pointer to that object shares its id. An `object` never appears inline in `locals` or inside another value.
+
+The return value has a heap of its own, `result_heap` ([The return value](#the-return-value)). The frontend recognizes a tree from the object's shape (`val`, `left`, `right`) or from the problem hint.
 
 The step's `heap` field (the store of objects) is unrelated to the `priority-queue` kind. That is why the kind is not called `heap` ([Q6](#12-design-questions)).
 
@@ -214,8 +256,8 @@ Bare JSON primitives: numbers, strings, `true`/`false`, `null`. Everything else 
 | `multiset` | `items` | `multiset`, `unordered_multiset` | Items may repeat |
 | `map` | `entries` | `map`, `unordered_map`, `dict`, `HashMap` | Entries are raw `[key, value]` pairs. Keys are unique |
 | `multimap` | `entries` | `multimap`, `unordered_multimap` | Like `map`, but keys may repeat |
-| `object` | `type`, `fields` | structs and classes (`TreeNode`, `ListNode`, `Node`) | Stored in the heap |
-| `ref` | `id` | pointers, references, object handles | Points into the heap |
+| `object` | `type`, `fields` | structs and classes (`TreeNode`, `ListNode`, `Node`) | Stored in a heap, never inline |
+| `ref` | `id` | pointers, references, object handles, objects held by value | Points into the heap of its step, or into `result_heap` |
 
 > **Key Insight 5: a kind is for what the type tells the adapter. A hint is for what only the problem knows.** `stack<int>` is a stack from its type alone, so it has a kind. A `vector<vector<int>>` could be a grid, an adjacency matrix, or an edge list, and nothing in the data says which, so that is a hint.
 
@@ -263,7 +305,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.4",
+  "version": "0.5",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -271,6 +313,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
       {"name": "nums",   "type": "array<int>"},
       {"name": "target", "type": "int"}
     ],
+    "returns": {"type": "array<int>"},
     "input": {"nums": [2, 7, 11, 15], "target": 9}
   },
   "steps": [
@@ -308,6 +351,9 @@ Adapters must:
 8. Emit a bare JSON number only when JavaScript reads it back exactly. Otherwise use the `int` or `float` kind ([Section 5](#numbers-json-cannot-carry-exactly)). Never emit the bare tokens `NaN` or `Infinity`, which are not JSON.
 9. Use the kind the type determines. A `std::stack` is a `stack`, never an `array` with a hint. Hints are only for what the type cannot say.
 10. Write `result` only when the method returned, and `truncated` only when it is `true` ([Unfinished runs](#unfinished-runs)). Never write `"result": null` for a run that did not finish, and never write `"truncated": false`.
+11. When `result` contains a `ref`, write `result_heap` with every object reachable from it, using the same ids as the steps. Otherwise leave `result_heap` out ([The return value](#the-return-value)).
+12. For a `void` method that returned, write `"result": null` and `"returns": {"type": "void"}`.
+13. Write every object in a heap, including one a variable holds by value. Never write an `object` inline.
 
 ### What is a bug and what is not
 Two adapters running the same algorithm may legitimately produce different traces
@@ -322,6 +368,9 @@ Two adapters running the same algorithm may legitimately produce different trace
 | An integer above 2^53 appears as a bare number | **Yes**: the frontend silently shows a different value |
 | A run that did not finish has `"result": null` | **Yes**: `null` is a real return value, so the field must be absent |
 | A trace contains `"truncated": false` | **Yes**: the field is present only as `true` |
+| `result` is a `ref` and there is no `result_heap` | **Yes**: the frontend has a reference to nothing |
+| A `void` method that returned has no `result` | **Yes**: absent means it did not return |
+| A by-value object and a pointer to it have different ids | **Yes**: one object, one id (rule 3) |
 | Map entries appear in different order | No: iteration order is real language behavior |
 | `priority-queue` items differ after `items[0]` | No: heap layout is real standard-library behavior |
 | Different step counts or line numbers | No: different source files |
@@ -338,6 +387,12 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.5**:
+  - Adds the optional top-level `result_heap`: the objects a `ref` in `result` points to.
+  - Adds the optional `problem.returns`: the method's neutral return type, with `"void"` for a method that returns no value.
+  - A `void` method that returned has `"result": null`.
+  - States that an object held by value is written as a `ref` into the heap.
+  - Every valid v0.4 trace is still valid once its `version` is changed.
 - **v0.4**:
   - `result` is optional. Absent means the method did not return.
   - `truncated` is present only as `true`. A v0.3 trace is still valid unless it wrote `"truncated": false`.
@@ -357,6 +412,7 @@ History:
 
 ## 10. Validation and testing
 - A JSON Schema for this format lives in `schema/trace.schema.json`. CI (`.github/workflows/ci.yml`) validates every golden fixture against it, and the C++ adapter's end-to-end check (`make -C adapters/cpp e2e`) validates the traces the adapter writes. Both use `tools/check_trace.py`. Every new adapter's output must be checked the same way.
+- The schema checks structure only. `tools/check_trace.py` also checks what the schema cannot express: every `ref` in a step names an object in that step's `heap`, and every `ref` in `result` names an object in `result_heap`.
 - The validator must reject the bare tokens `NaN` and `Infinity`. Python's `json` module accepts them by default, so load traces with `json.load(..., parse_constant=...)` set to raise.
 - **Golden traces**: for each problem example, a reference trace is stored as a fixture. Adapters are checked against it for **structural equivalence** (same kinds, same shapes), not byte-for-byte equality
 - The frontend can be developed against hand-written traces with no backend at all.
@@ -403,3 +459,9 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q11. Why write the trace at the step limit instead of when the program ends?** Because the program may never end. A solution stuck in an infinite loop reaches the limit and keeps looping until the sandbox kills it. If the trace were only written at the end, that run would produce nothing but a timeout, and the user would lose the 2,000 steps that show the loop. Writing at the limit turns the most common failure into something the user can watch.
 
 > **Q12. Why is `"truncated": false` invalid instead of just unnecessary?** So there is one way to say each thing. If "absent" and `false` both meant "not truncated", two adapters could write different traces for the same run, and every comparison against a golden trace would have to treat them as equal. With one spelling, the schema can catch the other.
+
+> **Q13. Why does the result get its own heap instead of reusing the last step's?** The last step is a snapshot taken *before* its line runs, and that line is usually the `return` itself. `return dummy.next;` and `return new ListNode(5);` both produce a pointer no step has seen, and a helper called on the return line can still change the objects. The last step's heap can also hold objects the result does not reach, and can miss ones it does. A heap written at the moment the method returns is always right, and it costs one small optional field.
+
+> **Q14. Why is a `void` method's result `null` and not absent, or a new kind?** Absent already has a meaning: the method did not return ([Q10](#12-design-questions)). A `void` method that finishes did return, so the field must be present. `null` already means "no value", which is exactly what a `void` method returns, so no new kind is needed. The one thing `null` cannot say is whether the method *could* have returned something, and that is a fact about the signature, not about this run. So it lives in the problem metadata, as `returns.type`.
+
+> **Q15. Why is an object held by value written as a `ref` instead of inline?** Because a pointer to it is a `ref`, and both must be the same object in the trace. With `ListNode dummy(0); ListNode* tail = &dummy;` an inline `dummy` would draw two nodes where the program has one, and a change made through `tail` would show up on only one of them. It also keeps languages alike: in Python and Java every object is reached through a reference, so `dummy = ListNode(0)` was always a `ref`.

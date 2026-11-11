@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.4).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.5).",
   "type": "object",
   "required": [
     "version",
@@ -36,10 +36,59 @@
       "description": "Present only when recording stopped at the step limit. A trace that was not truncated omits this field. false is invalid."
     },
     "result": {
-      "description": "Final return value. Present only when the method returned. Absent when the run did not finish (truncated, crashed, or killed). Never null as a placeholder.",
+      "description": "Final return value. Present only when the method returned. Absent when the run did not finish (truncated, crashed, or killed). Never null as a placeholder. A void method that returned has result null, and problem.returns.type is \"void\".",
       "$ref": "#/$defs/value"
+    },
+    "result_heap": {
+      "type": "object",
+      "description": "Objects the result refers to, keyed by id, in the same shape as a step's heap. Present only when the result contains a ref, so it is never empty and never appears without result. Ids are the same ones the steps use.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/object"
+      }
     }
   },
+  "dependentRequired": {
+    "result_heap": [
+      "result"
+    ]
+  },
+  "allOf": [
+    {
+      "description": "A void method has no value to return. If it returned, its result is null.",
+      "if": {
+        "required": [
+          "problem"
+        ],
+        "properties": {
+          "problem": {
+            "required": [
+              "returns"
+            ],
+            "properties": {
+              "returns": {
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "void"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "primitive": {
       "type": [
@@ -521,6 +570,26 @@
               "hint": {
                 "$ref": "#/$defs/hint"
               }
+            }
+          }
+        },
+        "returns": {
+          "type": "object",
+          "description": "Optional. What the method returns, read from its signature.",
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "Neutral type name, as in params, or \"void\" for a method that returns no value.",
+              "not": {
+                "pattern": "(std::|vector<|unordered_|[&*])"
+              }
+            },
+            "hint": {
+              "$ref": "#/$defs/hint"
             }
           }
         },
