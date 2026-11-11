@@ -51,7 +51,8 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft |
 | [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, diffing, playback, theme | Draft v0.1 |
 | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
-| [`docs/sandboxing.md`](docs/sandboxing.md) | Isolation, resource limits, where validation runs | Draft |
+| [`docs/sandboxing.md`](docs/sandboxing.md) | Isolation, resource limits, where validation runs, how a run can end | Draft v0.1, proposal |
+| [`docs/hint-inference.md`](docs/hint-inference.md) | How an adapter will work out which structure a value is when its type does not say | Proposal, not started |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
 | [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, normalization rules | Draft |
 | [`LICENSE`](LICENSE) | MIT license terms | Done |
@@ -431,6 +432,7 @@ Items marked *(planned)* do not exist yet.
 │   ├── driver-generation.md   signatures, example parsing, helper types
 │   ├── frontend.md            the sandbox page: registry, diff, playback
 │   ├── sandboxing.md          isolation, limits, where validation runs
+│   ├── hint-inference.md      (proposal) inferring hints
 │   └── adapters/
 │       ├── cpp.md             the C++ adapter
 │       └── python.md          the Python adapter

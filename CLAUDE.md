@@ -20,7 +20,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.4). Source of truth |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | Runtime hooks and source instrumentation |
 | [`docs/dap.md`](docs/dap.md) | Tracing through a debugger via the Debug Adapter Protocol |
-| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md) | Design notes for later stages |
+| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes for later stages. `driver-generation.md` is still empty, and the last two are proposals |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md), [`docs/adapters/python.md`](docs/adapters/python.md) | Per-language adapter notes |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | Machine-readable form of the contract |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | Golden trace for Two Sum |
