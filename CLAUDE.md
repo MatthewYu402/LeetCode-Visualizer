@@ -12,7 +12,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind except `object` and `ref`, with tests. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind except `object` and `ref`, records steps, and writes the trace to a file, with tests. A hand-instrumented Two Sum reproduces the golden trace. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
@@ -25,13 +25,14 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`schema/trace.schema.json`](schema/trace.schema.json) | Machine-readable form of the contract |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | Golden trace for Two Sum |
 | [`fixtures/two_sum_trace.cpp`](fixtures/two_sum_trace.cpp) | The Two Sum solution the golden trace records |
-| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind |
-| [`adapters/cpp/tests/`](adapters/cpp/tests/) | Serializer tests, one `test_<name>.cpp` per area |
+| [`fixtures/two_sum_hand_inst.cpp`](fixtures/two_sum_hand_inst.cpp) | The same solution with `record` calls placed by hand, plus a hand-written `main`. Running it writes a trace equal to the golden one |
+| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind, the recorder (`record`, `var`, step cap), and the document writer |
+| [`adapters/cpp/tests/`](adapters/cpp/tests/) | Runtime tests, one `test_<name>.cpp` per area |
 | [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests |
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
-Still planned: the C++ recorder (`TRACE`, step cap), pointers (`object` and `ref`), driver generation, the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
+Still planned: pointers (`object` and `ref`), driver generation, the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
 
 Reusable procedures for this repo are in [`Skills.md`](Skills.md).
 
@@ -72,6 +73,13 @@ make -C adapters/cpp header              # trace.hpp compiles on its own
 make -C adapters/cpp test EXTRA="-fsanitize=address,undefined"
 ```
 
+Run the hand-instrumented Two Sum and write its trace outside the repo:
+
+```bash
+clang++ -std=c++20 -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tmp/two_sum
+TRACE_OUT=/tmp/two-sum.json /tmp/two_sum     # then validate /tmp/two-sum.json with the command below
+```
+
 Run the frontend (from `frontend/`; rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md)):
 
 ```bash
@@ -103,6 +111,7 @@ print('INVALID' if errs else 'OK', *[e.message for e in errs], sep='\n' if errs 
 - **Hints** (`grid`, `adjacency-matrix`, `adjacency-list`, `edge-list`, `intervals`, `tree`, `linked-list`, `graph`, `priority-queue`, `stack`, `queue`) are only for what the type cannot say.
 - **Step cap** is 2,000. Adapters set `"truncated": true` when they stop at the cap, and write the trace at that moment so it survives a program that never ends.
 - **`result` and `truncated` are written only when they say something.** `result` is present only when the method returned. Absent means the run did not finish, never that the answer was wrong. `truncated` is present only as `true`. Never write `"result": null` as a placeholder, and never write `"truncated": false`.
+- **Trace output goes to a file**, never stdout, because the user's own prints share stdout. The path comes from the `TRACE_OUT` environment variable and defaults to `trace.json`.
 - **Schema strictness is intentional** (`additionalProperties: false`). It is how leaked language details get caught. Do not loosen it to make an adapter pass.
 - The schema checks structure only. It does not check that every `ref` resolves to a heap entry, that ids are unique, or that line numbers are in range. Those need a separate checker (not written yet).
 - **C++ style** is set by `.clang-format`: attached braces, 2-space indent, indented namespace bodies, no automatic line wrapping.

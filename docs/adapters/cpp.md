@@ -1,9 +1,9 @@
 # C++ Adapter
 
-> **Status:** Draft v0.1
+> **Status:** Draft v0.2
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
-This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers and the recorder) and marks what is still planned.
+This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
 
 ---
 
@@ -16,7 +16,7 @@ PREPARE   rewriter (planned)   inserts ::trace::record(...) before each statemen
           driver   (planned)   appends main(): parse the example, call the Solution
           clang++ -std=c++20   compiles it with the header-only trace.hpp
 RUN       each record(...)     serializes the locals into one finished step
-          document writer      writes the whole trace to a file (planned)
+          document writer      writes the whole trace to a file
 AFTER     schema validation    outside the sandbox, then the frontend replays it
 ```
 
@@ -85,7 +85,7 @@ Every piece of recorder state lives for exactly one of three lengths of time. Mo
 
 | Lifetime | What lives there | Why |
 |---|---|---|
-| **The whole run** | `Tracer`: the finished steps, the `truncated` flag, the `id_table` | These facts must stay true from the first step to the last |
+| **The whole run** | `Tracer`: the finished steps, the `truncated` flag, the `id_table`, the problem metadata | These facts must stay true from the first step to the last |
 | **One step** | The `Heap`, and the `Ctx` that points to it | A step describes one moment, so its contents describe only that moment |
 | **One `record` call** | Each `Value` returned by `var(...)` | It only needs to exist until it has been serialized |
 
@@ -98,6 +98,8 @@ One global instance, `trace::tracer`, declared `inline` so there is exactly one 
 - `steps` holds every finished step as JSON text. `steps.size()` is the next step's number, so the count and the steps cannot disagree.
 - `truncated` records whether the step cap was hit.
 - `id_table` maps address to id.
+- `problem` holds the problem metadata as finished JSON. The driver sets it with `tracer.begin(...)` before the Solution runs (§7.1).
+- `exit_at_cap` (default `true`) decides what `record` does at the step cap (§7.4). Only tests turn it off.
 
 **Why `id_table` must outlive every step.** An id is a promise to the frontend that `n2` at step 3 and `n2` at step 40 are the same object. Take a list `a → b` with `head` pointing to `a`. At step 3, `a` is met first and becomes `n1`, and `b` becomes `n2`. The program runs `head = head->next`. If the table were reset, step 4 would meet `b` first and call it `n1`, and the frontend would conclude that node `n1` changed its value. With the table kept, `b` stays `n2`, and the frontend correctly sees `head` move from `n1` to `n2`.
 
@@ -144,7 +146,7 @@ The rewriter emits one call before each statement:
 
 ### 4.1 What `record` does, in order
 
-1. **Check the cap.** If already truncated, return. If `steps.size()` has reached 2,000, set `truncated` and return.
+1. **Check the cap.** If already truncated, return. If `steps.size()` has reached 2,000, set `truncated`, write the trace, and end the program (§7.4).
 2. **Start this step's state.** Create an empty `Heap`, and wrap it with `tracer.id_table` in a `Ctx`.
 3. **Serialize the locals.** For each `Value`, write `"name": <serialize(value, ctx)>`. This is the only moment the live variables are read, and it is what fills the heap.
 4. **Serialize the heap.** Write `"id": <json>` for each entry. This must come after step 3, because step 3 fills it.
@@ -205,20 +207,73 @@ Each section uses only what is above it, so no part depends on something declare
 | 4. JSON text helpers | `escape`, `quote` |
 | 5. Writing helpers | `write_items`, `write_entries`, `write_tuple`, `get_container`, `comparator_name` |
 | 6. Serializers | Grouped by the kind they produce |
-| 7. The recorder | `Tracer`, `tracer`, `Value`, `var`, `record` |
+| 7. The recorder | `Tracer`, `tracer`, `Value`, `var`, then the document writer (`output_path`, `write_file`, `build_document`, `write_document`), then `record` |
 
-The recorder comes last because it uses everything else. Nothing above it touches the global `tracer`.
+The recorder comes last because it uses everything else. Nothing above it touches the global `tracer`. Inside it, the document writer sits above `record`, because `record` calls it at the step cap.
 
-## 7. Planned: writing the trace
+## 7. Writing the trace
 
-Not yet implemented. The current proposal:
+The steps stay in memory until the trace is written to a file as one JSON document. Four functions do this, and each one uses the ones above it:
 
-- **Output goes to a file**, not stdout, so the user's own `cout` lines cannot corrupt or forge the trace. The path comes from an environment variable (proposed: `TRACE_OUT`), because the injected code never sees `main`'s arguments.
-- **At the step cap**, the recorder writes the document immediately and lets the program keep running, so an infinite loop still leaves a trace. If the program finishes, the driver writes it again with `result`.
-- **Writes are atomic**: write to a temporary file, then rename it over the real one, so a killed process never leaves half-written JSON.
-- **The driver supplies `problem` and `result`** until driver generation exists.
+| Function | What it does |
+|---|---|
+| `build_document(result)` | Returns the whole trace as text. It does no file I/O, so it is easy to test |
+| `output_path()` | Returns the value of the `TRACE_OUT` environment variable, or `trace.json` when it is unset or empty |
+| `write_file(path, text)` | Writes text to a path atomically. Returns 0 on success and 1 on failure |
+| `write_document(result)` | Calls the three above. Ends the program with exit code 1 if the file cannot be written |
 
-A run killed after the cap has no `result`. The schema currently requires one, so this needs a spec change (making `result` optional), which has not been made.
+### 7.1 What the driver does
+
+Until driver generation exists, `main` is written by hand. This is the one in `fixtures/two_sum_hand_inst.cpp`:
+
+```cpp
+trace::tracer.begin(R"({"method": "twoSum", "params": [...], "input": {...}})");
+
+vector<int> nums{2, 7, 11, 15};
+vector<int> answer = Solution().twoSum(nums, 9);
+
+trace::Heap heap;
+trace::Ctx ctx{trace::tracer.id_table, heap};
+trace::write_document(trace::serialize(answer, ctx));
+```
+
+- **`begin` stores the problem metadata** as finished JSON, before the Solution runs. The runtime never looks inside it. It has to be stored up front because `record` may need to write a whole document from inside the Solution (§7.4).
+- **The result is serialized with its own heap.** `serialize` is a template, so the return type is deduced from the call and the driver never names it.
+- **`write_document` is called once**, after the method returns.
+
+### 7.2 What the document contains
+
+| Field | Written | Source |
+|---|---|---|
+| `version` | Always | The `VERSION` constant (`"0.4"`) |
+| `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
+| `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
+| `steps` | Always | `tracer.steps`, joined with `", "` |
+| `result` | Only when the caller passes one | The serialized return value |
+| `truncated` | Only as `true` | `tracer.truncated` |
+
+A document written at the step cap has no `result`, and a normal one has no `truncated`. Both rules come from the spec ([`trace-format.md` §3, Unfinished runs](../trace-format.md#unfinished-runs)).
+
+### 7.3 Where it goes
+
+- **A file, not stdout.** The user's own `cout` lines share stdout, so a stray debug print would corrupt the trace and a deliberate one could forge it.
+- **The path comes from `TRACE_OUT`**, because the injected code never sees `main`'s arguments. The runner sets it. The default is `trace.json` in the working directory.
+- **The write is atomic.** `write_file` writes to `<path>.tmp`, closes it, checks that the write succeeded, and then renames it onto the real path. A process killed halfway leaves the old file or the new one, never half of one. On failure it removes the `.tmp` file and leaves the real file untouched.
+
+### 7.4 At the step cap
+
+The 2,001st call to `record` does not add a step. It sets `truncated`, calls `write_document()` with no result, and ends the program with `std::exit(0)`.
+
+- **Why write here.** A solution stuck in an infinite loop never returns to `main`, so a write in `main` would never happen. Writing at the cap is what gives the user 2,000 steps to look at instead of a timeout error.
+- **Why exit.** Nothing after the cap is recorded, so letting the program run on only burns time until the sandbox kills it. Exiting also means the document is written exactly once.
+- **Why exit code 0.** The run did what the recorder is meant to do, and `"truncated": true` in the trace already says what happened. A nonzero code is kept for a trace that could not be written.
+- **Why `std::exit` and not `std::_Exit`.** `std::exit` flushes the user's buffered `cout` output first.
+
+`Tracer::exit_at_cap` (default `true`) turns the write and the exit off. With it off, `record` only sets `truncated`, and later calls return early. Only tests use it, so that a test program can reach the cap and keep running.
+
+The sandbox's time limit is still needed for a loop that never calls `record`, for example one inside library code. That run ends in a timeout, not a trace.
+
+> **Key insight 3: the trace is written exactly once, by whichever comes first: the method returning, or the step cap.**
 
 ## 8. Testing
 
@@ -227,8 +282,20 @@ make -C adapters/cpp both               # every test, with clang++ and g++
 make -C adapters/cpp test T=record      # one test file
 ```
 
+The test programs are built into `adapters/cpp/build/<compiler>/`.
+
 - `tests/test_serialize.cpp` checks the exact JSON text of every serializer, with its own `Ctx` and no `Tracer`.
-- `tests/test_record.cpp` checks that `record` reproduces the nine Two Sum steps character for character, the rules for `locals`, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist.
+- `tests/test_record.cpp` checks that `record` reproduces the nine Two Sum steps character for character, the rules for `locals`, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
+- `tests/test_write_file.cpp` checks `output_path` and `write_file`: a successful write, a failed open, a failed write, and a failed rename. After every failure the old file must be unchanged and the `.tmp` file gone. Its files go in a private folder in the system's temp directory, which it removes at the end. It is POSIX only (`setenv`, `setrlimit`).
+
+The end-to-end check is the hand-instrumented Two Sum. Build and run it, then compare its trace with the golden one after parsing:
+
+```bash
+clang++ -std=c++20 -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tmp/two_sum
+TRACE_OUT=/tmp/two-sum.json /tmp/two_sum
+```
+
+Still planned: tests for `build_document`, a looping program that proves the cap writes a truncated trace and exits, and a script and Makefile target that run the end-to-end check in one command.
 
 ## 9. Known limitations
 
@@ -236,6 +303,7 @@ make -C adapters/cpp test T=record      # one test file
 - **Iterators** have no kind, so they are left out of `record` calls.
 - **Container aliasing.** Two references to the same `vector` appear as two copies. Only objects have identity.
 - **Wide character types** (`wchar_t`, `char8_t`, `char16_t`, `char32_t`) are rejected by the integer serializer's comparisons.
+- **A crash writes no trace.** A solution that crashes before the cap (a segfault, an uncaught exception) never reaches `write_document`, so the steps recorded so far are lost. The spec allows a trace with no `result` and no `truncated` for this case, but the runtime does not produce one yet.
 
 ## 10. Design questions
 
@@ -248,3 +316,7 @@ make -C adapters/cpp test T=record      # one test file
 **Q4. Why are the locals serialized before the heap?** Serializing the locals is what fills the heap. Writing the heap first would always produce `{}`.
 
 **Q5. Why no `V(x)` macro?** The rewriter already knows each name, so a macro adds nothing, and a macro would ignore namespaces and could collide with user code. See §4.3.
+
+**Q6. Why does `record` end the program at the step cap instead of only stopping the recording?** A solution that reaches the cap is usually in an infinite loop, so it would never return to `main` and no trace would be written. Writing inside `record` saves the 2,000 steps, and exiting right after means the document is written once and no time is spent on a run nobody is recording. See §7.4.
+
+**Q7. Why is the problem metadata one JSON string and not a struct?** The runtime never reads the method name, the parameters, or the input. It only pastes them into the document. Whoever calls `begin` already has them as text: a person today, the driver generator later. A struct would add types and a serializer for data that is never used as data.

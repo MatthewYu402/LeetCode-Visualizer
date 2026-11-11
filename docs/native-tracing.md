@@ -50,7 +50,7 @@ Objects that need identity (`TreeNode`, `ListNode`, custom classes) get stable i
 - Use the language's own mapping (Python `compile(source, "<user>", "exec")`, C++ `#line` directives).
 
 #### Limits
-Stop at the step cap (default 2,000), set `"truncated": true`, and also enforce wall-clock and memory limits so an infinite loop cannot hang the run.
+Stop at the step cap (default 2,000), set `"truncated": true`, and write the trace at that moment, because the program may never end (`trace-format.md` [Section 6](trace-format.md#limits)). An infinite loop then leaves a truncated trace instead of only a timeout. Also enforce wall-clock and memory limits, for a loop that never reaches the tracer. The C++ runtime ends the program right after writing ([`adapters/cpp.md` §7.4](adapters/cpp.md#74-at-the-step-cap)).
 
 ## 3. Strategy A: runtime hooks
 The runtime tells us when each line is about to execute and lets us read the frame's variables.
@@ -182,7 +182,7 @@ Planned approach: **Python via `sys.settrace`, C++ via Clang instrumentation**, 
 ## 7. Testing
 - Every tracer is validated against the schema in CI (`trace-format.md` Section 10).
 - Compare each tracer's output for the same example to the golden trace for **structural equivalence** (same kinds and shapes), not byte equality.
-- Add adversarial cases: infinite loop (timeout), deep recursion, cyclic structure, huge input (truncation).
+- Add adversarial cases: infinite loop (a truncated trace, or a timeout if the loop never reaches the tracer), deep recursion, cyclic structure, huge input (truncation).
 
 ## 8. Open questions
 These are gaps in `trace-format.md` that native tracers expose. They should be resolved in a minor version.

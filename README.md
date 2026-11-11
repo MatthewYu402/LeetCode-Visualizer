@@ -17,7 +17,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 ## Status
 
-> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind except pointers (`object` and `ref`). The frontend's sandbox page replays the Two Sum fixture. Update this table as pieces land.
+> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind except pointers (`object` and `ref`), record steps, and write a trace file: a hand-instrumented Two Sum reproduces the golden trace. The frontend's sandbox page replays the Two Sum fixture. Update this table as pieces land.
 
 | Area | Status |
 |---|---|
@@ -25,7 +25,8 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | JSON Schema + golden fixture (Two Sum) | v0.4, validated |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | C++ adapter: value serializers | Done for every kind except `object` and `ref`, with tests |
-| C++ adapter: recorder, pointers, driver, rewriter | Planned |
+| C++ adapter: recorder and trace file | Done, checked on a hand-instrumented Two Sum |
+| C++ adapter: pointers, driver, rewriter | Planned |
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
@@ -44,7 +45,7 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.4 |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.4 |
-| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ serializers: native values to trace kinds | In progress |
+| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft |
 | [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, diffing, playback, theme | Draft v0.1 |
@@ -139,7 +140,7 @@ An adapter turns "the user's code plus an example" into a trace. Four stages:
 │                                                                                │
 │   pick ONE strategy per language:                                              │
 │     A. runtime hooks      Python sys.settrace · V8 inspector · JVM debug API   │
-│     B. source instrument  rewrite code to call TRACE(line, vars...)  (C++, Go) │
+│     B. source instrument  rewrite code to call record(line, vars...) (C++, Go) │
 │     C. DAP client         one generic client driving lldb-dap, debugpy, dlv ...│
 │                                                                                │
 │   details: native-tracing.md (A, B)   dap.md (C)                               │
@@ -367,7 +368,7 @@ An adapter observes the running program in one of three ways. All three end in t
 | Strategy | How it works | Good for | Doc |
 |---|---|---|---|
 | **Runtime hooks** | The runtime calls our code before each line (Python `sys.settrace`, V8 inspector, JVM debug interfaces) | Python, JavaScript, Java | [`native-tracing.md`](docs/native-tracing.md) |
-| **Source instrumentation** | Rewrite the code to call `TRACE(...)` before each statement, then run it | C++, Go (full control over STL serialization) | [`native-tracing.md`](docs/native-tracing.md) |
+| **Source instrumentation** | Rewrite the code to call a recording function (`trace::record(...)` in C++) before each statement, then run it | C++, Go (full control over STL serialization) | [`native-tracing.md`](docs/native-tracing.md) |
 | **DAP client** | One generic client drives an external debugger (`lldb-dap`, `debugpy`, `dlv`) | Breadth: adding languages cheaply | [`dap.md`](docs/dap.md) |
 
 The dividing line is who writes the per-language logic. With native tracing we write a tracer per language. With DAP the stepping logic is written once, and what remains per language is a launch configuration and normalization rules.
@@ -433,14 +434,17 @@ Items marked *(planned)* do not exist yet.
 │   └── trace.schema.json      machine-readable contract
 ├── fixtures/
 │   ├── two-sum.trace.json     golden trace
-│   └── two_sum_trace.cpp      the Two Sum solution the trace records
+│   ├── two_sum_trace.cpp      the Two Sum solution the trace records
+│   └── two_sum_hand_inst.cpp  the same solution, instrumented by hand
 ├── adapters/
 │   └── cpp/
 │       ├── Makefile           build and run the adapter's tests
 │       ├── runtime/
-│       │   └── trace.hpp      serializers: C++ values -> trace kinds
+│       │   └── trace.hpp      serializers, recorder, document writer
 │       └── tests/
-│           └── test_serialize.cpp
+│           ├── test_serialize.cpp
+│           ├── test_record.cpp
+│           └── test_write_file.cpp
 ├── frontend/                  sandbox page (React + TypeScript + Vite)
 │   ├── CLAUDE.md              commands, structure, rules
 │   ├── package.json
@@ -475,7 +479,7 @@ Tentative. The architecture does not depend on these choices.
 - [x] Trace format specification and JSON Schema (v0.4)
 - [x] Tracing strategy docs (native, DAP)
 - [x] C++ serializers for every value kind except `object` and `ref`
-- [ ] C++ recorder (`TRACE`, step cap, trace file), checked on a hand-instrumented Two Sum
+- [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
 - [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
 - [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
 - [ ] Any C++ solution: driver generation, LibTooling rewriter, hint inference
@@ -486,14 +490,18 @@ Tentative. The architecture does not depend on these choices.
 
 ## Getting started
 
-There is nothing to run end to end yet. You can run the C++ adapter's tests, validate the fixture, and open the frontend's sandbox page, which replays the Two Sum fixture.
+Nothing takes a pasted solution end to end yet. You can run the C++ adapter's tests, run the hand-instrumented Two Sum to write a real trace, validate a trace, and open the frontend's sandbox page, which replays the Two Sum fixture.
 
 ```bash
 # Prerequisites: clang++ or g++ with C++20 <format> support, make, Python 3
 
-# Run the C++ serializer tests (clang++ by default)
+# Run the C++ adapter's tests (clang++ by default)
 make -C adapters/cpp
 make -C adapters/cpp both          # with clang++ and with g++
+
+# Run the hand-instrumented Two Sum. The trace goes to the path in TRACE_OUT
+clang++ -std=c++20 -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tmp/two_sum
+TRACE_OUT=/tmp/two-sum.json /tmp/two_sum
 
 # Validate a trace against the schema
 pip install jsonschema
