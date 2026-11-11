@@ -591,13 +591,20 @@ namespace trace {
     return full_trace;
   }
 
+  // Builds the document and writes it to the output path. Ends the program
+  // with a nonzero code if the file cannot be written.
+  inline void write_document(std::optional<Json> result = std::nullopt) {
+    if (write_file(output_path(), build_document(result)) != 0) {
+      std::exit(1);
+    }
+  }
+
   // Records one pre-execution snapshot: the line about to run and the locals in scope.
   template<typename... Ts>
   void record(int line, const Value<Ts>&... vars) {
     if (tracer.truncated) return;
     if (tracer.steps.size() >= tracer.max_steps) {
       tracer.truncated = true;
-      // TODO: write the documenthere, so a run killed by the time limit still leaves a trace.
       return;
     }
 
