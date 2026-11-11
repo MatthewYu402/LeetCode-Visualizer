@@ -42,6 +42,12 @@
 #include <utility>
 #include <stdexcept>
 
+// IO
+#include <iostream>
+#include <fstream>
+#include <cstdio>
+#include <cstdlib>
+
 namespace trace {
 
   // ======================================================================
@@ -59,6 +65,10 @@ namespace trace {
 
   using f32 = float;
   using f64 = double;
+
+  // Version and Language
+  inline constexpr const char* LANGUAGE {"cpp"} ;
+  inline constexpr const char* VERSION  {"0.4"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -481,7 +491,7 @@ namespace trace {
   // ======================================================================
   // 7. The Recorder
   // ======================================================================
-  // Everything above is independent o the global state below, so the
+  // Everything above is independent of the global state below, so the
   // serializer tests can build their own Ctx without a Tracer.
 
   // State for the whole run. One global instance
@@ -490,6 +500,11 @@ namespace trace {
     std::vector<Json> steps; // finished step JSON; steps.size() is the next step index
     static constexpr std::size_t max_steps = 2000;
     bool truncated = false;
+    std::string version {VERSION};
+    std::string language {LANGUAGE};
+    std::string problem;
+
+    void begin(std::string problem_json) { problem = std::move(problem_json); }
   };
 
   inline Tracer tracer; // inline variable: exactly one instance, even across files
@@ -499,13 +514,82 @@ namespace trace {
   // Safe because the Value dies at the end of the record(...) call after serializing.
   template<typename T>
   struct Value {
-    std::string name;
+    const char* name;
     const T& value;
   };
 
-  template<typename T> Value<T> var(const std::string& name, const T& value) {
+  template<typename T> Value<T> var(const char* name, const T& value) {
     return {name, value};
   } 
+  
+  // Where the trace goes: the TRACE_OUT environment variable, or trace.json
+  // when it is unset or empty.
+  inline std::string output_path() {
+    const char* env_path = std::getenv("TRACE_OUT");
+    if (env_path != nullptr && env_path[0] != '\0') return env_path;
+    return "trace.json";
+  }
+
+  // Writes text to path atomically: write path + ".tmp", then rename it onto
+  // path. A run killed mid-write leaves the old file or the new one, never
+  // half of one. Returns 0 on success and 1 on failure.
+  inline int write_file(const std::string& path, const Json& text) {
+    const std::string tmp_path = path + ".tmp";
+
+    std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) {
+      std::cerr << "trace: cannot open " << tmp_path << " for writing\n";
+      return 1;
+    }
+
+    // operator<< only fills a buffer. close() does the real write, so the
+    // check comes after it and covers both.
+    out << text;
+    out.close();
+    if (!out) {
+      std::cerr << "trace: writing " << tmp_path << " failed\n";
+      std::remove(tmp_path.c_str());
+      return 1;
+    }
+
+    if (std::rename(tmp_path.c_str(), path.c_str()) != 0) {
+      std::perror("trace: rename failed");
+      std::remove(tmp_path.c_str());
+      return 1;
+    }
+
+    return 0;
+  }
+  
+  // Build the whole trace as a Json
+  inline Json build_document(std::optional<Json> result) {
+    // Append all of the steps joined with ", "
+    std::string steps_trace = "[";
+    bool first = true;
+    for (const auto& step : tracer.steps) {
+      if (!first) {
+        steps_trace += ", ";
+      }
+      first = false;
+      steps_trace += step;
+    }
+    steps_trace += "]";
+
+    std::string full_trace = std::format(R"({{"version": {}, "language": {}, "problem": {}, "steps": {})",
+      quote(tracer.version), quote(tracer.language), tracer.problem, steps_trace);
+
+    if (result) {
+      full_trace += R"(, "result": )" + (*result);
+    }
+
+    if (tracer.truncated) {
+      full_trace += std::format(R"(, "truncated": {})", tracer.truncated);
+    }
+
+    full_trace += "}";
+
+    return full_trace;
+  }
 
   // Records one pre-execution snapshot: the line about to run and the locals in scope.
   template<typename... Ts>
@@ -546,5 +630,5 @@ namespace trace {
 
     tracer.steps.push_back(std::format(R"({{"step": {}, "line": {}, "locals": {}, "heap": {}}})",
       tracer.steps.size(), line, locals, step_heap));
-  }  
+  }
 }
