@@ -25,10 +25,11 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | JSON Schema + golden fixture (Two Sum) | v0.4, validated |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | C++ adapter: value serializers | Done for every kind except `object` and `ref`, with tests |
-| C++ adapter: recorder and trace file | Done, checked on a hand-instrumented Two Sum |
+| C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace and that a looping program stops at the step cap with a truncated trace |
+| CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
 | C++ adapter: pointers, driver, rewriter | Planned |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, replays the Two Sum fixture |
+| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.4 (every kind, unfinished runs) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
 | API service + sandbox | Planned |
 
@@ -420,6 +421,9 @@ Items marked *(planned)* do not exist yet.
 ├── Skills.md                  repeatable procedures
 ├── LICENSE
 ├── .clang-format              C++ formatting (attached braces, 2 spaces)
+├── .github/
+│   └── workflows/
+│       └── ci.yml             CI: fixtures, C++ adapter, frontend
 ├── docs/
 │   ├── trace-format.md        the contract
 │   ├── native-tracing.md      runtime hooks and source instrumentation
@@ -436,15 +440,20 @@ Items marked *(planned)* do not exist yet.
 │   ├── two-sum.trace.json     golden trace
 │   ├── two_sum_trace.cpp      the Two Sum solution the trace records
 │   └── two_sum_hand_inst.cpp  the same solution, instrumented by hand
+├── tools/
+│   └── check_trace.py         validate a trace; compare with a fixture
 ├── adapters/
 │   └── cpp/
-│       ├── Makefile           build and run the adapter's tests
+│       ├── Makefile           the adapter's tests and end-to-end check
 │       ├── runtime/
 │       │   └── trace.hpp      serializers, recorder, document writer
 │       └── tests/
 │           ├── test_serialize.cpp
 │           ├── test_record.cpp
-│           └── test_write_file.cpp
+│           ├── test_write_file.cpp
+│           ├── test_document.cpp
+│           └── programs/
+│               └── loop_forever.cpp  never returns; proves the step cap
 ├── frontend/                  sandbox page (React + TypeScript + Vite)
 │   ├── CLAUDE.md              commands, structure, rules
 │   ├── package.json
@@ -490,7 +499,7 @@ Tentative. The architecture does not depend on these choices.
 
 ## Getting started
 
-Nothing takes a pasted solution end to end yet. You can run the C++ adapter's tests, run the hand-instrumented Two Sum to write a real trace, validate a trace, and open the frontend's sandbox page, which replays the Two Sum fixture.
+Nothing takes a pasted solution end to end yet. You can run the C++ adapter's tests and its end-to-end check, run the hand-instrumented Two Sum to write a real trace, check a trace, and open the frontend's sandbox page, which replays the Two Sum fixture. CI runs the same commands on every push and pull request to `main`.
 
 ```bash
 # Prerequisites: clang++ or g++ with C++20 <format> support, make, Python 3
@@ -499,13 +508,20 @@ Nothing takes a pasted solution end to end yet. You can run the C++ adapter's te
 make -C adapters/cpp
 make -C adapters/cpp both          # with clang++ and with g++
 
-# Run the hand-instrumented Two Sum. The trace goes to the path in TRACE_OUT
+# The checks below need the jsonschema package
+pip install jsonschema
+
+# End-to-end: Two Sum must equal the golden trace, and a program that never
+# returns must stop at the step cap. Traces go to adapters/cpp/build/traces/
+make -C adapters/cpp e2e
+
+# Run the hand-instrumented Two Sum yourself. The trace goes to the path in TRACE_OUT
 clang++ -std=c++20 -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tmp/two_sum
 TRACE_OUT=/tmp/two-sum.json /tmp/two_sum
 
-# Validate a trace against the schema
-pip install jsonschema
-# then run the validation command in CLAUDE.md
+# Check traces: schema always, plus equality with a fixture if asked
+python3 -I tools/check_trace.py fixtures/*.trace.json
+python3 -I tools/check_trace.py --equals fixtures/two-sum.trace.json /tmp/two-sum.json
 ```
 
 ```bash

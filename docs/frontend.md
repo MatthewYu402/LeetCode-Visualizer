@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.1
+> **Status:** Draft v0.2 (reads trace format v0.4)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace this version replays), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -32,7 +32,7 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ TOOLBAR   language · first prev run/pause next last · Step 5 / 8         │
+│ TOOLBAR   language · title · first prev run/pause next last · Step 5/8   │
 │           scrubber · speed · "code does not run yet" notice              │
 ├──────────────────────────────┬───────────────────────────────────────────┤
 │ CODE PANEL   (~40%)          │ VISUAL PANEL                              │
@@ -44,7 +44,7 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 │                              │ STATE PANEL                               │
 │                              │   Step N of M · line L   [truncated]      │
 │                              │   name · kind · value  (one row / local)  │
-│                              │   result  (last step only)                │
+│                              │   result or "did not return" (last step)  │
 └──────────────────────────────┴───────────────────────────────────────────┘
           ◄── drag ──►                        ▲ drag ▼
 ```
@@ -82,13 +82,24 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The trace is imported as text, not as a JSON module, so it goes through the same `JSON.parse` call in the loader that a response from the API will. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.2"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.4"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.1". This frontend reads version 0.2 only.
+Unsupported trace version "0.2". This frontend reads version 0.4 only.
 ```
 
-Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`.
+Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids.
+
+#### How the run ended
+`result` and `truncated` are optional ([trace-format.md §3, Unfinished runs](trace-format.md#unfinished-runs)), so the loader requires neither. `runEnd(trace)` in `trace/types.ts` reads them once:
+
+| `result` | `truncated` | `runEnd` | Last step of the state panel |
+|---|---|---|---|
+| present | absent or `true` | `returned` | The `result` row, even when it is `null` (a real return value) |
+| absent | `true` | `truncated` | `did not return: stopped at the step limit` |
+| absent | absent | `stopped` | `did not return: the run ended early` |
+
+A missing `truncated` is treated as `false`. A missing `result` is never shown as a wrong answer: the visualizer has no expected answer, so the row is muted, not red.
 
 The loader also checks the minimal shape it needs to draw (`steps` is an array of objects with `line` and `locals`). It does **not** validate against the JSON Schema. Validation happens outside the sandbox, in the API service, before the frontend sees a trace (CLAUDE.md invariant 9). The frontend's job is to fail clearly, not to be the gatekeeper.
 
@@ -130,8 +141,8 @@ The README's full order is "view as override, hint, kind, object shape, fallback
 | Kind | Renderer | Drawing |
 |---|---|---|
 | `array` | `ArrayRenderer` | A row of boxes, the index under each box, pointer markers under that |
-| `map` | `MapRenderer` | Two-column table, `key` and `value` |
-| every other kind | `FallbackRenderer` | A labelled row of boxes plus the kind name (`stack`, `set`, ...) |
+| `map`, `multimap` | `MapRenderer` | Two-column table, `key` and `value`. A multimap may show a key on several rows |
+| every other kind | `FallbackRenderer` | A labelled row of boxes plus the kind name (`stack`, `set`, `multiset`, ...) |
 | primitives | none | Not drawn in the visual panel. They appear in the state panel |
 
 The visual panel draws one renderer per **container local**: a local whose value is a tagged kind other than `int` and `float`. Locals appear in the order the trace lists them.
@@ -146,7 +157,7 @@ There is no other heuristic. A local named `idx`, or a `j` that points past the 
 This is a frontend display rule, not a hint. Hints are for what the adapter infers about a parameter ([trace-format.md §4](trace-format.md#4-problem-metadata)), and an index marker does not change how `nums` is drawn, only what is drawn under it.
 
 #### Map order
-`MapRenderer` lists entries in the order the trace gives them. It does not sort. Map order is unspecified and is real language behaviour (spec §8), so the frontend shows what the program saw. Diffs match entries by key, never by position.
+`MapRenderer` lists entries in the order the trace gives them. It does not sort. Map order is unspecified and is real language behaviour (spec §8), so the frontend shows what the program saw. Diffs match entries by key, never by position. The same goes for `set`, `multiset`, and `multimap`.
 
 ## 7. Diffing
 `diff(prev, curr)` is a pure function of two steps. For each local it reports:
@@ -162,9 +173,10 @@ Inside containers it goes one level deeper:
 - **Indexed kinds** (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`): per index. An index past the old length is `added`, past the new length is `removed`, otherwise `changed` or `same`.
 - **`set`**: per member, matched by value.
 - **`map`**: per key, matched by value. A key only in `curr` is `added`, only in `prev` is `removed`, and a key whose value differs is `changed`.
+- **`multiset`** and **`multimap`**: by count, because a member (or a `[key, value]` entry) may repeat. Each copy in `curr` is `same` while `prev` still has an unmatched equal copy, and `added` after that. The unmatched copies in `prev` are `removed`. In a multimap a value that changed under a repeated key shows as the new entry added and the old one removed, since with repeated keys nothing says which old value became which new one.
 - If the kind itself changes, the whole local is `changed` with no per-item detail.
 
-Values are compared by a canonical JSON string (object keys sorted), so `{"kind":"int","value":"…"}` compares by its digits and nothing is converted to a number.
+Values are compared by a canonical JSON string (object keys sorted), so `{"kind":"int","value":"…"}` compares by its digits and nothing is converted to a number. The members of `set`, `multiset`, `map`, and `multimap` are sorted in that string too, so the same set listed in another order is `same`, not `changed`. That sort is only for comparing. Nothing is drawn in it.
 
 For Two Sum, step 4 → 5 reports `numMap` key `2` added, `i` changed (0 → 1), and `complement` removed (it went out of scope at the end of the loop body).
 
@@ -267,3 +279,7 @@ Planned for later versions, not designed here:
 > **Q6. Why does the frontend not validate against the schema?** It would need a schema validator dependency, and it is the wrong place: the API service validates outside the sandbox before a trace reaches the browser. The loader checks only what it needs to draw and fails with a clear message otherwise.
 
 > **Q7. Why read the theme from CSS variables instead of writing the Monaco theme by hand?** One source of truth. If a token changes in `theme.css`, the editor follows it. The cost is a small colour conversion, since Monaco does not accept `rgba(...)`.
+
+> **Q8. Why show the method name as the title?** A bare `Solution` class does not know which problem it solves, so `problem.name` is optional (spec §4). `problem.method` is always present, and it is what the user wrote, so it is the honest fallback. Nothing tries to guess a problem name from it.
+
+> **Q9. Why is a missing result muted instead of shown as an error?** A missing `result` means the method never returned, not that the answer was wrong (spec §3). An infinite loop that hits the step limit is often exactly the bug the user came to see, and its trace is still worth stepping through.
