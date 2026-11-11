@@ -13,6 +13,8 @@ compile_commands.json
 # Recorder output from local runs. Golden fixtures live in fixtures/ and stay tracked.
 *.trace.json
 !fixtures/*.trace.json
+trace.json
+*.json.tmp
 
 # ---- Frontend (Goal 3) ----
 # The generic node_modules/ and dist/ below already match these; listed so the frontend's are explicit.
