@@ -68,18 +68,13 @@ public:
 // Builds the example input, calls the method, and prints each recorded step.
 // The document writer will replace the printing.
 int main() {
+  trace::tracer.begin(R"({"method": "twoSum", "params": [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}], "input": {"nums": [2, 7, 11, 15], "target": 9}})");
+
   vector<int> nums{2, 7, 11, 15};
-  int target = 9;
+  vector<int> answer = Solution().twoSum(nums, 9);
 
-  vector<int> result = Solution{}.twoSum(nums, target);
-
-  for (const auto &step : trace::tracer.steps) cout << step << "\n";
-
-  // The return value, serialized the same way as a local. The driver will
-  // write this into the document's "result" field.
-  trace::IdTable ids;
   trace::Heap heap;
-  trace::Ctx ctx{ids, heap};
-  cerr << "result: " << trace::serialize(result, ctx) << "\n";
-  cerr << "truncated: " << (trace::tracer.truncated ? "true" : "false") << "\n";
+  trace::Ctx ctx{trace::tracer.id_table, heap};
+  trace::write_document(trace::serialize(answer, ctx));
+  return 0;
 }
