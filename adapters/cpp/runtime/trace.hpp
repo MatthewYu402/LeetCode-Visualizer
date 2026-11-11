@@ -7,7 +7,8 @@
 //  3. Dispatch: the primary Serializer and serialize(), declared before any use
 //  4. Json  text helpers: escape, quote
 //  5. Writing helpers shared by several serializers
-//  6. Serializers, grouped by kind. 6i holds Fields<T> and the pointer serializer
+//  6. Serializers, grouped by kind. 6i holds Fields<T> and the two object
+//     serializers: one for pointers, one for objects held by value
 //  7. The recorder: Tracer, Value, var, the document writer, record (uses everything above)
 //
 // trace.hpp knows no node types. ListNode and TreeNode, and their Fields tables,
@@ -42,6 +43,7 @@
 #include <cstdint>
 #include <functional>
 #include <ranges>
+#include <type_traits>
 #include <utility>
 #include <stdexcept>
 
@@ -71,7 +73,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.4"} ;
+  inline constexpr const char* VERSION  {"0.5"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -83,15 +85,15 @@ namespace trace {
 
   using Json = std::string; 
   
-  // id -> finished JSON of the object at this step, e.g. "n1" -> {"kind": object, "type": TreeNode, ...}.
-  // One per step
+  // id -> finished JSON of the object, e.g. "n1" -> {"kind": object, "type": TreeNode, ...}.
+  // One per step, plus one for the result when the method returns a pointer.
   using Heap = std::map<std::string, Json>;
 
   // address -> id ("n1"). Answers "have I seen this object before?" for the whole run.
   // The address is only a lookup key. It is never dereferenced and never emitted.
   using IdTable = std::unordered_map<const void*, std::string>;
 
-  // What every serializer received: the run-liong id table and this step's heap.
+  // What every serializer receives: the run-long id table and the heap being filled.
   // Owns nothing: both members are references
   struct Ctx {
     IdTable& id_table;
@@ -224,6 +226,22 @@ namespace trace {
       }
     };
     return accessor::get(adapter);
+  }
+
+  // {"n1": {...}, "n2": {...}}: a heap as one JSON object. The entries are
+  // already finished JSON. Used for every step's "heap" and for "result_heap".
+  inline Json write_heap(const Heap& heap) {
+    std::string result = "{";
+    bool first = true;
+    for (const auto& [id, json] : heap) {
+      if (!first) {
+        result += ", ";
+      }
+      first = false;
+      result += quote(id) + ": " + json;
+    }
+    result += "}";
+    return result;
   }
 
   // A priority_queue comparator's "order" field.
@@ -489,7 +507,7 @@ namespace trace {
     }
   };
 
-  // ---- 6i. Pointers to objects -> ref, plus an object in the heap
+  // ---- 6i. Objects: a pointer or a by-value object -> ref, plus an object in the heap
 
   // Field declarations. C++ cannot list a struct's fields, so each struct that
   // should appear as an object gets a small table, written as a specialization
@@ -508,16 +526,33 @@ namespace trace {
   // simply has no Fields.
   template <typename T> struct Fields;
 
-  // True only for types that have a table. The pointer serializer uses it so
-  // that it applies to ListNode* and TreeNode*, and not to int* or void*.
-  template <typename T> concept HasFields = requires { Fields<T>::type; Fields<T>::fields; };
+  // True only for types that have a table, so the serializers below apply to
+  // ListNode and TreeNode, and not to int or void.
+  //
+  // std::remove_cv_t<T> strips `const` (and `volatile`) from T before the
+  // lookup. A table is written once, for the plain type: Fields<ListNode>.
+  // Without the strip, `const ListNode` would be looked up as
+  // Fields<const ListNode>, which nobody wrote, and a pointer to a const node
+  // would have no serializer.
+  template <typename T> concept HasFields = requires {
+    Fields<std::remove_cv_t<T>>::type;
+    Fields<std::remove_cv_t<T>>::fields;
+  };
 
   // One serializer for every pointer to a struct that has a Fields table:
-  // ListNode*, TreeNode*, each problem's Node*, and later the user's own structs.
+  // ListNode*, const ListNode*, TreeNode*, each problem's Node*, and later the
+  // user's own structs.
   //
   // It returns a small ref, {"kind": "ref", "id": "n1"}. The object itself is
-  // written into this step's heap as a side effect.
+  // written into ctx.heap as a side effect.
+  //
+  // Limitation: the pointer must be null or point to a live object. A pointer
+  // that was deleted, or never initialized, is followed like any other, which
+  // is undefined behavior (docs/adapters/cpp.md, "Limits of address identity").
   template <HasFields T> struct Serializer<T*> {
+    // T may be `const ListNode`. The table belongs to the plain type.
+    using Table = Fields<std::remove_cv_t<T>>;
+
     static Json write(T* ptr, Ctx& ctx) {
       // 1. A null pointer is "no value".
       if (ptr == nullptr) return "null";
@@ -537,9 +572,9 @@ namespace trace {
       // 3. Every path from here returns this ref.
       const Json ref = std::format(R"({{"kind": "ref", "id": {}}})", quote(id));
 
-      // 4. Already in this step's heap: this is an alias (two pointers to one
-      //    node) or a cycle (we are still inside this node's own fields).
-      //    Either way the object is taken care of, so only the ref is needed.
+      // 4. Already in this heap: this is an alias (two pointers to one node)
+      //    or a cycle (we are still inside this node's own fields). Either way
+      //    the object is taken care of, so only the ref is needed.
       if (ctx.heap.contains(id)) return ref;
 
       // 5. Put a placeholder in the heap BEFORE following any pointer. This is
@@ -555,17 +590,36 @@ namespace trace {
         ((fields += (first ? "" : ", "),
           fields += quote(field.first) + ": " + serialize(ptr->*(field.second), ctx),
           first = false), ...);
-      }, Fields<T>::fields);
+      }, Table::fields);
       fields += "}";
 
       // 7. Replace the placeholder with the finished object. The heap is
       //    looked up again here on purpose, instead of holding a reference
       //    to the entry while step 6 was adding other entries.
-      ctx.heap[id] = std::format(R"({{"kind": "object", "type": {}, "fields": {}}})", quote(Fields<T>::type), fields);
+      ctx.heap[id] = std::format(R"({{"kind": "object", "type": {}, "fields": {}}})", quote(Table::type), fields);
 
       // 8. The caller gets the ref.
       return ref;
     }
+  };
+
+  // An object held by value: `ListNode dummy(0);`. The variable IS the node,
+  // instead of pointing to one.
+  //
+  // It is written exactly like a pointer to it: the object goes in the heap
+  // under its own address, and the variable appears as a ref. So after
+  // `ListNode* tail = &dummy;` both locals are refs with the same id, and the
+  // trace shows one node, which is what the program has.
+  //
+  // `obj` is a reference to the live variable (Value holds a reference, and so
+  // does every container loop above), so &obj is the variable's real address.
+  // serialize() hands its argument over as const, so &obj is a `const T*`,
+  // which the pointer serializer accepts because HasFields ignores const.
+  //
+  // This cannot clash with Serializer<T*>: for the type `ListNode*` this
+  // template would need a table for `ListNode*` itself, and there is none.
+  template <HasFields T> struct Serializer<T> {
+    static Json write(const T& obj, Ctx& ctx) { return serialize(&obj, ctx); }
   };
 
   // ---- 6j. Wrappers
@@ -651,8 +705,14 @@ namespace trace {
     return 0;
   }
   
-  // Build the whole trace as a Json
-  inline Json build_document(std::optional<Json> result) {
+  // Builds the whole trace as one JSON document.
+  //
+  // Each optional part is written only when it says something:
+  //  - "result" only when the method returned. Pass std::nullopt when it did not.
+  //  - "result_heap" only when there is a result and it refers to objects. It
+  //    has the same shape as a step's heap.
+  //  - "truncated" only as true.
+  inline Json build_document(const std::optional<Json>& result, const Heap& result_heap = {}) {
     // Append all of the steps joined with ", "
     std::string steps_trace = "[";
     bool first = true;
@@ -670,6 +730,9 @@ namespace trace {
 
     if (result) {
       full_trace += R"(, "result": )" + (*result);
+      if (!result_heap.empty()) {
+        full_trace += R"(, "result_heap": )" + write_heap(result_heap);
+      }
     }
 
     if (tracer.truncated) {
@@ -688,16 +751,36 @@ namespace trace {
   //    would contain `"problem": ,` which is not JSON, and a missing trace with
   //    a clear message is better than a broken one.
   //  - the file cannot be written.
-  inline void write_document(const std::optional<Json>& result = std::nullopt) {
+  inline void write_document(const std::optional<Json>& result = std::nullopt, const Heap& result_heap = {}) {
     if (tracer.problem.empty()) {
       std::cerr << "trace: no problem metadata. Call trace::tracer.begin(...) before the Solution runs.\n";
       std::exit(1);
     }
 
-    if (write_file(output_path(), build_document(result)) != 0) {
+    if (write_file(output_path(), build_document(result, result_heap)) != 0) {
       std::exit(1);
     }
   }
+
+  // What the driver calls when the method returned a value: serializes it and
+  // writes the document.
+  //
+  // The return value gets a heap of its own. A returned pointer becomes a ref,
+  // and the objects it reaches go into that heap, which is written as
+  // "result_heap". The id table is the run-long one, so a returned node has
+  // the same id it had in the steps.
+  template <typename T> void write_result(const T& value) {
+    Heap result_heap{};
+    Ctx ctx { .id_table = tracer.id_table, .heap = result_heap };
+    const Json result = serialize(value, ctx);
+    write_document(result, result_heap);
+  }
+
+  // What the driver calls when a void method returned. The result is null:
+  // the method did return, and it returned no value. The problem metadata
+  // says "returns": {"type": "void"}, which is how a reader tells this apart
+  // from a method that returned a null pointer.
+  inline void write_void_result() { write_document("null"); }
 
   // Records one pre-execution snapshot: the line about to run and the locals in scope.
   template<typename... Ts>
@@ -714,7 +797,8 @@ namespace trace {
 
     // This step's state: an empty heap, plus the run-long id table
     Heap heap{};
-    Ctx ctx { .id_table = tracer.id_table, .heap = heap };
+    // maybe_unused: a record(line) call with no variables never reads ctx.
+    [[maybe_unused]] Ctx ctx { .id_table = tracer.id_table, .heap = heap };
 
     // Locals: {"nums": ..., "target": ...}. Serializing is what fills the heap
     std::string locals = "{";
@@ -725,21 +809,7 @@ namespace trace {
     ), ...);
     locals += "}";
     
-    // Heap: {"n1": {...}, "n2": {...}}. The entires are already finished JSON
-    std::string step_heap = "{";
-    first = true;
-    for (const auto &[id, json] : heap) {
-      if (!first) {
-        step_heap += ", ";
-      }
-      first = false;
-      step_heap += quote(id) + ": " + json;
-      
-      // Query the heap instance directly using the address
-    }
-    step_heap += "}";
-
     tracer.steps.push_back(std::format(R"({{"step": {}, "line": {}, "locals": {}, "heap": {}}})",
-      tracer.steps.size(), line, locals, step_heap));
+      tracer.steps.size(), line, locals, write_heap(heap)));
   }
 }

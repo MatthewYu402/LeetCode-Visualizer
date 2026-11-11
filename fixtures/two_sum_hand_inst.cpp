@@ -1,16 +1,16 @@
-// Two Sum, instrumented by hand with trace::record.
 //
 // This is what the LibTooling rewriter will produce automatically (Goal 5).
 // Each record(...) call sits just before the statement it describes, and its
-// first argument is that statement's line in fixtures/two-sum.cpp, the user's
+// first argument is that statement's line in fixtures/two_sum_trace.cpp, the user's
 // original source. The inserted lines shift this file's own line numbers,
 // which is why the line is passed explicitly.
 //
 // Build and run from the repository root:
 //   clang++ -std=c++20 -Wall -Wextra -Wpedantic -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tmp/two_sum
-//   /tmp/two_sum
+//   TRACE_OUT=/tmp/two-sum.json /tmp/two_sum
 //
-// The output should be the nine step lines of fixtures/two-sum.trace.json.
+// The trace it writes should equal fixtures/two-sum.trace.json
+// (`make -C adapters/cpp e2e` checks this).
 
 // ---- Supplied by LeetCode's harness (later, by our driver) ----
 #include "trace.hpp"
@@ -65,16 +65,14 @@ public:
 };
 
 // ---- Appended by the driver (hand-written for now) ----
-// Builds the example input, calls the method, and prints each recorded step.
-// The document writer will replace the printing.
+// Describes the problem, builds the example input, calls the method, and
+// writes the trace, with the return value as its result.
 int main() {
-  trace::tracer.begin(R"({"method": "twoSum", "params": [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}], "input": {"nums": [2, 7, 11, 15], "target": 9}})");
+  trace::tracer.begin(R"({"method": "twoSum", "params": [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}], "returns": {"type": "array<int>"}, "input": {"nums": [2, 7, 11, 15], "target": 9}})");
 
   vector<int> nums{2, 7, 11, 15};
   vector<int> answer = Solution().twoSum(nums, 9);
 
-  trace::Heap heap;
-  trace::Ctx ctx{trace::tracer.id_table, heap};
-  trace::write_document(trace::serialize(answer, ctx));
+  trace::write_result(answer);
   return 0;
 }
