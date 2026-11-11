@@ -280,22 +280,29 @@ The sandbox's time limit is still needed for a loop that never calls `record`, f
 ```bash
 make -C adapters/cpp both               # every test, with clang++ and g++
 make -C adapters/cpp test T=record      # one test file
+make -C adapters/cpp e2e                # the end-to-end check (needs python3 and jsonschema)
 ```
 
-The test programs are built into `adapters/cpp/build/<compiler>/`.
+The test programs are built into `adapters/cpp/build/<compiler>/`, and the traces the end-to-end check writes go to `adapters/cpp/build/traces/<compiler>/`. Both are ignored by git.
 
 - `tests/test_serialize.cpp` checks the exact JSON text of every serializer, with its own `Ctx` and no `Tracer`.
 - `tests/test_record.cpp` checks that `record` reproduces the nine Two Sum steps character for character, the rules for `locals`, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
+- `tests/test_document.cpp` checks the exact text of `build_document`: no steps, one step and several joined with `", "`, steps written by `record` itself, a result (including a `null` one), no `result` key at all when there is none, no `truncated` key unless it is `true`, a problem pasted in unchanged (odd spacing, escapes, UTF-8), and that building the document twice gives the same text and changes nothing.
 - `tests/test_write_file.cpp` checks `output_path` and `write_file`: a successful write, a failed open, a failed write, and a failed rename. After every failure the old file must be unchanged and the `.tmp` file gone. Its files go in a private folder in the system's temp directory, which it removes at the end. It is POSIX only (`setenv`, `setrlimit`).
 
-The end-to-end check is the hand-instrumented Two Sum. Build and run it, then compare its trace with the golden one after parsing:
+`make e2e` is the end-to-end check. It runs two hand-instrumented programs with `TRACE_OUT` set, then checks what they wrote with [`tools/check_trace.py`](../../tools/check_trace.py):
 
-```bash
-clang++ -std=c++20 -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tmp/two_sum
-TRACE_OUT=/tmp/two-sum.json /tmp/two_sum
-```
+| Program | Must | Checked with |
+|---|---|---|
+| `fixtures/two_sum_hand_inst.cpp` | Write a trace equal to the golden one | `--equals fixtures/two-sum.trace.json` |
+| `tests/programs/loop_forever.cpp` | Exit with code 0 from inside `record` at the step cap | `--expect-truncated`: `"truncated": true`, no `result`, exactly 2,000 steps numbered 0 to 1999 |
 
-Still planned: tests for `build_document`, a looping program that proves the cap writes a truncated trace and exits, and a script and Makefile target that run the end-to-end check in one command.
+- **Equality is after parsing**, not byte for byte, so spacing can change. Types must still match, and `set` items and `map` entries compare in any order, because their order is unspecified ([`trace-format.md` §10](../trace-format.md#10-validation-and-testing)).
+- **The old trace is deleted before each run**, so a program that writes nothing cannot pass on a stale file.
+- **Each run has a 20-second limit** (`E2E_TIMEOUT`). If the cap stops ending the run, `loop_forever` spins until the limit kills it, and the target fails with exit code 142 instead of hanging. The limit uses `perl`'s `alarm`, because coreutils `timeout` is not on macOS by default.
+- **`loop_forever.cpp` is not a `tests/test_*.cpp`**, so `make test` never builds it: it is meant to end the process.
+
+CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make both header e2e` on Ubuntu 24.04 with GCC 14 and Clang 18, which both use libstdc++, and `make test header e2e` on macOS with Apple Clang and libc++. On macOS `g++` is Apple Clang too, so `make both` there would build with the same compiler twice.
 
 ## 9. Known limitations
 

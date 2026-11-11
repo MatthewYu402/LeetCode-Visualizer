@@ -356,7 +356,7 @@ History:
 - **v0.1**: initial draft.
 
 ## 10. Validation and testing
-- A JSON Schema for this format lives in `schema/trace.schema.json`. Every adapter's output is validated against it in CI (CI is not set up yet).
+- A JSON Schema for this format lives in `schema/trace.schema.json`. CI (`.github/workflows/ci.yml`) validates every golden fixture against it, and the C++ adapter's end-to-end check (`make -C adapters/cpp e2e`) validates the traces the adapter writes. Both use `tools/check_trace.py`. Every new adapter's output must be checked the same way.
 - The validator must reject the bare tokens `NaN` and `Infinity`. Python's `json` module accepts them by default, so load traces with `json.load(..., parse_constant=...)` set to raise.
 - **Golden traces**: for each problem example, a reference trace is stored as a fixture. Adapters are checked against it for **structural equivalence** (same kinds, same shapes), not byte-for-byte equality
 - The frontend can be developed against hand-written traces with no backend at all.

@@ -12,7 +12,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind except `object` and `ref`, records steps, and writes the trace to a file, with tests. A hand-instrumented Two Sum reproduces the golden trace. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.4) is specified and validated. The C++ adapter serializes every value kind except `object` and `ref`, records steps, and writes the trace to a file, with tests. A hand-instrumented Two Sum reproduces the golden trace, and a looping program proves the step cap writes a truncated trace; `make e2e` checks both. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
@@ -28,7 +28,10 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`fixtures/two_sum_hand_inst.cpp`](fixtures/two_sum_hand_inst.cpp) | The same solution with `record` calls placed by hand, plus a hand-written `main`. Running it writes a trace equal to the golden one |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | Header-only C++ runtime: `Serializer<T>` for every value kind, the recorder (`record`, `var`, step cap), and the document writer |
 | [`adapters/cpp/tests/`](adapters/cpp/tests/) | Runtime tests, one `test_<name>.cpp` per area |
-| [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests |
+| [`adapters/cpp/tests/programs/loop_forever.cpp`](adapters/cpp/tests/programs/loop_forever.cpp) | A hand-instrumented Solution that never returns. `make e2e` runs it to prove the step cap writes a truncated trace and exits 0 |
+| [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests and the end-to-end check (`e2e`) |
+| [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`) |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, and the frontend's tests and build |
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
@@ -70,6 +73,7 @@ make -C adapters/cpp                     # build and run every test
 make -C adapters/cpp test T=serialize    # one test file
 make -C adapters/cpp both                # with clang++ and with g++
 make -C adapters/cpp header              # trace.hpp compiles on its own
+make -C adapters/cpp e2e                 # end-to-end: Two Sum equals the fixture, the step cap writes a truncated trace
 make -C adapters/cpp test EXTRA="-fsanitize=address,undefined"
 ```
 
@@ -77,7 +81,7 @@ Run the hand-instrumented Two Sum and write its trace outside the repo:
 
 ```bash
 clang++ -std=c++20 -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tmp/two_sum
-TRACE_OUT=/tmp/two-sum.json /tmp/two_sum     # then validate /tmp/two-sum.json with the command below
+TRACE_OUT=/tmp/two-sum.json /tmp/two_sum     # then check it with tools/check_trace.py --equals (below)
 ```
 
 Run the frontend (from `frontend/`; rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md)):
@@ -89,19 +93,15 @@ npm test                                 # vitest
 npm run build                            # typecheck + production build
 ```
 
-Validate a trace against the schema (prints `OK` when valid, or the errors). Needs `pip install jsonschema`. `parse_constant` makes it reject the bare tokens `NaN` and `Infinity`, which Python's `json` accepts by default:
+Check traces with `tools/check_trace.py`. Needs `pip install jsonschema`. It loads each file with `parse_constant` set to raise, so the bare tokens `NaN` and `Infinity` (which Python's `json` accepts by default) are rejected, then validates it against the schema. It prints one `OK` or `FAIL` line per file and exits nonzero if any failed:
 
 ```bash
-python3 -I -c "
-import json, sys
-from jsonschema import Draft202012Validator as V
-def no_constants(t): raise ValueError('bare ' + t + ' is not JSON')
-s = json.load(open('schema/trace.schema.json'))
-d = json.load(open(sys.argv[1]), parse_constant=no_constants)
-errs = list(V(s).iter_errors(d))
-print('INVALID' if errs else 'OK', *[e.message for e in errs], sep='\n' if errs else ' ')
-" fixtures/two-sum.trace.json
+python3 -I tools/check_trace.py fixtures/*.trace.json                          # schema only, several files
+python3 -I tools/check_trace.py --equals fixtures/two-sum.trace.json /tmp/two-sum.json
+python3 -I tools/check_trace.py --expect-truncated adapters/cpp/build/traces/clang++/loop-forever.trace.json
 ```
+
+`--equals` compares after parsing. Types must match (`1` is not `1.0` or `true`), and the items of `set`/`multiset` and entries of `map`/`multimap` are compared in any order, because that order is unspecified. `--expect-truncated` requires `"truncated": true`, no `result`, and exactly 2,000 steps numbered 0 to 1999.
 
 ## Conventions
 
