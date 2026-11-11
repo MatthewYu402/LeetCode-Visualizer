@@ -9,9 +9,11 @@
 #   make header                check that trace.hpp compiles on its own
 #   make e2e                   run the end-to-end checks (needs python3 and jsonschema):
 #                                fixtures/two_sum_hand_inst.cpp must write a trace equal
-#                                to fixtures/two-sum.trace.json, and
+#                                to fixtures/two-sum.trace.json,
 #                                tests/programs/loop_forever.cpp must exit 0 at the step
-#                                cap with a truncated trace. Traces go to build/traces/.
+#                                cap with a truncated trace, and return_pointer.cpp and
+#                                void_method.cpp must write valid traces whose refs all
+#                                name an object. Traces go to build/traces/.
 #   make list                  list the available test names
 #   make clean                 delete build output
 #
@@ -90,10 +92,12 @@ RUN_LIMITED := perl -e 'alarm shift; exec @ARGV or die "cannot run $$ARGV[0]: $$
 $(BUILD)/two_sum_hand_inst: $(ROOT)/fixtures/two_sum_hand_inst.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -I $(RUNTIME) -MMD -MP $< -o $@
 
-$(BUILD)/loop_forever: $(TESTDIR)/programs/loop_forever.cpp | $(BUILD)
+# Every program under tests/programs/ builds the same way.
+PROGRAMS := loop_forever return_pointer void_method
+$(addprefix $(BUILD)/,$(PROGRAMS)): $(BUILD)/%: $(TESTDIR)/programs/%.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -I $(RUNTIME) -MMD -MP $< -o $@
 
-e2e: $(BUILD)/two_sum_hand_inst $(BUILD)/loop_forever
+e2e: $(BUILD)/two_sum_hand_inst $(addprefix $(BUILD)/,$(PROGRAMS))
 	@mkdir -p $(TRACES)
 	@echo "== e2e: two_sum_hand_inst ($(CXX))"
 	@rm -f $(TRACES)/two-sum.trace.json
@@ -108,6 +112,14 @@ e2e: $(BUILD)/two_sum_hand_inst $(BUILD)/loop_forever
 	    exit 1; \
 	  fi
 	@$(CHECK) --expect-truncated $(TRACES)/loop-forever.trace.json
+	@echo "== e2e: return_pointer ($(CXX))"
+	@rm -f $(TRACES)/return-pointer.trace.json
+	@TRACE_OUT=$(TRACES)/return-pointer.trace.json $(RUN_LIMITED) ./$(BUILD)/return_pointer
+	@$(CHECK) --expect-result-heap $(TRACES)/return-pointer.trace.json
+	@echo "== e2e: void_method ($(CXX))"
+	@rm -f $(TRACES)/void-method.trace.json
+	@TRACE_OUT=$(TRACES)/void-method.trace.json $(RUN_LIMITED) ./$(BUILD)/void_method
+	@$(CHECK) --expect-void $(TRACES)/void-method.trace.json
 
 list:
 	@printf '%s\n' $(ALL_TESTS)

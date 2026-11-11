@@ -1,4 +1,3 @@
-// Tests for trace::output_path and trace::write_file.
 //
 // Run from the repository root:
 //   make -C adapters/cpp test T=write_file
@@ -114,13 +113,13 @@ int main() {
   std::cout << "success\n";
   {
     const fs::path path = dir / "ok.json";
-    const std::string text = R"({"version": "0.4", "steps": []})";
+    const std::string text = R"({"version": "0.5", "steps": []})";
 
     check("returns 0", write_file(path.string(), text) == 0);
     check_eq("file holds exactly the text", read_file(path), text);
     check("no .tmp left behind", !fs::exists(path.string() + ".tmp"));
 
-    const std::string second = R"({"version": "0.4", "steps": [], "truncated": true})";
+    const std::string second = R"({"version": "0.5", "steps": [], "truncated": true})";
     check("second write returns 0", write_file(path.string(), second) == 0);
     check_eq("second write replaces the first", read_file(path), second);
     check("no .tmp after replacing", !fs::exists(path.string() + ".tmp"));
