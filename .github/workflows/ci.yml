@@ -1,0 +1,107 @@
+# Checks every part of the repo that can be checked without a backend:
+#   schema       every golden fixture is a valid trace
+#   cpp-linux    the C++ adapter with libstdc++ (GCC and Clang)
+#   cpp-libcxx   the C++ adapter with libc++ (Apple Clang on macOS)
+#   frontend     the sandbox page's tests and production build
+#
+# The C++ jobs run the same targets a contributor runs locally:
+# `make -C adapters/cpp both header e2e` (see adapters/cpp/Makefile).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or PR cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install jsonschema
+      - name: Validate every golden fixture
+        run: python3 -I tools/check_trace.py fixtures/*.trace.json
+
+  cpp-linux:
+    # Pinned rather than ubuntu-latest, so the compilers below cannot change
+    # under us when the label moves. Ubuntu 24.04 ships GCC 12, 13 and 14
+    # and Clang 16, 17 and 18 (actions/runner-images, Ubuntu2404-Readme.md).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install jsonschema
+      # `make both` runs plain `clang++` and `g++`, so pick their versions by
+      # putting links first on PATH. GCC 14 has the most complete <format>
+      # in libstdc++. Clang uses libstdc++ too, from the newest GCC installed.
+      - name: Choose g++-14 and clang++-18
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          ln -s "$(command -v g++-14)" "$RUNNER_TEMP/bin/g++"
+          ln -s "$(command -v clang++-18)" "$RUNNER_TEMP/bin/clang++"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Compiler versions
+        run: |
+          g++ --version
+          clang++ --version
+          clang++ -v -x c++ -E /dev/null 2>&1 | grep -m1 "Selected GCC installation" || true
+      - name: Tests (clang++ and g++), header check, end-to-end
+        run: make -C adapters/cpp both header e2e
+
+  cpp-libcxx:
+    # macOS 26 on arm64 (what macos-latest points to now). Its clang++ is
+    # Apple Clang with libc++.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install jsonschema
+      - name: Compiler version
+        run: clang++ --version
+      # Not `make both`: on macOS g++ is the same Apple Clang, so it would only
+      # run the same build twice.
+      - name: Tests, header check, end-to-end
+        run: make -C adapters/cpp test header e2e
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Vite 8 needs Node ^20.19 or >=22.12 (engines in package-lock.json).
+      # Node 20 is past end of life, so CI uses 22 LTS.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
