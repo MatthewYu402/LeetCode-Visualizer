@@ -591,9 +591,19 @@ namespace trace {
     return full_trace;
   }
 
-  // Builds the document and writes it to the output path. Ends the program
-  // with a nonzero code if the file cannot be written.
-  inline void write_document(std::optional<Json> result = std::nullopt) {
+  // Builds the document and writes it to the output path.
+  //
+  // Ends the program with exit code 1, and writes no file, in two cases:
+  //  - begin() was never called, so there is no problem metadata. The document
+  //    would contain `"problem": ,` which is not JSON, and a missing trace with
+  //    a clear message is better than a broken one.
+  //  - the file cannot be written.
+  inline void write_document(const std::optional<Json>& result = std::nullopt) {
+    if (tracer.problem.empty()) {
+      std::cerr << "trace: no problem metadata. Call trace::tracer.begin(...) before the Solution runs.\n";
+      std::exit(1);
+    }
+
     if (write_file(output_path(), build_document(result)) != 0) {
       std::exit(1);
     }
