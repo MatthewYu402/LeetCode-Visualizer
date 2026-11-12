@@ -12,7 +12,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.6) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), and writes the trace to a file, with tests. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.6) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), and writes the trace to a file, with tests. The driver (`driver/`, Python) rebuilds LeetCode's harness for C++: it reads the Solution and an example and generates a prelude and `main`; every golden fixture produces its golden trace through a generated `main`. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
@@ -20,7 +20,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.6). Source of truth |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | Runtime hooks and source instrumentation |
 | [`docs/dap.md`](docs/dap.md) | Tracing through a debugger via the Debug Adapter Protocol |
-| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes for later stages. The last two are proposals |
+| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes. `driver-generation.md` describes the implemented driver; the last two are proposals |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md), [`docs/adapters/python.md`](docs/adapters/python.md) | Per-language adapter notes |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | Machine-readable form of the contract |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | Golden trace for Two Sum |
@@ -33,12 +33,13 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`adapters/cpp/tests/programs/loop_forever.cpp`](adapters/cpp/tests/programs/loop_forever.cpp) | A hand-instrumented Solution that never returns. `make e2e` runs it to prove the step cap writes a truncated trace and exits 0 |
 | [`adapters/cpp/tests/programs/return_pointer.cpp`](adapters/cpp/tests/programs/return_pointer.cpp), [`void_method.cpp`](adapters/cpp/tests/programs/void_method.cpp) | Hand-instrumented Solutions that return a `ListNode*` and `void`. `make e2e` runs them to prove `result_heap` and the `null` result |
 | [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests and the end-to-end check (`e2e`) |
+| [`driver/`](driver/) | The driver, in Python with no dependencies: `example.py` (example text to neutral JSON) and `shapes.py` (LeetCode's notations for linked structures) are shared by every language; `cpp/` reads the signature and commented node definitions and generates the prelude and `main`; `tests/` runs unit tests, compiles and runs generated programs, and checks every golden fixture through a generated `main` |
 | [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, checks that every `ref` names an object in its heap and that frames follow the spec's rules, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`), a returned pointer (`--expect-result-heap`), or a `void` method (`--expect-void`) |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, and the frontend's tests and build |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, the driver's tests with each compiler, and the frontend's tests and build |
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
-Still planned: driver generation, the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
+Still planned: the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
 
 Reusable procedures for this repo are in [`Skills.md`](Skills.md).
 
@@ -87,6 +88,16 @@ clang++ -std=c++20 -I adapters/cpp/runtime fixtures/two_sum_hand_inst.cpp -o /tm
 TRACE_OUT=/tmp/two-sum.json /tmp/two_sum     # then check it with tools/check_trace.py --equals (below)
 ```
 
+Run the driver (Python 3.10+, standard library only):
+
+```bash
+python3 -m driver fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --out /tmp/two-sum
+clang++ -std=c++20 -I adapters/cpp/runtime -include /tmp/two-sum/prelude.hpp /tmp/two-sum/program.cpp -o /tmp/two-sum/program
+python3 -m unittest discover -s driver/tests -t .     # compiles with $CXX, else clang++, else g++
+```
+
+`--code FILE` puts a hand-instrumented Solution in `program.cpp` instead of the plain one; `--method NAME` picks the method when the driver cannot tell.
+
 Run the frontend (from `frontend/`; rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md)):
 
 ```bash
@@ -108,7 +119,7 @@ python3 -I tools/check_trace.py --expect-truncated adapters/cpp/build/traces/cla
 
 ## Conventions
 
-- **Neutral type names** in problem metadata mirror the kinds: `array<int>`, `list<int>`, `map<int,int>`, `stack<int>`, `TreeNode`. Never language types such as `vector<int>&` (the schema rejects `std::`, `vector<`, `unordered_`, `&`, `*`).
+- **Neutral type names** in problem metadata mirror the kinds: `int`, `float`, `bool`, `string`, `char`, `array<int>`, `list<int>`, `map<int, int>`, `tuple<int, int>`, `TreeNode`, `void` (returns only). The table is in spec §4. Arguments are separated by `", "` (one comma, one space), the one spelling everywhere. Never language types such as `vector<int>&` (the schema rejects `std::`, `vector<`, `unordered_`, `&`, `*`).
 - **Value kinds** are exactly: bare primitives, plus the tagged kinds `int`, `float`, `array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `multiset`, `map`, `multimap`, `object`, `ref`. `array` is indexed (`vector`); `list` is node-based (`std::list`). Maps use `entries` as raw `[key, value]` pairs because JSON object keys must be strings.
 - **Tagged numbers.** Integers outside ±(2^53 − 1) use the `int` kind, and NaN/±Infinity use the `float` kind. Everything else is a bare JSON number.
 - **Hints** (`grid`, `adjacency-matrix`, `adjacency-list`, `edge-list`, `intervals`, `tree`, `linked-list`, `graph`, `priority-queue`, `stack`, `queue`) are only for what the type cannot say.
@@ -141,6 +152,6 @@ Architecture diagrams are ASCII with box-drawing characters. Keep every box the 
 - **The author writes the runtime and rewriter code** (it is a learning project). Explain, review, and point out bugs instead of handing over implementations. Test scaffolding, fixtures, schema and doc text, and build files are fine when asked.
 - Do not invent details about how LeetCode behaves. If unsure, say so.
 - Before claiming an example is valid, run it through the schema.
-- Do not add dependencies, frameworks, or directories that the docs have not proposed without checking first.
+- Do not add dependencies, frameworks, or directories that the docs have not proposed without checking first. Approved so far: `jsonschema` (Python, for `tools/check_trace.py`), and LLVM/Clang for the LibTooling rewriter (`brew install llvm` on macOS; the backend's build image will need it too). The driver uses only Python's standard library.
 - When a doc and the code disagree, the spec in `docs/trace-format.md` wins until it is deliberately changed.
 - Keep `README.md`'s status table, doc map, and repository layout accurate whenever files are added or removed.

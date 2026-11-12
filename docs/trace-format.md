@@ -146,7 +146,26 @@ There is no problem catalog. The system knows only the user's `Solution` source 
 
 `name` is optional and usually absent. A bare Solution class does not say which problem it solves, so an adapter never writes it. The field is for a title that comes from somewhere else, such as one the user types. When it is absent, the frontend shows method as the title.
 
-`type` uses neutral names that mirror the kinds in [Section 5](#5-the-value-model) (`array<int>`, `list<int>`, `map<int, int>`, `stack<int>`, `TreeNode`, `ListNode`), never language types like `vector<int>&`.
+`type` uses neutral names that mirror the kinds in [Section 5](#5-the-value-model), never language types like `vector<int>&`. A type's name says what kind its values have in the trace: a C++ `vector<int>` is serialized as an `array`, so its type is `array<int>`.
+
+| Neutral type | Values | Examples of language types |
+|---|---|---|
+| `int` | integers (tagged `int` when outside ±(2^53 − 1)) | C++ `int`, `long long`, `unsigned`; Python `int` |
+| `float` | numbers | C++ `float`, `double`; Python `float` |
+| `bool` | `true`, `false` | |
+| `string` | strings | C++ `string`; Python `str` |
+| `char` | one-character strings | C++ `char`. Only the type tells it apart from a `string` of length 1 |
+| `array<T>`, `list<T>`, `deque<T>`, `stack<T>`, `queue<T>`, `priority-queue<T>` | that kind | C++ `vector<int>` is `array<int>`, `std::list<int>` is `list<int>` |
+| `set<T>`, `multiset<T>`, `map<K, V>`, `multimap<K, V>` | that kind | Ordered and unordered containers have the same name |
+| `tuple<A, B, ...>` | `tuple` | C++ `pair<int, int>` is `tuple<int, int>` |
+| `ListNode`, `TreeNode`, `Node`, ... | a `ref` (or `null`) | A pointer or reference to an object: C++ `TreeNode*` is `TreeNode` |
+| `void` | only in `returns` | A method with no return value |
+
+Inside a type name, arguments are separated by `", "`, one comma and one space: `map<int, int>`, `tuple<int, string>`. That is the one spelling, so names can be compared as text.
+
+`input` holds the example's values, keyed by parameter name, as written in LeetCode's notation: a tree is still its level-order array here. When the example uses other names than the parameters (Clone Graph's example says `adjList`, its parameter is `node`), the keys are the parameter names. A value that describes the input but is not a parameter (Linked List Cycle's `pos`) is not in `input`; its effect shows in the heap.
+
+`returns` is optional and describes the method's return value: a `type`, written with the same neutral names as a parameter's, and an optional `hint` with the same meaning. A method with no return value has the type `"void"`, which is how a `null` result is told apart from a returned null pointer ([The return value](#the-return-value)). An adapter that reads the signature should always write `returns`, and must write it for a `void` method.
 
 `returns` is optional and describes the method's return value: a `type`, written with the same neutral names as a parameter's, and an optional `hint` with the same meaning. A method with no return value has the type `"void"`, which is how a `null` result is told apart from a returned null pointer ([The return value](#the-return-value)). An adapter that reads the signature should always write `returns`, and must write it for a `void` method.
 

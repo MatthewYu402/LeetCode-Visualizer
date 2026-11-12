@@ -28,7 +28,8 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
 | C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
 | CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
-| C++ adapter: driver, rewriter | Planned |
+| C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
+| C++ adapter: rewriter | Planned (LibTooling; needs LLVM, `brew install llvm`) |
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.6 (every kind, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
@@ -49,7 +50,7 @@ Start with the trace format. Everything else hangs off it.
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.6 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
-| [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft |
+| [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
 | [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, diffing, playback, theme | Draft v0.1 |
 | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
 | [`docs/sandboxing.md`](docs/sandboxing.md) | Isolation, resource limits, where validation runs, how a run can end | Draft v0.1, proposal |
@@ -453,6 +454,11 @@ Items marked *(planned)* do not exist yet.
 │   └── <name>_hand_inst.cpp   the same solution, instrumented by hand
 ├── tools/
 │   └── check_trace.py         validate a trace; compare with a fixture
+├── driver/                    LeetCode's harness, rebuilt (Python): python3 -m driver
+│   ├── example.py             example text -> neutral JSON (every language)
+│   ├── shapes.py              LeetCode's notations for lists, trees, graphs (every language)
+│   ├── cpp/                   signature, node comments, prelude and main for C++
+│   └── tests/                 unit tests, compile-and-run tests, golden fixtures
 ├── adapters/
 │   └── cpp/
 │       ├── Makefile           the adapter's tests and end-to-end check
@@ -507,7 +513,8 @@ Tentative. The architecture does not depend on these choices.
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
 - [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
 - [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
-- [ ] Any C++ solution: driver generation, LibTooling rewriter, hint inference
+- [x] Driver generation for C++
+- [ ] Any C++ solution: LibTooling rewriter, hint inference
 - [x] The call stack: frames and return steps, with recursive golden traces
 - [ ] Resolve the open questions above
 - [ ] API service and sandbox
@@ -539,6 +546,10 @@ TRACE_OUT=/tmp/two-sum.json /tmp/two_sum
 # Check traces: schema always, plus equality with a fixture if asked
 python3 -I tools/check_trace.py fixtures/*.trace.json
 python3 -I tools/check_trace.py --equals fixtures/two-sum.trace.json /tmp/two-sum.json
+
+# The driver: a Solution and an example in, a runnable program out
+python3 -m driver fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --out /tmp/two-sum
+python3 -m unittest discover -s driver/tests -t .    # its tests (they compile with $CXX, clang++, or g++)
 ```
 
 ```bash
