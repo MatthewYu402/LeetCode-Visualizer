@@ -13,7 +13,7 @@ example text ────┘
 
 The system has **no problem catalog**. The only inputs are the `Solution` source and the example text. Everything in the trace's `problem` object is derived from those two.
 
-The driver does not produce the trace. It produces a program that, when run, writes the trace. The steps inside it come from the `record` calls the rewriter inserts (roadmap Phase 4), which are written by hand in the fixtures until then.
+The driver does not produce the trace. It produces a program that, when run, writes the trace. The steps inside it come from the `record` calls the rewriter inserts ([`adapters/cpp.md` §8](adapters/cpp.md#8-the-rewriter)); `--rewrite` runs it.
 
 ---
 
@@ -61,7 +61,7 @@ Adapters never write `problem.name`. `hint` is left out: choosing hints is [`hin
 
 This is enough because **LeetCode writes the signature itself**: the method the harness calls always has the plain shape `ReturnType name(Type a, Type& b)`. Helper methods can be anything. One that cannot be read (a member template, a parameter with no name) is kept as unreadable and only causes an error if it is the one to call.
 
-**Planned:** the rewriter (Phase 4) parses the file with Clang anyway. Once it exists, it can produce the same method list from the AST, and `signature.py` becomes a fallback. The rest of the driver only sees `Method` and `Param` objects, so the swap touches one file.
+**Possible later:** the rewriter parses the file with Clang anyway, so it could produce the same method list from the AST, and `signature.py` would become a fallback. The rest of the driver only sees `Method` and `Param` objects, so the swap touches one file.
 
 ### Neutral type names
 
@@ -224,10 +224,10 @@ How a run can end:
 ### Command line
 
 ```bash
-python3 -m driver SOLUTION --example "nums = [2,7,11,15], target = 9" --out DIR [--method NAME] [--code FILE]
+python3 -m driver SOLUTION --example "nums = [2,7,11,15], target = 9" --out DIR [--method NAME] [--rewrite | --code FILE]
 ```
 
-It writes `DIR/problem.json`, `DIR/prelude.hpp`, and `DIR/program.cpp`, and prints the build and run commands. `--code` puts another file's code in `program.cpp` in place of the Solution, such as a hand-instrumented copy. Without it the plain Solution runs, and the trace has a result but no steps. It exits with status 2 and a message when the input cannot be used.
+It writes `DIR/problem.json`, `DIR/prelude.hpp`, and `DIR/program.cpp`, and prints the build and run commands. The code in `program.cpp` is the Solution instrumented by the rewriter with `--rewrite` (it must be built: `make -C adapters/cpp/rewriter`), another file's code with `--code` (such as a hand-instrumented copy), or otherwise the plain Solution, whose trace has a result but no steps. It exits with status 2 and a message when the input cannot be used.
 
 ---
 

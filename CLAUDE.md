@@ -12,7 +12,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.6) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), and writes the trace to a file, with tests. The driver (`driver/`, Python) rebuilds LeetCode's harness for C++: it reads the Solution and an example and generates a prelude and `main`; every golden fixture produces its golden trace through a generated `main`. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.6) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), and writes the trace to a file, with tests. The driver (`driver/`, Python) rebuilds LeetCode's harness for C++: it reads the Solution and an example and generates a prelude and `main`. The rewriter (`adapters/cpp/rewriter/`, Clang LibTooling) inserts the runtime's calls into a plain Solution; every golden fixture is reproduced from its plain source by the rewriter and a generated `main`. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
@@ -32,14 +32,15 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`adapters/cpp/tests/`](adapters/cpp/tests/) | Runtime tests, one `test_<name>.cpp` per area |
 | [`adapters/cpp/tests/programs/loop_forever.cpp`](adapters/cpp/tests/programs/loop_forever.cpp) | A hand-instrumented Solution that never returns. `make e2e` runs it to prove the step cap writes a truncated trace and exits 0 |
 | [`adapters/cpp/tests/programs/return_pointer.cpp`](adapters/cpp/tests/programs/return_pointer.cpp), [`void_method.cpp`](adapters/cpp/tests/programs/void_method.cpp) | Hand-instrumented Solutions that return a `ListNode*` and `void`. `make e2e` runs them to prove `result_heap` and the `null` result |
+| [`adapters/cpp/rewriter/`](adapters/cpp/rewriter/) | The rewriter, `trace-rewrite`: a `RecursiveASTVisitor` (`instrumenter.hpp`/`.cpp`) that inserts `Frame`, `record`, `Scope`, and `ret` into a plain Solution without adding lines, the tool around it (`main.cpp`), and a `Makefile` using `llvm-config` |
 | [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests and the end-to-end check (`e2e`) |
 | [`driver/`](driver/) | The driver, in Python with no dependencies: `example.py` (example text to neutral JSON) and `shapes.py` (LeetCode's notations for linked structures) are shared by every language; `cpp/` reads the signature and commented node definitions and generates the prelude and `main`; `tests/` runs unit tests, compiles and runs generated programs, and checks every golden fixture through a generated `main` |
 | [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, checks that every `ref` names an object in its heap and that frames follow the spec's rules, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`), a returned pointer (`--expect-result-heap`), or a `void` method (`--expect-void`) |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, the driver's tests with each compiler, and the frontend's tests and build |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, the driver's tests with each compiler, the rewriter built and tested on Linux (Clang 18) and macOS (Homebrew LLVM), and the frontend's tests and build |
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
-Still planned: the LibTooling rewriter, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
+Still planned: the CLI that runs the whole pipeline in one command, iterators, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
 
 Reusable procedures for this repo are in [`Skills.md`](Skills.md).
 
@@ -51,7 +52,7 @@ These are the decisions the project is built on. Do not weaken them without aski
 2. **The frontend must not branch on `language`.** That field is informational only.
 3. **Snapshots, not events.** Every step is the full state, drawable on its own. Diffs between steps are computed in the frontend, only to animate.
 4. **Normalize representation, never hide behavior.** The same concept always has the same `kind`. Real differences (hash map ordering, integer overflow, step counts, priority-queue layout) are allowed to differ between languages.
-5. **No implementation details in a trace.** No memory addresses, bucket counts, capacities, or raw debugger text. An unrecognized type is an error, never a pass-through.
+5. **No implementation details in a trace.** No memory addresses, bucket counts, capacities, or raw debugger text. An unrecognized type is never a pass-through: serializing one directly is a compile error, and a local whose type has no serializer is left out of the step (the `Serializable` concept), never written as raw text.
 6. **Stable ids, never addresses.** Distinct objects get distinct ids, aliases share one, and the heap entry is created before recursing into fields so cycles terminate.
 7. **`line` refers to the user's original source**, not a generated driver. In the running (top) frame it means "about to execute" (pre-execution snapshot), except in a return step; in a caller it is the line whose call is in progress.
 8. **`map` and `set` ordering is unspecified.** Nothing may depend on insertion order.
@@ -96,7 +97,16 @@ clang++ -std=c++20 -I adapters/cpp/runtime -include /tmp/two-sum/prelude.hpp /tm
 python3 -m unittest discover -s driver/tests -t .     # compiles with $CXX, else clang++, else g++
 ```
 
-`--code FILE` puts a hand-instrumented Solution in `program.cpp` instead of the plain one; `--method NAME` picks the method when the driver cannot tell.
+`--rewrite` instruments the Solution with the rewriter (build it first); `--code FILE` puts a hand-instrumented Solution in `program.cpp` instead; `--method NAME` picks the method when the driver cannot tell.
+
+Build and test the rewriter (needs LLVM with Clang's development files; approved dependency):
+
+```bash
+make -C adapters/cpp/rewriter                                                  # Ubuntu: libclang-18-dev libclang-cpp18-dev llvm-18-dev
+make -C adapters/cpp/rewriter LLVM_CONFIG=$(brew --prefix llvm)/bin/llvm-config   # macOS
+make -C adapters/cpp/rewriter test                                             # every golden fixture from its plain source, plus tricky constructs
+python3 -m driver fixtures/max_depth_trace.cpp --example "root = [3,9,20,null,null,15,7]" --out /tmp/md --rewrite
+```
 
 Run the frontend (from `frontend/`; rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md)):
 

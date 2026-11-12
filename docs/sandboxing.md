@@ -72,7 +72,7 @@ The runtime already behaves the way the sandbox needs ([`adapters/cpp.md` §7](a
 | The time limit was reached | None | A timeout error |
 | The trace failed validation | Present but rejected | An internal error. The trace is never forwarded |
 
-A crash currently loses the steps recorded before it ([`adapters/cpp.md` §9](adapters/cpp.md#9-known-limitations)). Whether to save them is an open decision (§7).
+A crash currently loses the steps recorded before it ([`adapters/cpp.md` §10](adapters/cpp.md#10-known-limitations)). Whether to save them is an open decision (§7).
 
 ## 6. Docker, and what goes under it
 

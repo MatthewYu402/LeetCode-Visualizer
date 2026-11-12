@@ -29,7 +29,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
 | CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
 | C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
-| C++ adapter: rewriter | Planned (LibTooling; needs LLVM, `brew install llvm`) |
+| C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines. Every golden fixture is reproduced from its plain source |
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.6 (every kind, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
@@ -462,6 +462,10 @@ Items marked *(planned)* do not exist yet.
 ├── adapters/
 │   └── cpp/
 │       ├── Makefile           the adapter's tests and end-to-end check
+│       ├── rewriter/          trace-rewrite: inserts record() etc. (Clang LibTooling)
+│       │   ├── instrumenter.hpp / .cpp   the AST visitor
+│       │   ├── main.cpp       the tool
+│       │   └── Makefile       builds with llvm-config; make test
 │       ├── runtime/
 │       │   ├── trace.hpp      serializers, recorder, document writer
 │       │   └── leetcode_types.hpp  ListNode, TreeNode, and their field tables
@@ -514,7 +518,8 @@ Tentative. The architecture does not depend on these choices.
 - [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
 - [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
 - [x] Driver generation for C++
-- [ ] Any C++ solution: LibTooling rewriter, hint inference
+- [x] LibTooling rewriter
+- [ ] Any C++ solution: iterators, member variables, lambdas, hint inference
 - [x] The call stack: frames and return steps, with recursive golden traces
 - [ ] Resolve the open questions above
 - [ ] API service and sandbox
@@ -550,6 +555,10 @@ python3 -I tools/check_trace.py --equals fixtures/two-sum.trace.json /tmp/two-su
 # The driver: a Solution and an example in, a runnable program out
 python3 -m driver fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --out /tmp/two-sum
 python3 -m unittest discover -s driver/tests -t .    # its tests (they compile with $CXX, clang++, or g++)
+
+# The rewriter (needs LLVM: brew install llvm), then a plain Solution end to end
+make -C adapters/cpp/rewriter LLVM_CONFIG=$(brew --prefix llvm)/bin/llvm-config
+python3 -m driver fixtures/max_depth_trace.cpp --example "root = [3,9,20,null,null,15,7]" --out /tmp/md --rewrite
 ```
 
 ```bash

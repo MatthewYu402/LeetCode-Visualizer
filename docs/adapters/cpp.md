@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.4
+> **Status:** Draft v0.5
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -12,15 +12,15 @@ This document describes how the C++ adapter turns a running `Solution` into a tr
 The C++ adapter uses source instrumentation ([`native-tracing.md` §4](../native-tracing.md#4-strategy-b-source-instrumentation)). C++ has no built-in hook that calls our code before each line, so we rewrite the user's code to call a recording function ourselves.
 
 ```
-PREPARE   rewriter (planned)   inserts ::trace::record(...) before each statement
-          driver   (planned)   appends main(): parse the example, call the Solution
+PREPARE   rewriter             inserts ::trace::record(...) before each statement (§8)
+          driver               appends main(): parse the example, call the Solution
           clang++ -std=c++20   compiles it with the header-only trace.hpp
 RUN       each record(...)     serializes the locals into one finished step
           document writer      writes the whole trace to a file
 AFTER     schema validation    outside the sandbox, then the frontend replays it
 ```
 
-The runtime is one header, `adapters/cpp/runtime/trace.hpp`. Until the rewriter exists, the `record` calls are placed by hand.
+The runtime is one header, `adapters/cpp/runtime/trace.hpp`. The rewriter (§8) places the `record` calls; the fixtures' `_hand_inst.cpp` files show the same calls placed by hand.
 
 ## 2. What one step looks like
 
@@ -58,7 +58,7 @@ Two Sum calls no function of its own, so every one of its steps has one frame. A
 - **Parameters are locals too.** `nums` is a `vector<int>&`, and it is written as its value, not as a reference.
 - **Callers are read live.** A caller's locals are serialized at every step from its variables as they are at that step, so a vector the callee changes through a reference shows the change in every frame that can see it.
 - **Order** follows the order of the `var(...)` arguments. Consumers must not depend on it, because JSON object order carries no meaning.
-- **Variables with no serializer are left out** for now. Two Sum's `auto it` is an iterator, which has no kind yet, so the calls for lines 11, 16, and 12 do not pass it.
+- **Variables with no serializer are left out.** The rewriter passes every variable in scope, because it cannot know which types `trace.hpp` supports. The concept `Serializable<T>` (true when a `Serializer<T>` specialization exists) lets `write_locals` drop the others at compile time, so Two Sum's `auto it`, a lambda, or a `std::function` simply does not appear. Serializing such a type directly with `serialize()` is still a compile error. An iterator kind is planned.
 
 ### 2.2 `heap`
 
@@ -287,7 +287,7 @@ while (i < count(n)) {     // the condition has no record of its own
 
 `Scope` is the fix. At the start of the block it saves the frame's stored `Value`s, and at the end it restores them. The restored `Value`s only name variables declared outside the block, which are still alive. It also sets the frame's line to the line of the statement that owns the block (the `while`), which is where the frame is once the block has ended. Without it, AddressSanitizer reports `stack-use-after-scope` for exactly this program. With it, the run is clean.
 
-A `Scope` goes at the start of each loop body (its header may declare a variable, like `int i`) and each block that declares a variable. The rewriter will add one to every block, which is simpler and costs nothing.
+A `Scope` goes at the start of each loop body (its header may declare a variable, like `int i`) and each block that declares a variable. The rewriter adds one to every block except a function's body and a `switch` body (§8), which is simpler and costs nothing.
 
 ### 4.6 Why there are no macros
 
@@ -368,7 +368,7 @@ trace::write_result(answer);
 - **A `void` method** has no `answer`. The driver calls `trace::write_void_result()`, which writes `"result": null`, and the metadata says `"returns": {"type": "void"}`.
 - **The document is written once**, after the method returns.
 
-**A step at the closing brace.** For a `void` method the answer is the input it changed, and a step is taken before its line runs, so the last statement's effect would never be seen. The rewriter will add one more `record` at the method's closing brace (*planned*). `tests/programs/void_method.cpp` does it by hand.
+**A step at the closing brace.** For a `void` method the answer is the input it changed, and a step is taken before its line runs, so the last statement's effect would never be seen. The rewriter adds a `ret_void` at the method's closing brace, which is that step. `tests/programs/void_method.cpp` does it by hand.
 
 ### 7.2 What the document contains
 
@@ -405,7 +405,71 @@ The sandbox's time limit is still needed for a loop that never calls `record`, f
 
 > **Key insight 5: the trace is written exactly once, by whichever comes first: the method returning, or the step cap.**
 
-## 8. Testing
+## 8. The rewriter
+
+`adapters/cpp/rewriter/` is a Clang LibTooling tool, `trace-rewrite`. It reads a plain Solution and writes the same code with the runtime's calls inserted, exactly the calls the fixtures' `_hand_inst.cpp` files make by hand.
+
+| File | What it is |
+|---|---|
+| `instrumenter.hpp`, `instrumenter.cpp` | The AST visitor: where every insertion is decided |
+| `main.cpp` | The tool: options, parsing the file with Clang, writing the result |
+| `Makefile` | Builds `build/trace-rewrite` with `llvm-config`; `make test` runs its tests |
+
+```bash
+make -C adapters/cpp/rewriter                                   # Ubuntu: needs libclang-18-dev libclang-cpp18-dev llvm-18-dev
+make -C adapters/cpp/rewriter LLVM_CONFIG=$(brew --prefix llvm)/bin/llvm-config   # macOS
+
+trace-rewrite solution.cpp -o out.cpp -- -std=c++20 -I adapters/cpp/runtime -include prelude.hpp
+python3 -m driver solution.cpp --example "..." --out DIR --rewrite                # the same, through the driver
+```
+
+The file is parsed with the driver's prelude, the same flags the program is compiled with, so `vector`, `ListNode`, and a commented `Node` are all known. Code that does not compile is reported by Clang, at the user's line numbers, and nothing is written (exit 1).
+
+### 8.1 What it inserts
+
+| Where | Inserted |
+|---|---|
+| After the `{` of each instrumented function | `::trace::Frame trace_frame_("name");` |
+| Before each statement in a block, except loops, `{ }`, and `;` | `::trace::record(LINE, ::trace::var("a", a), ...);` |
+| After the `{` of every other block | `::trace::Scope trace_scope_(LINE);`, with the line of the `if`, `for`, or `while` that owns it |
+| Around an unbraced body (`if (x) y++;`, an `else if`) | `{ ` and ` }`, so it has a block for the above |
+| `return expr;` | `return ::trace::ret<T>(LINE, expr, vars...);`, with `T` the declared return type |
+| `return;`, and the closing `}` of a `void` function | `::trace::ret_void(LINE, vars...);` before it |
+
+**Which functions:** the methods of class `Solution` and free functions, defined in the main file. Not constructors, destructors, operators (comparators), other classes' methods, or lambdas.
+
+> **Key insight 6: no insertion contains a newline, so the output has the input's lines.** The `Rewriter` records each edit against a position in the original file, so `SourceManager::getSpellingLineNumber` gives the user's line whatever was inserted before it. And because nothing adds a line, line 12 of the output is line 12 of the input. The `record` calls carry their line explicitly anyway, but a compile error in the user's code also points at the right line.
+
+### 8.2 The walk
+
+`Instrumenter` is a `RecursiveASTVisitor`. It overrides **`Traverse`** functions, not `Visit` functions. A `Visit` function sees one node and runs before its children are walked. A `Traverse` function replaces the walk of a node's whole subtree, so it can do work before, between, and after its children. Scope analysis needs that.
+
+A block's statements are handled one at a time, in this order:
+
+1. **Insert the `record`** before the statement, listing every variable visible now.
+2. **Walk into the statement.** A nested block sees the scope as it is at this point.
+3. **Then add what it declares** (`int x = ...`), so it is visible to the statements after it, and not to its own `record`.
+
+The scope is a stack of name lists: the parameters, then one list per block, and one for the header of each `for`, `if`, `while`, and `switch` (`for (int i = ...)`, `if (auto x = f(); ...)`, a range-`for` variable, a condition variable). Structured bindings (`auto [lo, hi] = p;`) declare each name.
+
+**Shadowing.** A name declared again in an inner scope hides the outer one, and C++ name lookup would also pick the inner one, so only the innermost is listed. A step never has two keys with the same name.
+
+**Bodies without braces** get a block: `if (x) y++;` becomes `if (x) { ::trace::Scope ...; ::trace::record(...); y++; }`. An `else if` is an `IfStmt` as the else body, so it gets the same treatment, and its closing `}` goes after the whole rest of the chain. The `}` goes after the statement's last token and its `;` (`Lexer::findLocationAfterToken`), because a statement's `getEndLoc()` is the start of its last token.
+
+**Order at one position.** Every insertion is appended after earlier ones at the same position. The walk is ordered so that this is right: a body's `{` is inserted before the `record` that follows it, and an inner block's `}` before the `}` of the block around it.
+
+**A `switch` body** gets records but no `Scope`: a jump to a `case` label may not skip a variable's initialization, and the guard is a variable. The `record` for `case 1: x = 2;` goes after the label, so it stays in that case.
+
+### 8.3 Limits
+
+- **Lambdas are not instrumented.** A lambda's body runs as its own call, with its own captures and parameters. Listing the enclosing function's variables inside it would name variables it may not capture. Recursive lambdas (`function<void(int)> dfs = [&](...)`) therefore get no frames yet.
+- **Code from macros is not edited**, and neither are other classes' methods or operators.
+- **Member variables of `Solution` are not listed** (roadmap Phase 5).
+- **Uninitialized variables are listed**, so `int x;` shows a garbage value until assigned, and an uninitialized pointer can crash the serializer (§3.7).
+- **`return expr;` in a `void` function** gets its return step before `expr` runs. Rare.
+- **A function returning `auto` that is not yet deduced** (a template) gets no `ret`: its returns are recorded but not shown as return steps.
+
+## 9. Testing
 
 ```bash
 make -C adapters/cpp both               # every test, with clang++ and g++
@@ -416,7 +480,7 @@ make -C adapters/cpp e2e                # the end-to-end check (needs python3 an
 The test programs are built into `adapters/cpp/build/<compiler>/`, and the traces the end-to-end check writes go to `adapters/cpp/build/traces/<compiler>/`. Both are ignored by git.
 
 - `tests/test_serialize.cpp` checks the exact JSON text of every serializer, with its own `Ctx` and no `Tracer`.
-- `tests/test_record.cpp` checks that `record` reproduces Two Sum's steps character for character (each section declares a `Frame`), the rules for `locals`, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
+- `tests/test_record.cpp` checks that `record` reproduces Two Sum's steps character for character (each section declares a `Frame`), the rules for `locals`, that locals with no serializer (an iterator, a lambda, a `std::function`) are left out, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
 - `tests/test_pointers.cpp` checks the object serializers: null, one node, a chain, aliases, cycles, `TreeNode`, pointers inside containers, a problem's own graph `Node`, pointers to `const`, objects held by value (alone, next to a pointer to them, copied, and inside a `vector`), the dummy-head pattern through `record`, ids staying stable across steps while the heap is rebuilt, and a returned pointer's own heap.
 - `tests/test_frames.cpp` checks the call stack: one frame, a call (two frames, a return step, one frame again), frame ids never reused, callers read live after a callee changes their vector, one heap shared by every frame, `ret` with a braced value and with a pointer, `ret_void`, recursion three levels deep and its unwinding, `Scope` restoring a frame after a block, a frame popped by an exception, the step cap inside `ret`, and (at compile time) that `var` rejects a temporary.
 - `tests/test_document.cpp` checks the exact text of `build_document`: no steps, one step and several joined with `", "`, steps written by `record` itself, a result (including a `null` one), no `result` key at all when there is none, `result_heap` after a `ref` result and absent when the heap is empty or there is no result, no `truncated` key unless it is `true`, a problem pasted in unchanged (odd spacing, escapes, UTF-8), and that building the document twice gives the same text and changes nothing.
@@ -436,11 +500,12 @@ Every trace is also checked for dangling refs: each `ref` must name an object in
 - **Equality is after parsing**, not byte for byte, so spacing can change. Types must still match, and `set` items and `map` entries compare in any order, because their order is unspecified ([`trace-format.md` §10](../trace-format.md#10-validation-and-testing)).
 - **The old trace is deleted before each run**, so a program that writes nothing cannot pass on a stale file.
 - **Each run has a 20-second limit** (`E2E_TIMEOUT`). If the cap stops ending the run, `loop_forever` spins until the limit kills it, and the target fails with exit code 142 instead of hanging. The limit uses `perl`'s `alarm`, because coreutils `timeout` is not on macOS by default.
+- `driver/tests/test_rewriter.py` checks the rewriter (§8): every golden fixture, rewritten from its plain `_trace.cpp`, equals its golden trace; every original line survives on its own line; and unbraced bodies, `else if` chains, loop-variable scope, shadowing, recursion through a private helper, lambdas, iterators, `void` returns, `switch`, structured bindings, `if` with an initializer, `do`/`while`, and compile errors at the user's line. `make -C adapters/cpp/rewriter test` builds the tool and runs them.
 - **The files in `tests/programs/` are not `tests/test_*.cpp`**, so `make test` never builds them. Each is a whole program that writes a trace, and `loop_forever.cpp` is meant to end the process.
 
 CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make both header e2e` on Ubuntu 24.04 with GCC 14 and Clang 18, which both use libstdc++, and `make test header e2e` on macOS with Apple Clang and libc++. On macOS `g++` is Apple Clang too, so `make both` there would build with the same compiler twice.
 
-## 9. Known limitations
+## 10. Known limitations
 
 - **Shadowed names inside one function.** Two variables named `i` in scope at once in the same function (an inner block's `int i` hiding an outer one) produce a duplicate key in that frame's `locals`. The call stack fixed the same name in *different* calls, since each call has its own frame, but not this case. The rewriter will have to pass only the innermost one.
 - **Instrumentation rules are not checked at run time.** A `record` outside any `Frame` stops the program with a message. A call made before a function's first `record` would write a frame with line 0, which the schema rejects. A missing `Scope` is undefined behavior only when a call happens between the end of the block and the next `record` (§4.5).
@@ -453,7 +518,7 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 - **Very long chains.** The serializer recurses once per node it follows, so a list of many thousands of nodes can overflow the stack. Traces are meant for small examples.
 - **A crash writes no trace.** A solution that crashes before the cap (a segfault, an uncaught exception) never reaches `write_document`, so the steps recorded so far are lost. The spec allows a trace with no `result` and no `truncated` for this case, but the runtime does not produce one yet.
 
-## 10. Design questions
+## 11. Design questions
 
 **Q1. Why does the heap start empty every step when the `id_table` does not?** They answer different questions. The `id_table` says who an object is, and that must be the same at every step or the frontend cannot follow an object. The heap says what the object looks like now, and reusing it would make the runtime skip objects it wrote in an earlier step, so their changes would never show.
 
@@ -480,3 +545,7 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 **Q12. Why is `Frame` a guard object instead of a pair of `push()`/`pop()` calls?** A function has many ways out: every `return`, the closing brace, and exceptions. A `pop()` would have to be written before each of them, and one missed exit would leave the stack wrong for the rest of the run. A destructor runs on every exit, so the stack cannot drift.
 
 **Q13. Why does a return statement get two steps?** The first is the ordinary pre-execution step: the frame is about to evaluate `1 + max(left, right)`, or `n * fact(n - 1)`, which may call functions, and the caller's line must already be the return line while those calls run. The second is the return step, which shows the value. For `return 0;` the first step looks redundant, but one rule for every return statement is simpler for the rewriter and for the reader.
+
+**Q14. Why does the rewriter list every variable and let the runtime drop the unsupported ones?** The rewriter sees types, but whether `trace.hpp` has a serializer for a type is decided by template rules when the program is compiled, after the rewriter has finished. A list of unsupported types inside the rewriter would always lag behind `trace.hpp`. With the `Serializable` concept, the runtime is the only place that knows, and adding a serializer (an iterator kind, say) makes those variables appear with no change to the rewriter.
+
+**Q15. Why are the inserted calls on the same line as the code, instead of on lines of their own?** Readability of the generated file matters less than its line numbers. Keeping every original line on its own line means the output can be read against the original line by line, and the compiler's errors and warnings point at the lines the user wrote.
