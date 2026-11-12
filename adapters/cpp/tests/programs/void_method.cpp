@@ -6,8 +6,8 @@
 //
 // The answer of a void method is the input it changed. Every step is taken
 // before its line runs, so the effect of the last statement would never be
-// seen. The record() on line 6, the method's closing brace, is the step that
-// shows it.
+// seen. The return step on line 6, the method's closing brace, shows it, with
+// "return_value": null.
 //
 // This file is not a tests/test_*.cpp, so `make test` does not build it. It
 // is built and run by `make e2e`. Run from the repository root:
@@ -33,13 +33,14 @@ using namespace std;
 class Solution {
 public:
   void swapEnds(vector<int> &nums) {
+    ::trace::Frame frame("swapEnds");
     ::trace::record(4, ::trace::var("nums", nums));
     int last = static_cast<int>(nums.size()) - 1;
 
     ::trace::record(5, ::trace::var("nums", nums), ::trace::var("last", last));
     swap(nums[0], nums[last]);
 
-    ::trace::record(6, ::trace::var("nums", nums), ::trace::var("last", last));
+    ::trace::ret_void(6, ::trace::var("nums", nums), ::trace::var("last", last));
   }
 };
 

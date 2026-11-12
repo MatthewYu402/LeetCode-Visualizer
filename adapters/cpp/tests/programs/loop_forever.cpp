@@ -27,6 +27,7 @@
 class Solution {
 public:
   int spin(int n) {
+    ::trace::Frame frame("spin");
     ::trace::record(4, ::trace::var("n", n));
     int k = 0;
     while (true) {

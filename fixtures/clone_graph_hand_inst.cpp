@@ -1,9 +1,18 @@
 // Clone Graph, instrumented by hand with trace::record.
 //
-// Each record(...) call sits just before the statement it describes, and its
-// first argument is that statement's line in fixtures/clone_graph_trace.cpp,
-// the user's original source. As in fixtures/two_sum_hand_inst.cpp, a loop
-// header (the while and the range-for) gets no record of its own.
+// Each line argument is a line in fixtures/clone_graph_trace.cpp, the user's
+// original source.
+//
+// Instrumentation, as the rewriter will write it:
+//  - ::trace::Frame on the first line of each function: pushes a frame for the
+//    call and pops it when the call ends.
+//  - ::trace::record(line, ...) before each statement. A loop header gets no
+//    record of its own: its body's statements do.
+//  - ::trace::Scope at the start of each loop body and each block that
+//    declares a variable, with the line of the statement that owns the block.
+//  - a record() before each return statement, then
+//    `return ::trace::ret<T>(line, value, ...)` for its return step
+//    (::trace::ret_void(line, ...) in a void function, also at the closing brace).
 //
 // Build, run, and compare with the golden trace, from the repository root:
 //   clang++ -std=c++20 -Wall -Wextra -Wpedantic -I adapters/cpp/runtime fixtures/clone_graph_hand_inst.cpp -o /tmp/clone_graph
@@ -49,10 +58,11 @@ template <> struct trace::Fields<Node> {
 class Solution {
 public:
   Node *cloneGraph(Node *node) {
+    ::trace::Frame frame("cloneGraph");
     ::trace::record(4, ::trace::var("node", node));
     if (node == nullptr) {
       ::trace::record(5, ::trace::var("node", node));
-      return nullptr;
+      return ::trace::ret<Node *>(5, nullptr, ::trace::var("node", node));
     }
 
     ::trace::record(8, ::trace::var("node", node));
@@ -70,6 +80,7 @@ public:
     visited[node] = new Node(node->val);
 
     while (!q.empty()) {
+      ::trace::Scope scope(13);
       ::trace::record(14, ::trace::var("node", node), ::trace::var("visited", visited),
                       ::trace::var("q", q));
       Node *curr = q.front();
@@ -79,6 +90,7 @@ public:
       q.pop();
 
       for (Node *neighbor : curr->neighbors) {
+        ::trace::Scope inner_scope(17);
         ::trace::record(18, ::trace::var("node", node), ::trace::var("visited", visited),
                         ::trace::var("q", q), ::trace::var("curr", curr),
                         ::trace::var("neighbor", neighbor));
@@ -105,7 +117,8 @@ public:
     // declared before the loop, and it is empty here.
     ::trace::record(25, ::trace::var("node", node), ::trace::var("visited", visited),
                     ::trace::var("q", q));
-    return visited[node];
+    return ::trace::ret<Node *>(25, visited[node], ::trace::var("node", node), ::trace::var("visited", visited),
+                                ::trace::var("q", q));
   }
 };
 

@@ -28,6 +28,7 @@
 class Solution {
 public:
   ListNode *dropFirst(ListNode *head) {
+    ::trace::Frame frame("dropFirst");
     ::trace::record(4, ::trace::var("head", head));
     ListNode dummy(0, head);
 
@@ -38,7 +39,8 @@ public:
     tail->next = head->next;
 
     ::trace::record(7, ::trace::var("head", head), ::trace::var("dummy", dummy), ::trace::var("tail", tail));
-    return dummy.next;
+    return ::trace::ret<ListNode *>(7, dummy.next, ::trace::var("head", head), ::trace::var("dummy", dummy),
+                                    ::trace::var("tail", tail));
   }
 };
 

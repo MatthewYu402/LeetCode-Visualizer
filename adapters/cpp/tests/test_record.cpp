@@ -8,7 +8,12 @@
 //
 // Expected steps use the same spacing as fixtures/two-sum.trace.json, so the
 // Two Sum checks are copied line for line from the fixture:
-//   {"step": 0, "line": 5, "locals": {...}, "heap": {}}
+//   {"step": 0, "frames": [{"id": "f1", "function": "twoSum", "line": 5, "locals": {...}}], "heap": {}}
+//
+// record() can only run inside a function that has a trace::Frame, so each
+// section declares one. Every section starts with reset(), so its frame is f1.
+// The call stack itself (several frames, return steps, Scope) is tested in
+// test_frames.cpp.
 
 #include "trace.hpp"
 
@@ -91,6 +96,7 @@ int main() {
   // solution is the hand-instrumented fixture's job.
   reset();
   {
+    trace::Frame frame("twoSum");
     std::vector<int> nums{2, 7, 11, 15};
     int target = 9;
     std::unordered_map<int, int> numMap;
@@ -99,43 +105,43 @@ int main() {
 
     record(5, var("nums", nums), var("target", target));
     check("step 0, line 5: parameters only", last_step(),
-          R"({"step": 0, "line": 5, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}, "heap": {}})");
+          R"({"step": 0, "frames": [{"id": "f1", "function": "twoSum", "line": 5, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}}], "heap": {}})");
 
     record(8, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i));
     check("step 1, line 8: numMap and i, no complement yet", last_step(),
-          R"({"step": 1, "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}, "heap": {}})");
+          R"({"step": 1, "frames": [{"id": "f1", "function": "twoSum", "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}}], "heap": {}})");
 
     complement = target - nums[i];
     record(9, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i), var("complement", complement));
     check("step 2, line 9: complement appears", last_step(),
-          R"({"step": 2, "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}, "heap": {}})");
+          R"({"step": 2, "frames": [{"id": "f1", "function": "twoSum", "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}}], "heap": {}})");
 
     record(11, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i), var("complement", complement));
     check("step 3, line 11", last_step(),
-          R"({"step": 3, "line": 11, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}, "heap": {}})");
+          R"({"step": 3, "frames": [{"id": "f1", "function": "twoSum", "line": 11, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}}], "heap": {}})");
 
     record(16, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i), var("complement", complement));
     check("step 4, line 16: map still empty (pre-execution)", last_step(),
-          R"({"step": 4, "line": 16, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}, "heap": {}})");
+          R"({"step": 4, "frames": [{"id": "f1", "function": "twoSum", "line": 16, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}}], "heap": {}})");
 
     numMap[nums[i]] = i;
     ++i;
     record(8, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i));
     check("step 5, line 8: map has [2, 0], complement out of scope", last_step(),
-          R"({"step": 5, "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1}, "heap": {}})");
+          R"({"step": 5, "frames": [{"id": "f1", "function": "twoSum", "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1}}], "heap": {}})");
 
     complement = target - nums[i];
     record(9, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i), var("complement", complement));
     check("step 6, line 9", last_step(),
-          R"({"step": 6, "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}, "heap": {}})");
+          R"({"step": 6, "frames": [{"id": "f1", "function": "twoSum", "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}}], "heap": {}})");
 
     record(11, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i), var("complement", complement));
     check("step 7, line 11", last_step(),
-          R"({"step": 7, "line": 11, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}, "heap": {}})");
+          R"({"step": 7, "frames": [{"id": "f1", "function": "twoSum", "line": 11, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}}], "heap": {}})");
 
     record(12, var("nums", nums), var("target", target), var("numMap", numMap), var("i", i), var("complement", complement));
     check("step 8, line 12", last_step(),
-          R"({"step": 8, "line": 12, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}, "heap": {}})");
+          R"({"step": 8, "frames": [{"id": "f1", "function": "twoSum", "line": 12, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}}], "heap": {}})");
 
     check_true("nine steps in total", tracer.steps.size() == 9);
   }
@@ -144,13 +150,14 @@ int main() {
   std::cout << "locals\n";
   reset();
   {
+    trace::Frame frame("f");
     record(1);
-    check("no variables gives empty locals", last_step(), R"({"step": 0, "line": 1, "locals": {}, "heap": {}})");
+    check("no variables gives empty locals", last_step(), R"({"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}})");
 
     int a = 1;
     int b = 2;
     record(2, var("b", b), var("a", a));
-    check("locals keep argument order", last_step(), R"({"step": 1, "line": 2, "locals": {"b": 2, "a": 1}, "heap": {}})");
+    check("locals keep argument order", last_step(), R"({"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"b": 2, "a": 1}}], "heap": {}})");
 
     // These only compile if var() keeps the array type. A decayed int* has
     // no serializer, and a decayed char* would read past an unterminated buffer.
@@ -158,54 +165,56 @@ int main() {
     char buf[8] = "hi";
     record(3, var("arr", arr), var("buf", buf));
     check("C arrays keep their type", last_step(),
-          R"({"step": 2, "line": 3, "locals": {"arr": {"kind": "array", "items": [1, 2, 3]}, "buf": "hi"}, "heap": {}})");
+          R"({"step": 2, "frames": [{"id": "f1", "function": "f", "line": 3, "locals": {"arr": {"kind": "array", "items": [1, 2, 3]}, "buf": "hi"}}], "heap": {}})");
 
     long long big = LLONG_MAX;
     std::optional<int> none;
     std::vector<bool> flags{true, false};
     record(4, var("big", big), var("none", none), var("flags", flags));
     check("values use the same serializers as everywhere else", last_step(),
-          R"({"step": 3, "line": 4, "locals": {"big": {"kind": "int", "value": "9223372036854775807"}, "none": null, "flags": {"kind": "array", "items": [true, false]}}, "heap": {}})");
+          R"({"step": 3, "frames": [{"id": "f1", "function": "f", "line": 4, "locals": {"big": {"kind": "int", "value": "9223372036854775807"}, "none": null, "flags": {"kind": "array", "items": [true, false]}}}], "heap": {}})");
   }
 
   // ------------------------------------------------------------------
   std::cout << "snapshot at call time\n";
   reset();
   {
+    trace::Frame frame("f");
     std::vector<int> v{1};
     record(1, var("v", v));
     v.push_back(2);
     record(2, var("v", v));
     check("a later change does not alter an earlier step", tracer.steps[0],
-          R"({"step": 0, "line": 1, "locals": {"v": {"kind": "array", "items": [1]}}, "heap": {}})");
+          R"({"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"v": {"kind": "array", "items": [1]}}}], "heap": {}})");
     check("the later step sees the change", tracer.steps[1],
-          R"({"step": 1, "line": 2, "locals": {"v": {"kind": "array", "items": [1, 2]}}, "heap": {}})");
+          R"({"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"v": {"kind": "array", "items": [1, 2]}}}], "heap": {}})");
   }
 
   // ------------------------------------------------------------------
   std::cout << "heap and ids (with the Probe stand-in)\n";
   reset();
   {
+    trace::Frame frame("f");
     Probe a{1};
     Probe b{2};
 
     record(1, var("a", a), var("b", b));
     check("objects go in the heap, locals hold refs", last_step(),
-          R"({"step": 0, "line": 1, "locals": {"a": {"kind": "ref", "id": "n1"}, "b": {"kind": "ref", "id": "n2"}}, "heap": {"n1": {"kind": "object", "type": "Probe", "fields": {"val": 1}}, "n2": {"kind": "object", "type": "Probe", "fields": {"val": 2}}}})");
+          R"({"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"a": {"kind": "ref", "id": "n1"}, "b": {"kind": "ref", "id": "n2"}}}], "heap": {"n1": {"kind": "object", "type": "Probe", "fields": {"val": 1}}, "n2": {"kind": "object", "type": "Probe", "fields": {"val": 2}}}})");
 
     record(2, var("b", b));
     check("id survives across steps; heap holds only this step's objects", last_step(),
-          R"({"step": 1, "line": 2, "locals": {"b": {"kind": "ref", "id": "n2"}}, "heap": {"n2": {"kind": "object", "type": "Probe", "fields": {"val": 2}}}})");
+          R"({"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"b": {"kind": "ref", "id": "n2"}}}], "heap": {"n2": {"kind": "object", "type": "Probe", "fields": {"val": 2}}}})");
 
     b.val = 5;
     record(3, var("b", b));
     check("heap starts empty each step, so it shows the new value", last_step(),
-          R"({"step": 2, "line": 3, "locals": {"b": {"kind": "ref", "id": "n2"}}, "heap": {"n2": {"kind": "object", "type": "Probe", "fields": {"val": 5}}}})");
+          R"({"step": 2, "frames": [{"id": "f1", "function": "f", "line": 3, "locals": {"b": {"kind": "ref", "id": "n2"}}}], "heap": {"n2": {"kind": "object", "type": "Probe", "fields": {"val": 5}}}})");
 
     Probe &alias = a;
     record(4, var("a", a), var("alias", alias));
     check("aliases share one id and one heap entry", last_step(),
-          R"({"step": 3, "line": 4, "locals": {"a": {"kind": "ref", "id": "n1"}, "alias": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "Probe", "fields": {"val": 1}}}})");
+          R"({"step": 3, "frames": [{"id": "f1", "function": "f", "line": 4, "locals": {"a": {"kind": "ref", "id": "n1"}, "alias": {"kind": "ref", "id": "n1"}}}], "heap": {"n1": {"kind": "object", "type": "Probe", "fields": {"val": 1}}}})");
 
     check_true("id table holds two objects for the whole run", tracer.id_table.size() == 2);
   }
@@ -214,12 +223,13 @@ int main() {
   std::cout << "step cap (" << trace::Tracer::max_steps << ")\n";
   reset();
   {
+    trace::Frame frame("f");
     int k = 0;
     tracer.exit_at_cap = false;
     for (std::size_t n = 0; n < trace::Tracer::max_steps; ++n) record(1, var("k", k));
     check_true("exactly the cap: all steps kept", tracer.steps.size() == trace::Tracer::max_steps);
     check_true("exactly the cap: not truncated", !tracer.truncated);
-    check("last step is numbered cap - 1", last_step(), R"({"step": 1999, "line": 1, "locals": {"k": 0}, "heap": {}})");
+    check("last step is numbered cap - 1", last_step(), R"({"step": 1999, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"k": 0}}], "heap": {}})");
 
     record(2, var("k", k));
     check_true("one past the cap: no step added", tracer.steps.size() == trace::Tracer::max_steps);
@@ -235,6 +245,7 @@ int main() {
   check_true("no steps", tracer.steps.empty());
   check_true("no ids", tracer.id_table.empty());
   check_true("not truncated", !tracer.truncated);
+  check_true("no frames, and the call count starts again", tracer.frames.empty() && tracer.calls == 0);
 
   std::cout << "\n" << passed << " passed, " << failed << " failed\n";
   return failed == 0 ? 0 : 1;

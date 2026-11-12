@@ -1,9 +1,18 @@
 // Reverse Linked List, instrumented by hand with trace::record.
 //
-// Each record(...) call sits just before the statement it describes, and its
-// first argument is that statement's line in fixtures/reverse_list_trace.cpp,
-// the user's original source. As in fixtures/two_sum_hand_inst.cpp, a loop
-// header gets no record of its own: its body's statements do.
+// Each line argument is a line in fixtures/reverse_list_trace.cpp, the user's
+// original source.
+//
+// Instrumentation, as the rewriter will write it:
+//  - ::trace::Frame on the first line of each function: pushes a frame for the
+//    call and pops it when the call ends.
+//  - ::trace::record(line, ...) before each statement. A loop header gets no
+//    record of its own: its body's statements do.
+//  - ::trace::Scope at the start of each loop body and each block that
+//    declares a variable, with the line of the statement that owns the block.
+//  - a record() before each return statement, then
+//    `return ::trace::ret<T>(line, value, ...)` for its return step
+//    (::trace::ret_void(line, ...) in a void function, also at the closing brace).
 //
 // Build, run, and compare with the golden trace, from the repository root:
 //   clang++ -std=c++20 -Wall -Wextra -Wpedantic -I adapters/cpp/runtime fixtures/reverse_list_hand_inst.cpp -o /tmp/reverse_list
@@ -22,6 +31,7 @@ using namespace std;
 class Solution {
 public:
   ListNode *reverseList(ListNode *head) {
+    ::trace::Frame frame("reverseList");
     ::trace::record(4, ::trace::var("head", head));
     ListNode *prev = nullptr;
 
@@ -29,6 +39,7 @@ public:
     ListNode *curr = head;
 
     while (curr != nullptr) {
+      ::trace::Scope scope(7);
       ::trace::record(8, ::trace::var("head", head), ::trace::var("prev", prev),
                       ::trace::var("curr", curr));
       ListNode *nextTemp = curr->next;
@@ -50,7 +61,8 @@ public:
     // before the loop, and it is null here.
     ::trace::record(13, ::trace::var("head", head), ::trace::var("prev", prev),
                     ::trace::var("curr", curr));
-    return prev;
+    return ::trace::ret<ListNode *>(13, prev, ::trace::var("head", head), ::trace::var("prev", prev),
+                                    ::trace::var("curr", curr));
   }
 };
 

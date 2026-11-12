@@ -1,10 +1,19 @@
 // Binary Tree Preorder Traversal (iterative), instrumented by hand with
 // trace::record.
 //
-// Each record(...) call sits just before the statement it describes, and its
-// first argument is that statement's line in
-// fixtures/preorder_traversal_trace.cpp, the user's original source. As in
-// fixtures/two_sum_hand_inst.cpp, a loop header gets no record of its own.
+// Each line argument is a line in fixtures/preorder_traversal_trace.cpp, the
+// user's original source.
+//
+// Instrumentation, as the rewriter will write it:
+//  - ::trace::Frame on the first line of each function: pushes a frame for the
+//    call and pops it when the call ends.
+//  - ::trace::record(line, ...) before each statement. A loop header gets no
+//    record of its own: its body's statements do.
+//  - ::trace::Scope at the start of each loop body and each block that
+//    declares a variable, with the line of the statement that owns the block.
+//  - a record() before each return statement, then
+//    `return ::trace::ret<T>(line, value, ...)` for its return step
+//    (::trace::ret_void(line, ...) in a void function, also at the closing brace).
 //
 // Build, run, and compare with the golden trace, from the repository root:
 //   clang++ -std=c++20 -Wall -Wextra -Wpedantic -I adapters/cpp/runtime fixtures/preorder_traversal_hand_inst.cpp -o /tmp/preorder_traversal
@@ -26,13 +35,14 @@ using namespace std;
 class Solution {
 public:
   vector<int> preorderTraversal(TreeNode *root) {
+    ::trace::Frame frame("preorderTraversal");
     ::trace::record(4, ::trace::var("root", root));
     vector<int> result;
 
     ::trace::record(5, ::trace::var("root", root), ::trace::var("result", result));
     if (root == nullptr) {
       ::trace::record(6, ::trace::var("root", root), ::trace::var("result", result));
-      return result;
+      return ::trace::ret<vector<int>>(6, result, ::trace::var("root", root), ::trace::var("result", result));
     }
 
     ::trace::record(9, ::trace::var("root", root), ::trace::var("result", result));
@@ -43,6 +53,7 @@ public:
     st.push(root);
 
     while (!st.empty()) {
+      ::trace::Scope scope(12);
       ::trace::record(13, ::trace::var("root", root), ::trace::var("result", result),
                       ::trace::var("st", st));
       TreeNode *curr = st.top();
@@ -76,7 +87,8 @@ public:
     // the loop, and it is empty here.
     ::trace::record(24, ::trace::var("root", root), ::trace::var("result", result),
                     ::trace::var("st", st));
-    return result;
+    return ::trace::ret<vector<int>>(24, result, ::trace::var("root", root), ::trace::var("result", result),
+                                     ::trace::var("st", st));
   }
 };
 

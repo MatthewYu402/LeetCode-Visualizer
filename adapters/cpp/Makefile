@@ -92,7 +92,7 @@ RUN_LIMITED := perl -e 'alarm shift; exec @ARGV or die "cannot run $$ARGV[0]: $$
 
 # Each fixture is a hand-instrumented program, fixtures/<name>_hand_inst.cpp,
 # with a golden trace, fixtures/<name>.trace.json, where the name's _ is -.
-FIXTURES := two_sum reverse_list preorder_traversal clone_graph
+FIXTURES := two_sum reverse_list preorder_traversal clone_graph max_depth subsets
 $(addprefix $(BUILD)/,$(addsuffix _hand_inst,$(FIXTURES))): $(BUILD)/%: $(ROOT)/fixtures/%.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) -I $(RUNTIME) -MMD -MP $< -o $@
 
