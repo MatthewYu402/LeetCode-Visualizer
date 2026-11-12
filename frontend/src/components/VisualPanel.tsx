@@ -1,5 +1,5 @@
 import type { StepDiff } from "../trace/diff";
-import { isContainer, type Hint, type Step, type Trace } from "../trace/types";
+import { isContainer, topFrame, type Hint, type Step, type Trace } from "../trace/types";
 import { selectRenderer } from "../render/registry";
 
 interface Props {
@@ -25,7 +25,9 @@ export function VisualPanel({ trace, step, diff, notice }: Props) {
   const hints = new Map<string, Hint>();
   for (const p of trace.problem.params) if (p.hint) hints.set(p.name, p.hint);
 
-  const current = Object.entries(step.locals).filter(([, v]) => isContainer(v));
+  // The running frame's containers. Callers' frames are listed in the state panel.
+  const { locals } = topFrame(step);
+  const current = Object.entries(locals).filter(([, v]) => isContainer(v));
   // Container locals that went out of scope on this step: drawn faded with their old value, for this step only.
   const removed = Object.entries(diff?.locals ?? {}).filter(([, d]) => d.status === "removed" && d.prev !== undefined && isContainer(d.prev));
 
@@ -37,7 +39,7 @@ export function VisualPanel({ trace, step, diff, notice }: Props) {
     );
   }
 
-  const ctxBase = { locals: step.locals };
+  const ctxBase = { locals };
   return (
     <div className="panel-body visual">
       {current.map(([name, value]) => {

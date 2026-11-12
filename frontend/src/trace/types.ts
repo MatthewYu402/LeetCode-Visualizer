@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.5).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.6).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -95,11 +95,33 @@ export interface Problem {
   input: Record<string, unknown>;
 }
 
-export interface Step {
-  step: number;
+/** One function call in progress (spec §6, Frames). */
+export interface Frame {
+  /** One per call for the whole run: never shared, never reused. */
+  id: string;
+  function: string;
+  /** Top frame: the line about to run (or, in a return step, the line that returns). Others: the line whose call is in progress. */
   line: number;
   locals: Record<string, Value>;
+  /** Present only in a return step, on the top frame. null for a function with no return value. */
+  return_value?: Value;
+}
+
+export interface Step {
+  step: number;
+  /** The call stack, bottom to top: the last frame is the one running. Never empty. */
+  frames: Frame[];
   heap: Record<string, ObjectValue>;
+}
+
+/** The running frame: the one whose line is highlighted and whose locals are drawn. */
+export function topFrame(step: Step): Frame {
+  return step.frames[step.frames.length - 1];
+}
+
+/** True in a return step: this frame is returning, and `return_value` is what it returns. */
+export function isReturning(frame: Frame): boolean {
+  return "return_value" in frame && frame.return_value !== undefined;
 }
 
 export interface Trace {

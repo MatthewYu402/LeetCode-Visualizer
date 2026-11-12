@@ -1,7 +1,7 @@
 import type { Trace } from "./types";
 
 /** The only trace version this frontend reads. Spec §9: while the major is 0, every minor may break. */
-export const SUPPORTED_VERSION = "0.5";
+export const SUPPORTED_VERSION = "0.6";
 
 export type LoadResult = { ok: true; trace: Trace } | { ok: false; error: string };
 
@@ -38,8 +38,13 @@ export function checkTrace(data: unknown): LoadResult {
   }
   if (!Array.isArray(data.steps)) return fail("Trace has no steps array.");
   for (const [i, s] of data.steps.entries()) {
-    if (!isRecord(s) || typeof s.line !== "number" || !isRecord(s.locals)) {
-      return fail(`Step ${i} is malformed: it needs a numeric line and a locals object.`);
+    if (!isRecord(s) || !Array.isArray(s.frames) || s.frames.length === 0) {
+      return fail(`Step ${i} is malformed: it needs a non-empty frames array.`);
+    }
+    for (const [j, f] of s.frames.entries()) {
+      if (!isRecord(f) || typeof f.id !== "string" || typeof f.line !== "number" || !isRecord(f.locals)) {
+        return fail(`Step ${i}, frame ${j} is malformed: it needs an id, a numeric line, and a locals object.`);
+      }
     }
   }
   // `result` is optional: absent means the run did not finish (spec §3). `truncated`

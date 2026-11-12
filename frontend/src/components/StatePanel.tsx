@@ -1,6 +1,6 @@
 import type { StepDiff } from "../trace/diff";
 import { formatValue, kindOf } from "../trace/format";
-import { returnsVoid, runEnd, type RunEnd, type Step, type Trace, type Value } from "../trace/types";
+import { isReturning, returnsVoid, runEnd, topFrame, type Frame, type RunEnd, type Step, type Trace, type Value } from "../trace/types";
 import { diffClass } from "../render/ArrayRenderer";
 
 interface Props {
@@ -11,8 +11,9 @@ interface Props {
 }
 
 /**
- * The snapshot as a table: one row per local, plus, on the last step, the result, a
- * note that a void method returned no value, or why there is no result. A missing result means the method never returned. It is never
+ * The snapshot: the call stack (running frame first), then a table of the running
+ * frame's locals, its return value in a return step, and, on the last step, the
+ * result, a note that a void method returned no value, or why there is no result. A missing result means the method never returned. It is never
  * shown as a wrong answer: the visualizer has no expected answer to compare against.
  */
 export function StatePanel({ trace, step, index, diff }: Props) {
@@ -25,13 +26,14 @@ export function StatePanel({ trace, step, index, diff }: Props) {
   }
   const last = trace.steps.length - 1;
   const end = runEnd(trace);
+  const top = topFrame(step);
   const removed = Object.entries(diff?.locals ?? {}).filter(([, d]) => d.status === "removed");
 
   return (
     <div className="panel-body state">
       <div className="state-header">
         <span>
-          Step {index} of {last} · line {step.line}
+          Step {index} of {last} · line {top.line}
         </span>
         {trace.truncated === true && (
           <span className="badge badge-attention" title="Recording stopped at the step limit">
@@ -39,6 +41,7 @@ export function StatePanel({ trace, step, index, diff }: Props) {
           </span>
         )}
       </div>
+      <CallStack frames={step.frames} />
       <table className="state-table">
         <thead>
           <tr>
@@ -48,13 +51,18 @@ export function StatePanel({ trace, step, index, diff }: Props) {
           </tr>
         </thead>
         <tbody>
-          {Object.entries(step.locals).map(([name, v]) => (
+          {Object.entries(top.locals).map(([name, v]) => (
             <Row key={name} name={name} value={v} cls={diffClass(diff?.locals[name]?.status)} />
           ))}
           {removed.map(([name, d]) => (
             <Row key={`removed-${name}`} name={name} value={d.prev ?? null} cls="diff-removed" />
           ))}
         </tbody>
+        {isReturning(top) && (
+          <tbody className="state-return">
+            <Row name="returns" value={top.return_value as Value} cls="return-row" />
+          </tbody>
+        )}
         {index === last && (
           <tbody className="state-result">
             {end !== "returned" ? (
@@ -68,6 +76,25 @@ export function StatePanel({ trace, step, index, diff }: Props) {
         )}
       </table>
     </div>
+  );
+}
+
+/**
+ * The call stack, running frame first (the way debuggers list it). Each row is a
+ * function and the line it is on. A frame that is returning says so.
+ */
+function CallStack({ frames }: { frames: Frame[] }) {
+  const ordered = [...frames].reverse();
+  return (
+    <ol className="call-stack" aria-label="Call stack">
+      {ordered.map((f, i) => (
+        <li key={f.id} className={i === 0 ? "frame frame-top" : "frame"}>
+          <span className="frame-function">{f.function}</span>
+          <span className="frame-line">line {f.line}</span>
+          {isReturning(f) && <span className="frame-returning">returning</span>}
+        </li>
+      ))}
+    </ol>
   );
 }
 

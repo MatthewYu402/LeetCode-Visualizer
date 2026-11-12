@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.5).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.6).
 
 Claude writes the frontend code; the author writes the adapter runtime and rewriter.
 
@@ -33,8 +33,8 @@ src/
 ├── main.tsx             entry
 ├── fixtures.ts          stand-in for the backend: language -> source + trace (imports ../fixtures with ?raw)
 ├── trace/
-│   ├── types.ts         TypeScript mirror of the schema, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.5")
+│   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.6")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   └── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap
 ├── player/
@@ -66,6 +66,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`.
 11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`.
 12. **The title is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`.
+13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel lists every frame, running frame first. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
 
 ## Theme tokens (GitHub dark)
 

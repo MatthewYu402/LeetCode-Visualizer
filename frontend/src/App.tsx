@@ -9,7 +9,7 @@ import { fixtureFor, NO_TRACE_NOTICE } from "./fixtures";
 import { usePlayer } from "./player/usePlayer";
 import type { PlayerAction } from "./player/playback";
 import { diffForStep } from "./trace/diff";
-import { problemTitle } from "./trace/types";
+import { problemTitle, topFrame } from "./trace/types";
 
 /** The sandbox page: replays a fixture trace. */
 export function App() {
@@ -63,7 +63,7 @@ export function App() {
           first={
             <section className="panel" aria-label="Code">
               <h2 className="panel-title">Code</h2>
-              <CodePanel source={source} language={monacoLanguage(language)} line={step?.line ?? null} onChange={setSource} />
+              <CodePanel source={source} language={monacoLanguage(language)} line={step ? topFrame(step).line : null} onChange={setSource} />
             </section>
           }
           second={

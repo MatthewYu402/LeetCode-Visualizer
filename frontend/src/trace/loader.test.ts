@@ -6,16 +6,16 @@ import { problemTitle, returnsVoid, runEnd } from "./types";
 const withVersion = (version: string) => JSON.stringify({ ...JSON.parse(twoSum), version });
 
 describe("loadTrace", () => {
-  it("accepts version 0.5 (the Two Sum fixture)", () => {
+  it("accepts version 0.6 (the Two Sum fixture)", () => {
     const r = loadTrace(twoSum);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.trace.steps).toHaveLength(9);
+    if (r.ok) expect(r.trace.steps).toHaveLength(10);
   });
 
-  it.each(["0.1", "0.2", "0.3", "0.4", "0.6", "1.0", "1.5"])("rejects version %s with an error", (v) => {
+  it.each(["0.1", "0.2", "0.3", "0.4", "0.5", "0.7", "1.0", "1.6"])("rejects version %s with an error", (v) => {
     const r = loadTrace(withVersion(v));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe(`Unsupported trace version "${v}". This frontend reads version 0.5 only.`);
+    if (!r.ok) expect(r.error).toBe(`Unsupported trace version "${v}". This frontend reads version 0.6 only.`);
   });
 
   it("accepts a trace with no result: the run did not finish", () => {
@@ -34,8 +34,25 @@ describe("loadTrace", () => {
     expect(loadTrace('{"version":"0.2","x":NaN}').ok).toBe(false);
   });
 
-  it("rejects text that is not JSON in a 0.5 trace too", () => {
-    expect(loadTrace('{"version":"0.5","x":Infinity}').ok).toBe(false);
+  it("rejects text that is not JSON in a 0.6 trace too", () => {
+    expect(loadTrace('{"version":"0.6","x":Infinity}').ok).toBe(false);
+  });
+
+  it("rejects a step in the v0.5 shape, with line and locals and no frames", () => {
+    const t = JSON.parse(twoSum);
+    const { frames, ...rest } = t.steps[2];
+    t.steps[2] = { ...rest, line: frames[0].line, locals: frames[0].locals };
+    const r = loadTrace(JSON.stringify(t));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/Step 2 is malformed: it needs a non-empty frames array/);
+  });
+
+  it("rejects a frame without a line", () => {
+    const t = JSON.parse(twoSum);
+    delete t.steps[1].frames[0].line;
+    const r = loadTrace(JSON.stringify(t));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/Step 1, frame 0 is malformed/);
   });
 
   it("rejects a malformed step", () => {

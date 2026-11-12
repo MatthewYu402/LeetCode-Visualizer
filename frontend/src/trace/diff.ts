@@ -1,5 +1,5 @@
 import { canonical, valuesEqual } from "./format";
-import { hasItems, isTagged, type Step, type Value } from "./types";
+import { hasItems, isTagged, topFrame, type Step, type Value } from "./types";
 
 // Diffs are for animation only (spec §6). A step must draw correctly with no diff.
 
@@ -28,18 +28,27 @@ export interface ValueDiff {
 }
 
 export interface StepDiff {
-  /** One entry per local in either step. Removed locals are included. */
+  /** The running frame's locals: one entry per local in either version of that frame. Removed locals are included. */
   locals: Record<string, ValueDiff>;
 }
 
-/** Diff two adjacent steps, local by local. Pure. */
+/**
+ * Diff two adjacent steps, local by local, for the running frame. Pure.
+ *
+ * The running frame of `curr` is compared with the frame that has the same id in
+ * `prev`, wherever it sat on the stack. So after a return, the caller is compared
+ * with its own earlier self, and the variable that took the returned value shows as
+ * changed. A frame that is new in `curr` (a call just began) has every local added.
+ */
 export function diff(prev: Step, curr: Step): StepDiff {
+  const now = topFrame(curr);
+  const before = prev.frames.find((f) => f.id === now.id)?.locals ?? {};
   const locals: Record<string, ValueDiff> = {};
-  for (const [name, value] of Object.entries(curr.locals)) {
-    locals[name] = name in prev.locals ? diffValue(prev.locals[name], value) : { status: "added" };
+  for (const [name, value] of Object.entries(now.locals)) {
+    locals[name] = name in before ? diffValue(before[name], value) : { status: "added" };
   }
-  for (const [name, value] of Object.entries(prev.locals)) {
-    if (!(name in curr.locals)) locals[name] = { status: "removed", prev: value };
+  for (const [name, value] of Object.entries(before)) {
+    if (!(name in now.locals)) locals[name] = { status: "removed", prev: value };
   }
   return { locals };
 }

@@ -26,20 +26,20 @@ describe("tagged numbers", () => {
 
   it("survives the loader", () => {
     const t = {
-      version: "0.5", language: "x", problem: { method: "f", params: [], input: {} },
-      steps: [{ step: 0, line: 1, heap: {}, locals: { a: { kind: "int", value: "18446744073709551615" }, b: { kind: "float", value: "-Infinity" } } }],
+      version: "0.6", language: "x", problem: { method: "f", params: [], input: {} },
+      steps: [{ step: 0, heap: {}, frames: [{ id: "f1", function: "f", line: 1, locals: { a: { kind: "int", value: "18446744073709551615" }, b: { kind: "float", value: "-Infinity" } } }] }],
       result: null,
     };
     const r = loadTrace(JSON.stringify(t));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(formatValue(r.trace.steps[0].locals.a)).toBe("18446744073709551615");
-    expect(formatValue(r.trace.steps[0].locals.b)).toBe("-∞");
+    expect(formatValue(r.trace.steps[0].frames[0].locals.a)).toBe("18446744073709551615");
+    expect(formatValue(r.trace.steps[0].frames[0].locals.b)).toBe("-∞");
   });
 });
 
 describe("formatValue", () => {
-  it("formats every v0.5 kind compactly", () => {
+  it("formats every v0.6 kind compactly", () => {
     expect(formatValue({ kind: "multiset", items: [1, 1, 3] })).toBe("{1, 1, 3}");
     expect(formatValue({ kind: "multimap", entries: [[1, "a"], [1, "b"]] })).toBe('{1: "a", 1: "b"}');
     expect(formatValue({ kind: "array", items: [2, 7, 11, 15] })).toBe("[2, 7, 11, 15]");
