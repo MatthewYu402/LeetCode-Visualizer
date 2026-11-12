@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.5
+> **Status:** Draft v0.6
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.5",
+  "version": "0.6",
   "language": "cpp",
   "problem": { ... },
   "steps": [ ... ],
@@ -123,7 +123,9 @@ An absent `result` does **not** mean a wrong answer. A wrong solution still retu
 | `null` | any other type, or `returns` absent | The method returned "no value": a null pointer, `None`, an empty optional |
 | a value | not `"void"` | The method returned that value |
 
-For a `void` method the answer the user cares about is the input it changed. Steps are taken before each line, so the last statement's effect is not in any ordinary step. Adapters should record one more step when the method is about to return, with `line` set to the line that ends the method (in C++, its closing brace). That step shows the final state.
+For a `void` method the answer the user cares about is the input it changed. Steps are taken before each line, so the last statement's effect is not in any ordinary step. The method's **return step** shows it: every function call ends with one, including a `void` method that runs off its closing brace ([Return steps](#return-steps)).
+
+`result` and the bottom frame's last `return_value` hold the same value. Both are kept: `result` is the answer of the run in one place, and it is the only one a trace has when the frontend shows a summary, while the return step is what the player steps through.
 
 ## 4. Problem metadata
 This describes what was run. It also gives the frontend hints so it can pick a renderer (for example, "this `array` of `array`s is a grid").
@@ -219,7 +221,10 @@ These are represented as objects stored in a per-step `heap`, referenced by ID:
 
 ```json
 {
-  "locals": {"root": {"kind": "ref", "id": "n1"}},
+  "frames": [
+    {"id": "f1", "function": "maxDepth", "line": 4,
+     "locals": {"root": {"kind": "ref", "id": "n1"}}}
+  ],
   "heap": {
     "n1": {"kind": "object", "type": "TreeNode",
            "fields": {"val": 5,
@@ -231,7 +236,9 @@ These are represented as objects stored in a per-step `heap`, referenced by ID:
 }
 ```
 
-This is how C++ `TreeNode*`, a Python `TreeNode` instance, and a Go `*TreeNode` all become the same thing. So does an object a variable holds directly, such as C++ `ListNode dummy(0);`: the object goes in the heap and the variable is a `ref` to it, so a pointer to that object shares its id. An `object` never appears inline in `locals` or inside another value.
+The heap belongs to the step, not to a frame. Every frame's `ref`s point into it, so a node a caller and a callee both hold is one object with one id.
+
+This is how C++ `TreeNode*`, a Python `TreeNode` instance, and a Go `*TreeNode` all become the same thing. So does an object a variable holds directly, such as C++ `ListNode dummy(0);`: the object goes in the heap and the variable is a `ref` to it, so a pointer to that object shares its id. An `object` never appears inline in a frame's `locals` or inside another value.
 
 The return value has a heap of its own, `result_heap` ([The return value](#the-return-value)). The frontend recognizes a tree from the object's shape (`val`, `left`, `right`) or from the problem hint.
 
@@ -262,13 +269,15 @@ Bare JSON primitives: numbers, strings, `true`/`false`, `null`. Everything else 
 > **Key Insight 5: a kind is for what the type tells the adapter. A hint is for what only the problem knows.** `stack<int>` is a stack from its type alone, so it has a kind. A `vector<vector<int>>` could be a grid, an adjacency matrix, or an edge list, and nothing in the data says which, so that is a hint.
 
 ## 6. Steps
-A step is one snapshot of program state
+A step is one snapshot of program state: the call stack, and the objects every frame on it can reach.
 
 ```json
 {
   "step": 4,
-  "line": 12,
-  "locals": { "i": 1, "complement": 2 },
+  "frames": [
+    {"id": "f1", "function": "twoSum", "line": 12,
+     "locals": {"i": 1, "complement": 2}}
+  ],
   "heap": {}
 }
 ```
@@ -276,9 +285,55 @@ A step is one snapshot of program state
 | Field | Description |
 |---|---|
 | `step` | Zero-based index |
-| `line` | Line number in the **user's original source** about to execute (pre-execution snapshot) |
-| `locals` | Variables in scope, name to value. Includes parameters |
-| `heap` | Objects referenced by `ref`s in this step (may be empty) |
+| `frames` | The call stack: one frame per function call in progress, **bottom to top**, so the last frame is the one running. Never empty |
+| `heap` | Objects referenced by `ref`s anywhere in this step: in any frame's `locals` or `return_value` (may be empty) |
+
+### Frames
+
+| Field | Description |
+|---|---|
+| `id` | Identifies one call, for the whole run: `"f1"`, `"f2"`, ... Two calls never share an id, even calls of the same function at the same depth. An id is never reused after its call returns |
+| `function` | The function's name as written in the user's source, such as `maxDepth`. The bottom frame is the method the driver called, `problem.method` |
+| `line` | A line in the **user's original source**. In the top frame it is the line **about to execute** (a pre-execution snapshot). In every other frame it is the line whose call is in progress |
+| `locals` | Variables in scope in this call, name to value. Includes parameters |
+| `return_value` | Optional. Present only in a [return step](#return-steps), and only on the top frame: the value this call is returning. `null` for a function that returns no value |
+
+```json
+{
+  "step": 9,
+  "frames": [
+    {"id": "f1", "function": "maxDepth", "line": 7,
+     "locals": {"root": {"kind": "ref", "id": "n1"}}},
+    {"id": "f2", "function": "maxDepth", "line": 4,
+     "locals": {"root": {"kind": "ref", "id": "n2"}}}
+  ],
+  "heap": {"n1": {...}, "n2": {...}, "n3": {...}}
+}
+```
+
+Here `maxDepth` was called on `n1`, and on line 7 it called itself on `n2`. That call is about to run its line 4.
+
+- **The order is the `stack` kind's order.** Bottom to top, last item on top, so there is one convention for every stack in a trace.
+- **A non-recursive method has one frame.** Its trace is the same as before frames existed, with `line` and `locals` moved one level down.
+- **Every frame shows its live state.** A caller's `locals` are its variables as they are *now*, not when it made the call. A callee that changes a vector the caller passed by reference changes the caller's frame too, because it is one vector.
+
+> **Key Insight 6: frame ids are to calls what object ids are to objects.** Depth alone cannot tell two calls apart: in `f(a) + f(b)` the first call returns and the second begins at the same depth, between two steps. With ids, the frontend sees one frame pop and a new one push, instead of one frame that changed.
+
+### Return steps
+Every step is taken before its line runs, so a value being returned would never be seen: the frame is gone by the next step, and the caller's variable has silently changed. Each call therefore ends with one **return step**:
+
+- The top frame has `return_value`, the value the call is returning, and `line` is the line that returns: the `return` statement, or the closing brace of a function that runs off its end.
+- It is taken **after** that line's expression has been evaluated and **before** the frame is removed. It is the one kind of step that is not "about to execute".
+- The next step has the frame removed. The caller's `line` is unchanged, because the call on that line is still being finished.
+
+```json
+{"id": "f2", "function": "maxDepth", "line": 7, "locals": {"root": {"kind": "ref", "id": "n2"}, "left": 0, "right": 0},
+ "return_value": 1}
+```
+
+`return_value` follows the same rule as `result`: present only when it says something. It is never `null` as a placeholder. A frame without it has not returned yet.
+
+A call that ends by an exception has no return step. Exceptions are rare in LeetCode solutions and the format does not model them yet.
 
 ### Snapshots, not events
 Each step is the **full state**, not a description of what happened.
@@ -287,7 +342,7 @@ An event log (`insert(2, 0)`, `i=1`, ...) forces the frontend to replay events 1
 
 The diff between two adjacent snapshots is used only to **animate** what changes (what was added, removed, or modified). It is not needed to render a step.
 
-> **Key Insight 6: snapshots give random access and trivial rewind, at the cost of size.** Snapshots repeat unchanged data. For LeetCode-sized examples with a capped step count, the cost is negligible.
+> **Key Insight 7: snapshots give random access and trivial rewind, at the cost of size.** Snapshots repeat unchanged data. For LeetCode-sized examples with a capped step count, the cost is negligible.
 
 ### Limits
 Adapters must stop recording at a configured maximum (default: 2,000 steps) and set `"truncated": true` at the top level. Traces are intended for small example inputs.
@@ -299,13 +354,13 @@ After writing it, the adapter may stop the program or let it run on. If the prog
 The sandbox's time limit is still needed for a loop that never reaches the tracer, for example one inside library code. That run ends in an error, not a trace.
 
 ## 7. Full Example: Two Sum
-Input: `nums = [2, 7, 11, 15]`, `target = 9`. Source line numbers refer to the user's `Solution` class as pasted. Each snapshot is taken **before** its line executes.
+Input: `nums = [2, 7, 11, 15]`, `target = 9`. Source line numbers refer to the user's `Solution` class as pasted. Each snapshot is taken **before** its line executes, except the last, which is the method's return step.
 
-This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json): steps 3 to 7 are left out.
+This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json): steps 3 to 7 are left out. `twoSum` calls no function of the user's, so every step has one frame.
 
 ```json
 {
-  "version": "0.5",
+  "version": "0.6",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -317,17 +372,21 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
     "input": {"nums": [2, 7, 11, 15], "target": 9}
   },
   "steps": [
-    {"step": 0, "line": 5, "heap": {},
-     "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}},
-    {"step": 1, "line": 8, "heap": {},
+    {"step": 0, "heap": {}, "frames": [{"id": "f1", "function": "twoSum", "line": 5,
+     "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}}]},
+    {"step": 1, "heap": {}, "frames": [{"id": "f1", "function": "twoSum", "line": 8,
      "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9,
-                "numMap": {"kind": "map", "entries": []}, "i": 0}},
-    {"step": 2, "line": 9, "heap": {},
+                "numMap": {"kind": "map", "entries": []}, "i": 0}}]},
+    {"step": 2, "heap": {}, "frames": [{"id": "f1", "function": "twoSum", "line": 9,
      "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9,
-                "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}},
-    {"step": 8, "line": 12, "heap": {},
+                "numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7}}]},
+    {"step": 8, "heap": {}, "frames": [{"id": "f1", "function": "twoSum", "line": 12,
      "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9,
-                "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}}
+                "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2}}]},
+    {"step": 9, "heap": {}, "frames": [{"id": "f1", "function": "twoSum", "line": 12,
+     "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9,
+                "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "complement": 2},
+     "return_value": {"kind": "array", "items": [0, 1]}}]}
   ],
   "result": {"kind": "array", "items": [0, 1]}
 }
@@ -338,7 +397,7 @@ The frontend reads `nums` as an `array` (array renderer, with `i` as a pointer) 
 
 
 ## 8. Rules for adapter authors
-> **Key Insight 7: normalize *representation*, never hide *behavior***
+> **Key Insight 8: normalize *representation*, never hide *behavior***
 
 Adapters must:
 1. Map every native type to a kind from [Section 5](#5-the-value-model). Never emit raw debugger or language output. An unrecognized type is an error, never a pass-through.
@@ -354,6 +413,9 @@ Adapters must:
 11. When `result` contains a `ref`, write `result_heap` with every object reachable from it, using the same ids as the steps. Otherwise leave `result_heap` out ([The return value](#the-return-value)).
 12. For a `void` method that returned, write `"result": null` and `"returns": {"type": "void"}`.
 13. Write every object in a heap, including one a variable holds by value. Never write an `object` inline.
+14. Write the whole call stack in every step, bottom to top, with every frame's locals as they are at that step ([Frames](#frames)).
+15. Give every call its own frame id, and never reuse one.
+16. End every call that returns with a return step, with `return_value` on the top frame only ([Return steps](#return-steps)).
 
 ### What is a bug and what is not
 Two adapters running the same algorithm may legitimately produce different traces
@@ -371,9 +433,13 @@ Two adapters running the same algorithm may legitimately produce different trace
 | `result` is a `ref` and there is no `result_heap` | **Yes**: the frontend has a reference to nothing |
 | A `void` method that returned has no `result` | **Yes**: absent means it did not return |
 | A by-value object and a pointer to it have different ids | **Yes**: one object, one id (rule 3) |
+| A caller's frame shows a vector as it was before the call, after the callee changed it | **Yes**: every frame shows its live state |
+| Two calls at the same depth share a frame id | **Yes**: the frontend cannot see one return and the next begin |
+| A call returns with no return step | **Yes**: the value it returned is never shown |
 | Map entries appear in different order | No: iteration order is real language behavior |
 | `priority-queue` items differ after `items[0]` | No: heap layout is real standard-library behavior |
 | Different step counts or line numbers | No: different source files |
+| One language shows a frame for a helper the other inlined by hand | No: different source files |
 | Integer overflow happens in C++ but not in Python | No: genuine semantic difference |
 
 **The rule**: The same concept must always look the same in the trace, but the program's actual behavior is allowed to differ.
@@ -387,6 +453,10 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.6** (breaking):
+  - A step's `line` and `locals` move into `frames`, the call stack, bottom to top. Each frame has an `id`, a `function`, a `line`, and `locals`.
+  - Every call ends with a return step: the top frame carries `return_value`.
+  - A v0.5 trace is rejected, because its steps have no `frames`. Converting one is mechanical: wrap `line` and `locals` in one frame.
 - **v0.5**:
   - Adds the optional top-level `result_heap`: the objects a `ref` in `result` points to.
   - Adds the optional `problem.returns`: the method's neutral return type, with `"void"` for a method that returns no value.
@@ -412,7 +482,7 @@ History:
 
 ## 10. Validation and testing
 - A JSON Schema for this format lives in `schema/trace.schema.json`. CI (`.github/workflows/ci.yml`) validates every golden fixture against it, and the C++ adapter's end-to-end check (`make -C adapters/cpp e2e`) validates the traces the adapter writes. Both use `tools/check_trace.py`. Every new adapter's output must be checked the same way.
-- The schema checks structure only. `tools/check_trace.py` also checks what the schema cannot express: every `ref` in a step names an object in that step's `heap`, and every `ref` in `result` names an object in `result_heap`.
+- The schema checks structure only. `tools/check_trace.py` also checks what the schema cannot express: every `ref` in a step names an object in that step's `heap`, and every `ref` in `result` names an object in `result_heap`; only the top frame has `return_value`; frame ids are unique within a step; and a frame id keeps one function name for the whole run and never comes back after its call returned.
 - The validator must reject the bare tokens `NaN` and `Infinity`. Python's `json` module accepts them by default, so load traces with `json.load(..., parse_constant=...)` set to raise.
 - **Golden traces**: for each problem example, a reference trace is stored as a fixture. Adapters are checked against it for **structural equivalence** (same kinds, same shapes), not byte-for-byte equality
 - The frontend can be developed against hand-written traces with no backend at all.
@@ -465,3 +535,11 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q14. Why is a `void` method's result `null` and not absent, or a new kind?** Absent already has a meaning: the method did not return ([Q10](#12-design-questions)). A `void` method that finishes did return, so the field must be present. `null` already means "no value", which is exactly what a `void` method returns, so no new kind is needed. The one thing `null` cannot say is whether the method *could* have returned something, and that is a fact about the signature, not about this run. So it lives in the problem metadata, as `returns.type`.
 
 > **Q15. Why is an object held by value written as a `ref` instead of inline?** Because a pointer to it is a `ref`, and both must be the same object in the trace. With `ListNode dummy(0); ListNode* tail = &dummy;` an inline `dummy` would draw two nodes where the program has one, and a change made through `tail` would show up on only one of them. It also keeps languages alike: in Python and Java every object is reached through a reference, so `dummy = ListNode(0)` was always a `ref`.
+
+> **Q16. Why does a frame carry `line` and `locals`, instead of a step keeping them for the top frame and adding a list of callers?** So a frame is written one way. With `line` and `locals` on the step plus a `callers` list, the running call would be described in one shape and every other call in another, and the frontend would have to merge them back into one list to draw a call stack. A step with one list of frames has one shape whether the program is recursive or not.
+
+> **Q17. Why re-serialize every caller at every step, instead of keeping each caller as it was when it made its call?** Because callers change while their callees run. Recursive solutions pass `path`, `visited`, or `grid` by reference, and the callee changes them. A caller frame copied at call time would show stale data, which hides behavior (Key Insight 8). Its `ref`s could also name objects that are no longer in the current step's heap.
+
+> **Q18. Why a separate return step instead of a `return_value` on the next step?** The next step no longer has the frame: the call is over. The only moment both the returning call's locals and its return value exist is between evaluating the `return` and leaving the function, and that is what the return step shows. It is also how a recursive answer travels: the user watches each frame return its value, then sees the caller use it.
+
+> **Q19. Why is `return_value` absent on a frame that has not returned, instead of `null`?** For the same reason as `result` (Q10): `null` is a real return value. A `void` function's return step has `"return_value": null`, and a frame still running has no field at all.

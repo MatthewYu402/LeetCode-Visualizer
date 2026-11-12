@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.5).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.6).",
   "type": "object",
   "required": [
     "version",
@@ -481,12 +481,49 @@
         }
       }
     },
+    "frame": {
+      "type": "object",
+      "required": [
+        "id",
+        "function",
+        "line",
+        "locals"
+      ],
+      "additionalProperties": false,
+      "description": "One function call in progress.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Identifies this call for the whole run. Never shared, never reused."
+        },
+        "function": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The function's name in the user's source."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Line in the user's original source. Top frame: about to execute (or, in a return step, the line that returns). Other frames: the line whose call is in progress."
+        },
+        "locals": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        "return_value": {
+          "description": "Present only in a return step, on the top frame: the value this call returns. null for a function with no return value. Never a placeholder.",
+          "$ref": "#/$defs/value"
+        }
+      }
+    },
     "step": {
       "type": "object",
       "required": [
         "step",
-        "line",
-        "locals",
+        "frames",
         "heap"
       ],
       "additionalProperties": false,
@@ -495,20 +532,17 @@
           "type": "integer",
           "minimum": 0
         },
-        "line": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Line in the user's original source, about to execute."
-        },
-        "locals": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/value"
+        "frames": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The call stack, bottom to top: the last frame is the call that is running.",
+          "items": {
+            "$ref": "#/$defs/frame"
           }
         },
         "heap": {
           "type": "object",
-          "description": "Objects referenced by 'ref' values, keyed by id.",
+          "description": "Objects referenced by 'ref' values anywhere in this step (any frame's locals or return_value), keyed by id.",
           "additionalProperties": {
             "$ref": "#/$defs/object"
           }

@@ -12,9 +12,13 @@ Every file is always:
   - loaded as JSON, rejecting the bare tokens NaN, Infinity and -Infinity,
     which Python's json module accepts by default
   - validated against schema/trace.schema.json
-  - checked for dangling refs, which the schema cannot express: every ref in
-    a step must name an object in that step's heap, and every ref in the
-    result must name an object in result_heap
+  - checked for what the schema cannot express:
+      refs: every ref in a step (in any frame's locals or return_value) names
+        an object in that step's heap, and every ref in the result names an
+        object in result_heap
+      frames: only the top frame has return_value; frame ids are unique in a
+        step; an id keeps one function name for the whole run, and never comes
+        back after its call returned
 
 Options add checks:
   --equals FIXTURE    the parsed trace must equal the parsed fixture. The
@@ -149,9 +153,32 @@ def check_refs(doc):
                 raise CheckError(f'{where}: ref "{ref}" names no object in {"its heap" if heap else "any heap (there is none)"}')
 
     for i, step in enumerate(doc["steps"]):
-        missing(step["locals"], step["heap"], f"$.steps[{i}]")
+        missing(step["frames"], step["heap"], f"$.steps[{i}]")
     if "result" in doc:
         missing(doc["result"], doc.get("result_heap", {}), "$.result")
+
+
+def check_frames(doc):
+    """Frame rules from trace-format.md section 6, Frames and Return steps."""
+    function_of = {}   # frame id -> function name, for the whole run
+    returned = set()   # ids whose call has ended: they must never appear again
+    previous = []
+    for i, step in enumerate(doc["steps"]):
+        frames = step["frames"]
+        ids = [f["id"] for f in frames]
+        where = f"$.steps[{i}].frames"
+        if len(set(ids)) != len(ids):
+            raise CheckError(f"{where}: a frame id appears twice in one step")
+        for depth, f in enumerate(frames):
+            if "return_value" in f and depth != len(frames) - 1:
+                raise CheckError(f'{where}[{depth}]: "return_value" on a frame that is not the top one')
+            if f["id"] in returned:
+                raise CheckError(f'{where}[{depth}]: frame "{f["id"]}" appears again after its call returned')
+            known = function_of.setdefault(f["id"], f["function"])
+            if known != f["function"]:
+                raise CheckError(f'{where}[{depth}]: frame "{f["id"]}" was {json.dumps(known)}, now {json.dumps(f["function"])}')
+        returned |= set(previous) - set(ids)
+        previous = ids
 
 
 def check_truncated(doc):
@@ -199,6 +226,7 @@ def check_file(path, validator, fixture, expect):
         raise CheckError(f"{len(errors)} schema error(s)\n" + "\n".join("    " + l for l in lines))
 
     check_refs(doc)
+    check_frames(doc)
 
     if fixture is not None:
         diff = first_difference(doc, fixture[1], [])
