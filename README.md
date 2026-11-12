@@ -21,15 +21,16 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 | Area | Status |
 |---|---|
-| Trace format specification | Draft v0.5 |
-| JSON Schema + golden fixture (Two Sum) | v0.5, validated |
+| Trace format specification | Draft v0.6 |
+| JSON Schema + golden fixtures | v0.6, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking) |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object`, and so do those objects held by value |
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
+| C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
 | CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
 | C++ adapter: driver, rewriter | Planned |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.5 (every kind, unfinished runs, `void` results) and replays the Two Sum fixture |
+| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.6 (every kind, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
 | API service + sandbox | Planned |
 
@@ -41,11 +42,11 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.5 |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.6 |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.5 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example | v0.5 |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.6 |
+| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.6 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft |
@@ -249,16 +250,20 @@ Input `nums = [2, 7, 11, 15]`, `target = 9`, using the `Solution` from LeetCode 
 ```json
 {
   "step": 5,
-  "line": 8,
-  "locals": {
-    "nums":   {"kind": "array", "items": [2, 7, 11, 15]},
-    "target": 9,
-    "numMap": {"kind": "map", "entries": [[2, 0]]},
-    "i": 1
-  },
+  "frames": [
+    {"id": "f1", "function": "twoSum", "line": 8,
+     "locals": {
+       "nums":   {"kind": "array", "items": [2, 7, 11, 15]},
+       "target": 9,
+       "numMap": {"kind": "map", "entries": [[2, 0]]},
+       "i": 1
+     }}
+  ],
   "heap": {}
 }
 ```
+
+`frames` is the call stack, bottom to top. Two Sum calls no function of its own, so it always has one frame. A recursive solution has one frame per call level, each with its own `line` and `locals`, and every call ends with a **return step** whose top frame carries `return_value`, so you can watch the answer travel back up the stack. See [steps](docs/trace-format.md#6-steps).
 
 What the frontend draws for that step:
 
@@ -317,7 +322,8 @@ For linked structures (trees, linked lists, graphs) the trace uses Python Tutor'
 
 ```json
 {
-  "locals": {"root": {"kind": "ref", "id": "n3"}},
+  "frames": [{"id": "f1", "function": "maxDepth", "line": 4,
+              "locals": {"root": {"kind": "ref", "id": "n3"}}}],
   "heap": {
     "n3": {"kind": "object", "type": "TreeNode",
            "fields": {"val": 5,
@@ -404,12 +410,11 @@ These are the decisions that shaped the project. Each links to where it is expla
 
 Gaps in the trace format that the tracing work exposed. They are planned for a minor version. Details in [`native-tracing.md` §8](docs/native-tracing.md#8-open-questions).
 
-1. **Call stack.** A step records one frame's `locals`. Recursive solutions (tree DFS, backtracking) need a stack of frames.
-2. **Aliasing of containers.** Only objects have ids, so two variables pointing at the same container appear as two copies.
-3. **Member variables.** Fields on the `Solution` instance (memo tables, visited sets) have nowhere to go yet.
-4. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
+1. **Aliasing of containers.** Only objects have ids, so two variables pointing at the same container appear as two copies.
+2. **Member variables.** Fields on the `Solution` instance (memo tables, visited sets) have nowhere to go yet.
+3. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
 
-Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5.
+Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6.
 
 ---
 
@@ -442,7 +447,8 @@ Items marked *(planned)* do not exist yet.
 │   └── trace.schema.json      machine-readable contract
 ├── fixtures/
 │   ├── <name>.trace.json      golden traces: two-sum, reverse-list,
-│   │                          preorder-traversal, clone-graph
+│   │                          preorder-traversal, clone-graph,
+│   │                          max-depth, subsets
 │   ├── <name>_trace.cpp       the solution each golden trace records
 │   └── <name>_hand_inst.cpp   the same solution, instrumented by hand
 ├── tools/
@@ -458,6 +464,7 @@ Items marked *(planned)* do not exist yet.
 │           ├── test_record.cpp
 │           ├── test_write_file.cpp
 │           ├── test_pointers.cpp
+│           ├── test_frames.cpp
 │           ├── test_document.cpp
 │           └── programs/
 │               ├── loop_forever.cpp    never returns; proves the step cap
@@ -494,14 +501,15 @@ Tentative. The architecture does not depend on these choices.
 
 ## Roadmap
 
-- [x] Trace format specification and JSON Schema (v0.5)
+- [x] Trace format specification and JSON Schema (v0.6)
 - [x] Tracing strategy docs (native, DAP)
 - [x] C++ serializers for every value kind, including pointers and by-value objects as `ref` and `object`
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
 - [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
 - [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
 - [ ] Any C++ solution: driver generation, LibTooling rewriter, hint inference
-- [ ] Resolve the open questions above (call stack first)
+- [x] The call stack: frames and return steps, with recursive golden traces
+- [ ] Resolve the open questions above
 - [ ] API service and sandbox
 - [ ] Python adapter, proving the schema is truly language-neutral
 - [ ] More renderers (union-find, trie), diff animations, "view as" override

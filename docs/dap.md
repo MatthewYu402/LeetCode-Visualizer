@@ -233,10 +233,10 @@ Both must produce traces that pass the same schema.
 
 `native-tracing.md` Section 8 lists gaps in `trace-format.md`. DAP handles two of them naturally:
 
-- **Call stack:** `stackTrace` returns every frame, so a future `stack` field costs little here.
+- **Call stack** (in the format since v0.6, as `frames`): `stackTrace` returns every frame, so a DAP tracer asks for all levels instead of one and maps each user-code frame to a trace frame. DAP frame ids are only valid while the program is stopped, so the tracer assigns its own call ids (`f1`, `f2`, ...) by tracking calls between stops. Return values are harder: DAP has no uniform way to read one, so return steps may need a debugger-specific extension or a `finish`-style step.
 - **Member variables:** `this` / `self` appears in the `Locals` scope with expandable children.
 
-So the trace format should be extended with these in mind, since both strategies can supply them.
+Both strategies can supply these, so the trace format extends with both in mind.
 
 ---
 

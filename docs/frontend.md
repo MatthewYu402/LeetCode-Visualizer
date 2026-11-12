@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.2 (reads trace format v0.5)
+> **Status:** Draft v0.2 (reads trace format v0.6)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace this version replays), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -82,10 +82,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The trace is imported as text, not as a JSON module, so it goes through the same `JSON.parse` call in the loader that a response from the API will. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.5"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.6"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.5 only.
+Unsupported trace version "0.2". This frontend reads version 0.6 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
@@ -100,6 +100,8 @@ Spec [§9](trace-format.md#9-versioning): while the major version is 0, any mino
 | absent | absent | `stopped` | `did not return: the run ended early` |
 
 A `void` method that returned has `"result": null`, which alone would read as a returned null pointer. `returnsVoid(problem)` in `trace/types.ts` checks `problem.returns.type === "void"` ([trace-format.md §3, The return value](trace-format.md#the-return-value)), and the state panel then shows `returned, no value` with the kind `void` instead of `null`.
+
+**The call stack.** A step is a list of frames (trace format v0.6). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. Above the table, the state panel lists every frame, running frame first, as `function · line N`, and marks a frame that is `returning`. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. Drawing callers' structures, and animating frames as they push and pop, is planned.
 
 `result_heap` (the objects a `ref` result points to) is in the `Trace` type but nothing draws it yet. It arrives with the `object` / `ref` renderers.
 

@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.3
+> **Status:** Draft v0.4
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -24,27 +24,39 @@ The runtime is one header, `adapters/cpp/runtime/trace.hpp`. Until the rewriter 
 
 ## 2. What one step looks like
 
-Every call to `record` produces exactly one step:
+Every call to `record` (or `ret`, §4.4) produces exactly one step. A step is the whole call stack plus one heap:
 
 ```json
-{"step": 1, "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}, "heap": {}}
+{"step": 1, "frames": [{"id": "f1", "function": "twoSum", "line": 8, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}}], "heap": {}}
 ```
 
 | Field | Where it comes from |
 |---|---|
 | `step` | The number of steps already recorded, so steps count up from 0 with no gaps |
-| `line` | The first argument of `record`: the line in the user's original source about to run |
-| `locals` | One entry per `var(...)` argument |
-| `heap` | Every object the locals point to, filled while the locals were serialized |
+| `frames` | One frame per instrumented call in progress, bottom to top, from `tracer.frames` (§4) |
+| `heap` | Every object any frame's locals point to, filled while the frames were serialized |
+
+Each frame:
+
+| Field | Where it comes from |
+|---|---|
+| `id` | `"f<n>"`, where n counts calls for the whole run. Set when the `Frame` guard is created |
+| `function` | The string passed to the `Frame` guard: the function's name in the user's source |
+| `line` | The first argument of the frame's latest `record` or `ret`. In the top frame, the line about to run; in a caller, the line whose call is in progress |
+| `locals` | One entry per `var(...)` argument of the frame's latest `record` or `ret`, read **now** |
+| `return_value` | Only in a return step, on the top frame: the value `ret` was given |
+
+Two Sum calls no function of its own, so every one of its steps has one frame. A recursive solution has one frame per call level.
 
 ### 2.1 `locals`
 
-`locals` maps variable names to values.
+`locals` maps variable names to values, separately for each frame.
 
 - **Keys** are the variable names exactly as written in the source. The rewriter copies them from the AST as string literals.
 - **Values** are any value kind from the spec. An object (`TreeNode`, `ListNode`) never appears inline here. A local that points to one holds a `ref`, and the object itself goes in the heap.
-- **Only variables already declared** before the line appear. Before line 9 of Two Sum (`int complement = ...`), `complement` does not exist yet, so it is absent. This is the pre-execution rule.
+- **Only variables already declared** before the line appear. Before line 9 of Two Sum (`int complement = ...`), `complement` does not exist yet, so it is absent. This is the pre-execution rule. In `int left = maxDepth(root->left);`, the caller's frame has no `left` during the call, because `left` is being initialized by it.
 - **Parameters are locals too.** `nums` is a `vector<int>&`, and it is written as its value, not as a reference.
+- **Callers are read live.** A caller's locals are serialized at every step from its variables as they are at that step, so a vector the callee changes through a reference shows the change in every frame that can see it.
 - **Order** follows the order of the `var(...)` arguments. Consumers must not depend on it, because JSON object order carries no meaning.
 - **Variables with no serializer are left out** for now. Two Sum's `auto it` is an iterator, which has no kind yet, so the calls for lines 11, 16, and 12 do not pass it.
 
@@ -54,7 +66,7 @@ Every call to `record` produces exactly one step:
 
 - **Keys** are ids: `"n1"`, `"n2"`, and so on. They are never addresses.
 - **Values** are always `object` values: `{"kind": "object", "type": ..., "fields": {...}}`. Fields may hold `ref`s to other entries in the same heap.
-- **It contains exactly the objects reachable from this step's locals**, each written once, with its contents at this moment.
+- **It contains exactly the objects reachable from this step's frames** (every frame's locals, and a return value), each written once, with its contents at this moment. There is one heap per step, shared by all frames, so a node that a caller and a callee both point to has one id and one entry.
 - **It is empty (`{}`)** when no local points to an object, as in every Two Sum step.
 - **Key order carries no meaning.** The runtime keeps the heap in a `std::map`, which sorts ids as strings (`n1`, `n10`, `n2`).
 
@@ -63,12 +75,11 @@ An illustrative step from a linked-list solution, where `head` points to the fir
 ```json
 {
   "step": 4,
-  "line": 7,
-  "locals": {
+  "frames": [{"id": "f1", "function": "countNodes", "line": 7, "locals": {
     "head": {"kind": "ref", "id": "n1"},
     "cur":  {"kind": "ref", "id": "n2"},
     "count": 1
-  },
+  }}],
   "heap": {
     "n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}},
     "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": {"kind": "ref", "id": "n3"}}},
@@ -164,7 +175,8 @@ ListNode* tail = &dummy;  // a pointer to that same node
 A second serializer, `Serializer<T>` for any `T` with a field table, covers this. It is one line: it takes the address of the object and hands it to the pointer serializer. So `dummy` is written exactly as a pointer to it would be: the object goes in the heap under its own address, and the local is a `ref`.
 
 ```json
-"locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}},
+"frames": [{"id": "f1", "function": "f", "line": 6,
+            "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}}}],
 "heap":   {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": null}}}
 ```
 
@@ -191,40 +203,93 @@ A second serializer, `Serializer<T>` for any `T` with a field table, covers this
 
 ## 4. The recording API
 
-The rewriter emits one call before each statement:
+Instrumented code uses five things from the runtime. This is a recursive function as the rewriter will write it (`fixtures/max_depth_hand_inst.cpp`):
 
 ```cpp
-::trace::record(9, ::trace::var("nums", nums), ::trace::var("target", target),
-                ::trace::var("numMap", numMap), ::trace::var("i", i),
-                ::trace::var("complement", complement));
+int maxDepth(TreeNode *root) {
+  ::trace::Frame frame("maxDepth");                                  // 1. push a frame for this call
+  ::trace::record(4, ::trace::var("root", root));                     // 2. a step before each statement
+  if (root == nullptr) {
+    ::trace::record(5, ::trace::var("root", root));
+    return ::trace::ret<int>(5, 0, ::trace::var("root", root));       // 3. the return step
+  }
+  ::trace::record(7, ::trace::var("root", root));
+  int left = maxDepth(root->left);
+  ...
+}
 ```
 
 | Piece | What it is |
 |---|---|
-| `var(name, value)` | Returns a `Value<T>`: the name (a `const char*` literal) and a `const T&` to the live variable |
-| `record(line, vars...)` | A variadic function template that accepts only `Value`s and records one step |
+| `var(name, value)` | Returns a `Value<T>`: the name (a `const char*` literal) and a `const T&` to the live variable. It must name a variable: `var("n", nums.size())` does not compile (§4.2) |
+| `Frame frame("name")` | An RAII guard on the first line of every function. Pushes a frame for the call, pops it when the call ends |
+| `record(line, vars...)` | Records one step: the running frame is about to execute `line`, with these variables in scope |
+| `ret<T>(line, value, vars...)` | Records the return step, then returns `value`. `ret_void(line, vars...)` is the same for a function with no return value |
+| `Scope scope(line)` | An RAII guard at the start of each loop body and each block that declares a variable (§4.5) |
+
+The rules the rewriter follows, and the hand-written fixtures follow today:
+
+- A `record` before each statement. A loop header gets no `record` of its own: its body's statements do.
+- A `return` statement gets its `record` like any statement, then `return ::trace::ret<T>(line, value, ...)`. The first step shows the frame about to evaluate the expression, which matters when the expression calls a function. The second shows the value.
+- A `void` function gets `ret_void` before each `return;` and at its closing brace.
+- `T` in `ret<T>` is the function's declared return type.
 
 ### 4.1 What `record` does, in order
 
-1. **Check the cap.** If already truncated, return. If `steps.size()` has reached 2,000, set `truncated`, write the trace, and end the program (§7.4).
-2. **Start this step's state.** Create an empty `Heap`, and wrap it with `tracer.id_table` in a `Ctx`.
-3. **Serialize the locals.** For each `Value`, write `"name": <serialize(value, ctx)>`. This is the only moment the live variables are read, and it is what fills the heap.
-4. **Serialize the heap** with `write_heap`: `"id": <json>` for each entry. This must come after step 3, because step 3 fills it.
-5. **Store the step.** Push `{"step": N, "line": L, "locals": {...}, "heap": {...}}` onto `tracer.steps`.
+1. **Find the running frame.** If there is none, the instrumentation is broken: print a message and exit with code 1.
+2. **Check the cap.** If already truncated, return. If `steps.size()` has reached 2,000, set `truncated`, write the trace, and end the program (§7.4).
+3. **Update the running frame.** Set its `line`, and store a lambda that holds copies of this call's `Value`s (§4.3).
+4. **Build the step** (`push_step`). Create an empty `Heap` and a `Ctx`. For each frame, bottom to top, call its stored lambda, which serializes that frame's variables as they are now and fills the heap. Then write the heap with `write_heap`. This must come last, because the frames fill it.
+5. **Store the step.** Push `{"step": N, "frames": [...], "heap": {...}}` onto `tracer.steps`.
 
-When `record` returns, the `Value`s, the `Ctx`, and the heap are gone. Only the finished step and any new `id_table` entries remain.
+When `record` returns, the `Ctx` and the heap are gone. What remains is the finished step, any new `id_table` entries, and the running frame's stored `Value`s.
 
 > **Key insight 4: serialize at the call, store text.** A step holds finished JSON, never a reference to program state. A later mutation cannot reach back and change an earlier step.
 
 ### 4.2 Why `Value` holds a reference
 
-- **No copies.** Each variable is serialized once and thrown away, so copying every container on every step would be wasted work.
+- **No copies.** Each variable is serialized and thrown away, so copying every container on every step would be wasted work.
 - **Arrays keep their type.** A by-value parameter turns `int arr[5]` into `int*`, which has no serializer, and turns `char buf[8]` into `char*`, which loses the bounded read.
 - **Addresses stay real.** Identity is taken from the address of the live object. A copy would have a new address on every call, and aliases would get different ids.
+- **Callers stay live.** Copying a `Value` copies the reference, so a frame can keep its `Value`s and serialize the same variables again at a later step, inside a function it called.
 
-The reference is safe because the temporaries created by `var(...)` live until the end of the full expression, which is the whole `record(...)` call, and `record` serializes them before returning.
+A frame keeps its `Value`s after `record` returns, so a `Value` must never refer to a temporary, which would be destroyed at the end of the `record(...)` call. `var` has a deleted overload for temporaries (`const T&&`), so `var("n", nums.size())` or `var("k", 5)` fails to compile instead of leaving a dangling reference.
 
-### 4.3 Why there are no macros
+### 4.3 How a frame keeps its variables
+
+The frame stack is a `std::vector<FrameState>` in the `Tracer`. Each `FrameState` holds the frame's id, function name, line, and a `std::function<Json(Ctx&)>` that writes its locals.
+
+**Why `std::function`.** Every `record` call passes different variable types, so each call builds a lambda of a different type. A vector needs one element type. `std::function<Json(Ctx&)>` can hold any callable that takes a `Ctx&` and returns `Json`, and hides which lambda it is. This is called type erasure.
+
+**What the lambda holds.** `[vars...](Ctx& ctx) { return write_locals(ctx, vars...); }` copies each `Value` into the lambda. Each copy still refers to its variable (§4.2), so calling the lambda at a later step reads the variables as they are then. That is the whole mechanism behind live callers.
+
+**Why not keep the caller's text from its last step instead.** Callers change while their callees run: a backtracking `path` or a `visited` array is passed by reference and changed by the callee. Text saved at call time would show stale values, and its `ref`s could name objects missing from the current step's heap.
+
+### 4.4 Frames and return steps
+
+**`Frame` is RAII.** RAII means an object whose constructor does a setup and whose destructor undoes it. The constructor runs where the guard is declared, the first line of the function. The destructor runs whenever the function is left: through any `return`, at the closing brace, or by an exception. So the frame stack always matches the real call stack, and no exit path needs its own pop code. The guard cannot be copied, because a copy would pop the same frame twice.
+
+**`ret<T>` records, then returns.** It sets the running frame's line and `Value`s like `record`, builds a step whose top frame also has `return_value`, and returns `value` unchanged. The return value is serialized after every frame's locals, so ids are given in a fixed order. `T` is named, never deduced. That keeps `return {it->second, i};` working: a braced list cannot be deduced, but it can initialize a parameter of a known type.
+
+**Past the step cap**, `ret` adds no step but still returns the value, so the program's behavior does not change.
+
+**Exceptions** pop frames through the guards' destructors, but produce no return step. The format does not model exceptions yet.
+
+### 4.5 `Scope`: no dangling `Value`s
+
+A frame keeps the `Value`s of its latest `record`. If that `record` was inside a block, its `Value`s may name variables declared in the block, which die when the block ends. If the function then calls another function before its next `record`, the callee's steps would serialize the caller from dead variables. The usual way this happens is a call in a loop condition:
+
+```cpp
+while (i < count(n)) {     // the condition has no record of its own
+  int y = ...;             // the body's last record names y
+}                          // y dies; the condition runs again and calls count()
+```
+
+`Scope` is the fix. At the start of the block it saves the frame's stored `Value`s, and at the end it restores them. The restored `Value`s only name variables declared outside the block, which are still alive. It also sets the frame's line to the line of the statement that owns the block (the `while`), which is where the frame is once the block has ended. Without it, AddressSanitizer reports `stack-use-after-scope` for exactly this program. With it, the run is clean.
+
+A `Scope` goes at the start of each loop body (its header may declare a variable, like `int i`) and each block that declares a variable. The rewriter will add one to every block, which is simpler and costs nothing.
+
+### 4.6 Why there are no macros
 
 A function cannot learn the name of the variable passed to it. A macro (`V(x)` with `#x`) could, but the rewriter already knows every name from the AST, so it writes the names as string literals itself. This avoids two macro problems: macros ignore namespaces, and a short name like `V` collides with user code (graph solutions often name the vertex count `V`). The rewriter emits fully qualified names (`::trace::record`), so nothing in the user's code can shadow them.
 
@@ -268,7 +333,7 @@ Each section uses only what is above it, so no part depends on something declare
 | 4. JSON text helpers | `escape`, `quote` |
 | 5. Writing helpers | `write_items`, `write_entries`, `write_tuple`, `get_container`, `write_heap`, `comparator_name` |
 | 6. Serializers | Grouped by the kind they produce. Group 6i holds `Fields`, `HasFields`, the pointer serializer, and the serializer for objects held by value |
-| 7. The recorder | `Tracer`, `tracer`, `Value`, `var`, then the document writer (`output_path`, `write_file`, `build_document`, `write_document`, `write_result`, `write_void_result`), then `record` |
+| 7. The recorder | `FrameState`, `Tracer`, `tracer`, `Value`, `var`, then the document writer (`output_path`, `write_file`, `build_document`, `write_document`, `write_result`, `write_void_result`), then the steps: `write_locals`, `top_frame`, `step_allowed`, `push_step`, `set_frame`, `record`, `ret`, `ret_void`, and the `Frame` and `Scope` guards |
 
 The recorder comes last because it uses everything else. Nothing above it touches the global `tracer`. Inside it, the document writer sits above `record`, because `record` calls it at the step cap.
 
@@ -309,7 +374,7 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.5"`) |
+| `version` | Always | The `VERSION` constant (`"0.6"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `steps` | Always | `tracer.steps`, joined with `", "` |
@@ -351,16 +416,17 @@ make -C adapters/cpp e2e                # the end-to-end check (needs python3 an
 The test programs are built into `adapters/cpp/build/<compiler>/`, and the traces the end-to-end check writes go to `adapters/cpp/build/traces/<compiler>/`. Both are ignored by git.
 
 - `tests/test_serialize.cpp` checks the exact JSON text of every serializer, with its own `Ctx` and no `Tracer`.
-- `tests/test_record.cpp` checks that `record` reproduces the nine Two Sum steps character for character, the rules for `locals`, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
+- `tests/test_record.cpp` checks that `record` reproduces Two Sum's steps character for character (each section declares a `Frame`), the rules for `locals`, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
 - `tests/test_pointers.cpp` checks the object serializers: null, one node, a chain, aliases, cycles, `TreeNode`, pointers inside containers, a problem's own graph `Node`, pointers to `const`, objects held by value (alone, next to a pointer to them, copied, and inside a `vector`), the dummy-head pattern through `record`, ids staying stable across steps while the heap is rebuilt, and a returned pointer's own heap.
+- `tests/test_frames.cpp` checks the call stack: one frame, a call (two frames, a return step, one frame again), frame ids never reused, callers read live after a callee changes their vector, one heap shared by every frame, `ret` with a braced value and with a pointer, `ret_void`, recursion three levels deep and its unwinding, `Scope` restoring a frame after a block, a frame popped by an exception, the step cap inside `ret`, and (at compile time) that `var` rejects a temporary.
 - `tests/test_document.cpp` checks the exact text of `build_document`: no steps, one step and several joined with `", "`, steps written by `record` itself, a result (including a `null` one), no `result` key at all when there is none, `result_heap` after a `ref` result and absent when the heap is empty or there is no result, no `truncated` key unless it is `true`, a problem pasted in unchanged (odd spacing, escapes, UTF-8), and that building the document twice gives the same text and changes nothing.
 - `tests/test_write_file.cpp` checks `output_path` and `write_file`: a successful write, a failed open, a failed write, and a failed rename. After every failure the old file must be unchanged and the `.tmp` file gone. Its files go in a private folder in the system's temp directory, which it removes at the end. It is POSIX only (`setenv`, `setrlimit`).
 
-`make e2e` is the end-to-end check. It runs four hand-instrumented programs with `TRACE_OUT` set, then checks what they wrote with [`tools/check_trace.py`](../../tools/check_trace.py):
+`make e2e` is the end-to-end check. It runs every hand-instrumented fixture, and three test programs, with `TRACE_OUT` set, then checks what they wrote with [`tools/check_trace.py`](../../tools/check_trace.py):
 
 | Program | Must | Checked with |
 |---|---|---|
-| `fixtures/two_sum_hand_inst.cpp` | Write a trace equal to the golden one | `--equals fixtures/two-sum.trace.json` |
+| `fixtures/<name>_hand_inst.cpp` for two-sum, reverse-list, preorder-traversal, clone-graph, max-depth, subsets | Write a trace equal to its golden one | `--equals fixtures/<name>.trace.json` |
 | `tests/programs/loop_forever.cpp` | Exit with code 0 from inside `record` at the step cap | `--expect-truncated`: `"truncated": true`, no `result`, exactly 2,000 steps numbered 0 to 1999 |
 | `tests/programs/return_pointer.cpp` | Return a `ListNode*` out of a dummy-head method | `--expect-result-heap`: `result` contains a `ref`, and `result_heap` is present |
 | `tests/programs/void_method.cpp` | Return from a `void` method | `--expect-void`: `returns.type` is `"void"` and `result` is `null` |
@@ -376,7 +442,9 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 
 ## 9. Known limitations
 
-- **Shadowed names.** Two variables named `i` in scope at once produce a duplicate key in `locals`. The fix belongs with the call-stack design ([`native-tracing.md` §8](../native-tracing.md#8-open-questions)).
+- **Shadowed names inside one function.** Two variables named `i` in scope at once in the same function (an inner block's `int i` hiding an outer one) produce a duplicate key in that frame's `locals`. The call stack fixed the same name in *different* calls, since each call has its own frame, but not this case. The rewriter will have to pass only the innermost one.
+- **Instrumentation rules are not checked at run time.** A `record` outside any `Frame` stops the program with a message. A call made before a function's first `record` would write a frame with line 0, which the schema rejects. A missing `Scope` is undefined behavior only when a call happens between the end of the block and the next `record` (§4.5).
+- **Step size grows with recursion depth.** Every step writes every frame. For LeetCode examples and a 2,000-step cap this is small. A cap on frames can be added if a test shows it is needed.
 - **Iterators** have no kind, so they are left out of `record` calls.
 - **Container aliasing.** Two references to the same `vector` appear as two copies. Only objects have identity.
 - **Wide character types** (`wchar_t`, `char8_t`, `char16_t`, `char32_t`) are rejected by the integer serializer's comparisons.
@@ -395,7 +463,7 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 
 **Q4. Why are the locals serialized before the heap?** Serializing the locals is what fills the heap. Writing the heap first would always produce `{}`.
 
-**Q5. Why no `V(x)` macro?** The rewriter already knows each name, so a macro adds nothing, and a macro would ignore namespaces and could collide with user code. See §4.3.
+**Q5. Why no `V(x)` macro?** The rewriter already knows each name, so a macro adds nothing, and a macro would ignore namespaces and could collide with user code. See §4.6.
 
 **Q6. Why does `record` end the program at the step cap instead of only stopping the recording?** A solution that reaches the cap is usually in an infinite loop, so it would never return to `main` and no trace would be written. Writing inside `record` saves the 2,000 steps, and exiting right after means the document is written once and no time is spent on a run nobody is recording. See §7.4.
 
@@ -406,3 +474,9 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 **Q9. Why does the result get a new heap instead of the last step's?** The heap is per step so that "already written" means "already written now" (§3.2). The return value is read after the last step, when the objects may have changed, so it needs the same fresh start. `write_result` creates one, exactly as `record` does for a step.
 
 **Q10. Why are dangling pointers a documented limit instead of something the runtime checks?** A raw address cannot be asked whether its object is still alive. Checking would mean tracking every allocation, and reporting a dead pointer would need a value the trace format does not have. Both belong with the rewriter and a spec change (§3.7), so for now the limit is written down where a fixture author will see it.
+
+**Q11. Why does every frame get re-serialized at every step, instead of each frame keeping the text of its last step?** Because callers change while their callees run, through references (§4.3). Re-serializing costs a little more per step, and it is the only way a caller's `path` or `visited` shows what it holds now.
+
+**Q12. Why is `Frame` a guard object instead of a pair of `push()`/`pop()` calls?** A function has many ways out: every `return`, the closing brace, and exceptions. A `pop()` would have to be written before each of them, and one missed exit would leave the stack wrong for the rest of the run. A destructor runs on every exit, so the stack cannot drift.
+
+**Q13. Why does a return statement get two steps?** The first is the ordinary pre-execution step: the frame is about to evaluate `1 + max(left, right)`, or `n * fact(n - 1)`, which may call functions, and the caller's line must already be the return line while those calls run. The second is the return step, which shows the value. For `return 0;` the first step looks redundant, but one rule for every return statement is simpler for the rewriter and for the reader.

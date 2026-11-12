@@ -104,18 +104,33 @@ class Snapshotter:
 def run_traced(fn, args, user_filename, max_steps=2000):
     steps, snap, truncated = [], Snapshotter(), False
 
+    call_ids = {}   # frame object -> "f1", "f2", ...: one id per call
+
+    def snapshot(frame, return_value=None, returning=False):
+        # The whole call stack: walk f_back while still in the user's code.
+        stack, f = [], frame
+        while f is not None and f.f_code.co_filename == user_filename:
+            stack.append(f)
+            f = f.f_back
+        heap, frames = {}, []
+        for f in reversed(stack):                      # bottom to top
+            frames.append({"id": call_ids.setdefault(f, f"f{len(call_ids) + 1}"),
+                           "function": f.f_code.co_name, "line": f.f_lineno,
+                           "locals": {k: snap.value(v, heap)
+                                      for k, v in f.f_locals.items() if k != "self"}})
+        if returning:
+            frames[-1]["return_value"] = snap.value(return_value, heap)
+        steps.append({"step": len(steps), "frames": frames, "heap": heap})
+
     def local_trace(frame, event, arg):
         nonlocal truncated
-        if event == "line":
+        if event in ("line", "return"):
             if len(steps) >= max_steps:
                 truncated = True
                 sys.settrace(None)
                 return None
-            heap = {}
-            locals_ = {k: snap.value(v, heap)
-                       for k, v in frame.f_locals.items() if k != "self"}
-            steps.append({"step": len(steps), "line": frame.f_lineno,
-                          "locals": locals_, "heap": heap})
+            # "line": about to run frame.f_lineno. "return": arg is the value being returned.
+            snapshot(frame, arg, returning=(event == "return"))
         return local_trace
 
     def global_trace(frame, event, arg):
@@ -186,12 +201,13 @@ Planned approach: **Python via `sys.settrace`, C++ via Clang instrumentation**, 
 
 ## 8. Open questions
 These are gaps in `trace-format.md` that native tracers expose. They should be resolved in a minor version.
-1. **Call stack.** A step records one frame's `locals`. Recursive solutions (DFS on a tree, backtracking) need a stack of frames, each with its own locals and line. A `stack` field is the likely addition.
-2. **Aliasing of containers.** Only `object`s have ids. If two variables refer to the *same* container, the trace shows two separate copies. That is acceptable for most problems, but hides in-place mutation through aliases.
-3. **Member variables.** LeetCode solutions often use fields on the `Solution` instance (memo tables, visited sets). The sketch above skips `self`. The tracer should surface these, either as extra locals or in a separate `members` field.
-4. **Pointers that do not point at a live object.** A native tracer in a language with manual memory (C++) can be handed a dangling or uninitialized pointer, and the trace has no way to say "this points at nothing valid". Today that is a documented limit of the C++ adapter ([`adapters/cpp.md` §3.7](adapters/cpp.md#37-limits-of-address-identity)).
+1. **Aliasing of containers.** Only `object`s have ids. If two variables refer to the *same* container, the trace shows two separate copies. That is acceptable for most problems, but hides in-place mutation through aliases.
+2. **Member variables.** LeetCode solutions often use fields on the `Solution` instance (memo tables, visited sets). The sketch above skips `self`. The tracer should surface these, either as extra locals or in a separate `members` field.
+3. **Pointers that do not point at a live object.** A native tracer in a language with manual memory (C++) can be handed a dangling or uninitialized pointer, and the trace has no way to say "this points at nothing valid". Today that is a documented limit of the C++ adapter ([`adapters/cpp.md` §3.7](adapters/cpp.md#37-limits-of-address-identity)).
 
 Resolved in v0.2: tuples, which used to flatten to `list`, now have their own `tuple` kind.
+
+Resolved in v0.6: the call stack. A step is now `frames`, bottom to top, each with its own `line` and `locals`, and every call ends with a return step that carries `return_value` ([`trace-format.md` §6](trace-format.md#6-steps)). It also fixes the same name in different calls (each call has its own frame), though not shadowing inside one function.
 
 Resolved in v0.5: a `ref` result had no heap to point into. It now has the top-level `result_heap`. A `void` method's result is `null`, with `"returns": {"type": "void"}` in the problem metadata ([`trace-format.md` §3, The return value](trace-format.md#the-return-value)).
 
