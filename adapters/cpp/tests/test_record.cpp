@@ -18,6 +18,7 @@
 #include "trace.hpp"
 
 #include <climits>
+#include <functional>
 #include <format>
 #include <iostream>
 #include <optional>
@@ -220,6 +221,30 @@ int main() {
   }
 
   // ------------------------------------------------------------------
+  std::cout << "locals with no serializer are left out\n";
+  // The rewriter lists every variable in scope. Ones whose type trace.hpp
+  // cannot serialize yet (iterators, lambdas, std::function) are dropped from
+  // the step instead of stopping the program from compiling.
+  static_assert(trace::Serializable<int>);
+  static_assert(trace::Serializable<std::vector<std::string>>);
+  static_assert(!trace::Serializable<std::unordered_map<int, int>::iterator>);
+  static_assert(!trace::Serializable<std::function<int(int)>>);
+  reset();
+  {
+    trace::Frame frame("f");
+    std::unordered_map<int, int> m{{7, 1}};
+    auto it = m.find(7);
+    auto twice = [](int x) { return 2 * x; };
+    std::function<int(int)> fn = twice;
+    int k = twice(2);
+    record(9, var("m", m), var("it", it), var("twice", twice), var("fn", fn), var("k", k));
+    check("only m and k are written", tracer.steps.back(),
+          R"({"step": 0, "frames": [{"id": "f1", "function": "f", "line": 9, "locals": {"m": {"kind": "map", "entries": [[7, 1]]}, "k": 4}}], "heap": {}})");
+    record(10, var("it", it));
+    check("a step whose only local is unsupported has empty locals", tracer.steps.back(),
+          R"({"step": 1, "frames": [{"id": "f1", "function": "f", "line": 10, "locals": {}}], "heap": {}})");
+  }
+
   std::cout << "step cap (" << trace::Tracer::max_steps << ")\n";
   reset();
   {

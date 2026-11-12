@@ -108,15 +108,29 @@ namespace trace {
   // Declared before the helpers and serializers, so every serialize() call
   // below finds it by ordinary lookup instead of relying on ADL
 
-  template <typename> inline constexpr bool always_false = false;
+  // Primary template: declared, never defined. A type is serializable exactly
+  // when some specialization below matches it.
+  template <typename T> struct Serializer;
 
-  // Primary template: any type without a specialization fails to compile here
-  template <typename T> struct Serializer {
-    static_assert(always_false<T>, "trace: no Serializer for this type");
+  // True when T has a serializer. Asking about a type with none is not an
+  // error: Serializer<T> is then incomplete, and the requirement is simply
+  // not met. That is what lets record() leave such a local out of a step
+  // (see write_locals) instead of failing to compile the whole program.
+  //
+  // It checks the outer type only: a vector of iterators counts as
+  // serializable because vector<T> has a serializer for any T, and then fails
+  // to compile inside it. Containers of unsupported types are rare in practice.
+  template <typename T> concept Serializable = requires(const T& value, Ctx& ctx) {
+    { Serializer<T>::write(value, ctx) } -> std::convertible_to<Json>;
   };
 
-  // The front foor. Every serializer recurses through this, never through Serializer<T> directly.
-  template <typename T> Json serialize(const T& v, Ctx& ctx) { return Serializer<T>::write(v, ctx); } 
+  // The front door. Every serializer recurses through this, never through
+  // Serializer<T> directly. Serializing a type with no serializer directly is
+  // still a compile error, with this message.
+  template <typename T> Json serialize(const T& v, Ctx& ctx) {
+    static_assert(Serializable<T>, "trace: no Serializer for this type");
+    return Serializer<T>::write(v, ctx);
+  }
 
   // ======================================================================
   // 4. JSON text helpers
@@ -829,16 +843,26 @@ namespace trace {
   //
   // and a ::trace::Scope at the start of every block that declares variables.
 
+  // Appends `"name": value` for one local, or nothing when its type has no
+  // serializer yet. The rewriter lists every variable in scope without knowing
+  // which types trace.hpp supports (an iterator, a lambda, a std::function),
+  // so this is where unsupported ones are left out. if constexpr discards the
+  // branch at compile time, so serialize() is never instantiated for them.
+  template <typename T>
+  void write_local(std::string& locals, bool& first, const Value<T>& var, Ctx& ctx) {
+    if constexpr (Serializable<T>) {
+      locals += (first ? "" : ", ") + std::format(R"({}: {})", quote(var.name), serialize(var.value, ctx));
+      first = false;
+    }
+  }
+
   // {"a": ..., "b": ...} for one frame. Serializing is what fills ctx.heap.
   // maybe_unused: a frame with no variables never reads ctx.
   template <typename... Ts>
   Json write_locals([[maybe_unused]] Ctx& ctx, const Value<Ts>&... vars) {
     std::string locals = "{";
-    bool first = true;
-    ((
-      locals += (first ? "" : ", ") + std::format(R"({}: {})", quote(vars.name), serialize(vars.value, ctx)),
-      first = false
-    ), ...);
+    [[maybe_unused]] bool first = true;  // unused when there are no variables
+    (write_local(locals, first, vars, ctx), ...);
     locals += "}";
     return locals;
   }
