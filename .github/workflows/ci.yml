@@ -66,6 +66,12 @@ jobs:
           clang++ -v -x c++ -E /dev/null 2>&1 | grep -m1 "Selected GCC installation" || true
       - name: Tests (clang++ and g++), header check, end-to-end
         run: make -C adapters/cpp both header e2e
+      # The driver's tests compile the programs it generates, so they run
+      # once per compiler.
+      - name: Driver (clang++)
+        run: CXX=clang++ python3 -m unittest discover -s driver/tests -t .
+      - name: Driver (g++)
+        run: CXX=g++ python3 -m unittest discover -s driver/tests -t .
 
   cpp-libcxx:
     # macOS 26 on arm64 (what macos-latest points to now). Its clang++ is
@@ -85,6 +91,10 @@ jobs:
       # run the same build twice.
       - name: Tests, header check, end-to-end
         run: make -C adapters/cpp test header e2e
+      # libc++ has no <bits/stdc++.h>, which is why the prelude names each
+      # header. This is where a missing one would show.
+      - name: Driver (Apple Clang, libc++)
+        run: CXX=clang++ python3 -m unittest discover -s driver/tests -t .
 
   frontend:
     runs-on: ubuntu-24.04
