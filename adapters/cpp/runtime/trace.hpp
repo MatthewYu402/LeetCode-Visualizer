@@ -9,7 +9,9 @@
 //  5. Writing helpers shared by several serializers
 //  6. Serializers, grouped by kind. 6i holds Fields<T> and the two object
 //     serializers: one for pointers, one for objects held by value
-//  7. The recorder: Tracer, Value, var, the document writer, record (uses everything above)
+//  7. The recorder: Tracer and its frame stack, Value, var, the document writer,
+//     then the steps: record, ret, ret_void, and the Frame and Scope guards
+//     (uses everything above)
 //
 // trace.hpp knows no node types. ListNode and TreeNode, and their Fields tables,
 // are in leetcode_types.hpp, which includes this file.
@@ -73,7 +75,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.5"} ;
+  inline constexpr const char* VERSION  {"0.6"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -638,6 +640,20 @@ namespace trace {
   // Everything above is independent of the global state below, so the
   // serializer tests can build their own Ctx without a Tracer.
 
+  // One function call in progress: one entry of the call stack.
+  //
+  // `locals` is how this frame's variables get serialized at every step, not
+  // only at the steps the frame itself records. It is set by each record() or
+  // ret() in this frame and holds copies of that call's Values, so it refers
+  // to the live variables (see Value below). Calling it writes the frame's
+  // "locals" object and fills ctx.heap.
+  struct FrameState {
+    std::string id;           // "f1", "f2", ...: one per call, never reused
+    const char* function;     // the function's name in the user's source
+    int line = 0;             // the line this frame is on (see trace-format.md, Frames)
+    std::function<Json(Ctx&)> locals;
+  };
+
   // State for the whole run. One global instance
   struct Tracer {
     IdTable id_table;        // lives for the whole run, so ids stay stable across steps 
@@ -649,13 +665,23 @@ namespace trace {
     std::string problem;
     bool exit_at_cap = true;
     void begin(std::string problem_json) { problem = std::move(problem_json); }
+
+    // The call stack, bottom to top. Frame pushes and pops it (below).
+    std::vector<FrameState> frames;
+    std::size_t calls = 0;   // calls made so far; the next frame is "f<calls + 1>"
   };
 
   inline Tracer tracer; // inline variable: exactly one instance, even across files
   
-  // A variable's name plus a reference to its live value, for one record() call.
-  // Holds a reference, not a copy: nothing is copied, and arrays keep their type.
-  // Safe because the Value dies at the end of the record(...) call after serializing.
+  // A variable's name plus a reference to its live value.
+  //
+  // Holds a reference, not a copy: nothing is copied, and arrays keep their
+  // type. Copying a Value copies the reference, so the copy still refers to
+  // the variable itself. That is what lets a frame keep its Values after the
+  // record(...) call ends, and serialize them again at a later step (a step
+  // taken inside a function it called). It is safe because a frame only keeps
+  // the Values of its latest record, and every variable they name is alive
+  // until the frame records again, a Scope ends, or the frame is popped.
   template<typename T>
   struct Value {
     const char* name;
@@ -664,7 +690,14 @@ namespace trace {
 
   template<typename T> Value<T> var(const char* name, const T& value) {
     return {name, value};
-  } 
+  }
+
+  // var() must name a variable, never a temporary such as nums.size() or 5.
+  // A frame keeps its Values after the record() call, and a temporary is
+  // destroyed at the end of that call, so the frame would hold a dangling
+  // reference. A const T&& parameter binds only to temporaries, so this
+  // deleted overload is chosen for them and the call does not compile.
+  template<typename T> void var(const char* name, const T&& value) = delete;
   
   // Where the trace goes: the TRACE_OUT environment variable, or trace.json
   // when it is unset or empty.
@@ -782,25 +815,24 @@ namespace trace {
   // from a method that returned a null pointer.
   inline void write_void_result() { write_document("null"); }
 
-  // Records one pre-execution snapshot: the line about to run and the locals in scope.
-  template<typename... Ts>
-  void record(int line, const Value<Ts>&... vars) {
-    if (tracer.truncated) return;
-    if (tracer.steps.size() >= tracer.max_steps) {
-      tracer.truncated = true;
-      if (tracer.exit_at_cap) {
-        write_document();
-        std::exit(0);
-      }
-      return;
-    }
+  // ---- Steps and the call stack ----
+  //
+  // Instrumented code uses these (docs/adapters/cpp.md, section 4):
+  //
+  //   int maxDepth(TreeNode* root) {
+  //     ::trace::Frame frame("maxDepth");                 // push a frame; popped on every exit
+  //     ::trace::record(4, ::trace::var("root", root));   // a step before each statement
+  //     ...
+  //     ::trace::record(7, ...);                          // the return statement's own step,
+  //     return ::trace::ret<int>(7, 1 + max(l, r), ...);  // then its return step
+  //   }
+  //
+  // and a ::trace::Scope at the start of every block that declares variables.
 
-    // This step's state: an empty heap, plus the run-long id table
-    Heap heap{};
-    // maybe_unused: a record(line) call with no variables never reads ctx.
-    [[maybe_unused]] Ctx ctx { .id_table = tracer.id_table, .heap = heap };
-
-    // Locals: {"nums": ..., "target": ...}. Serializing is what fills the heap
+  // {"a": ..., "b": ...} for one frame. Serializing is what fills ctx.heap.
+  // maybe_unused: a frame with no variables never reads ctx.
+  template <typename... Ts>
+  Json write_locals([[maybe_unused]] Ctx& ctx, const Value<Ts>&... vars) {
     std::string locals = "{";
     bool first = true;
     ((
@@ -808,8 +840,171 @@ namespace trace {
       first = false
     ), ...);
     locals += "}";
-    
-    tracer.steps.push_back(std::format(R"({{"step": {}, "line": {}, "locals": {}, "heap": {}}})",
-      tracer.steps.size(), line, locals, write_heap(heap)));
+    return locals;
   }
+
+  // The running frame. Steps can only be recorded inside a function that has
+  // a Frame, so calling record() outside one is a bug in the instrumentation,
+  // and the program stops with a message instead of writing a broken trace.
+  inline FrameState& top_frame(const char* caller) {
+    if (tracer.frames.empty()) {
+      std::cerr << "trace: " << caller << "() was called outside any trace::Frame. "
+                << "Every instrumented function starts with ::trace::Frame frame(\"name\");\n";
+      std::exit(1);
+    }
+    return tracer.frames.back();
+  }
+
+  // True when one more step may be recorded. At the cap it marks the trace
+  // truncated and, if exit_at_cap is set, writes the trace and ends the
+  // program (docs/adapters/cpp.md, section 7.4).
+  inline bool step_allowed() {
+    if (tracer.truncated) return false;
+    if (tracer.steps.size() >= tracer.max_steps) {
+      tracer.truncated = true;
+      if (tracer.exit_at_cap) {
+        write_document();
+        std::exit(0);
+      }
+      return false;
+    }
+    return true;
+  }
+
+  // Builds one step from the whole call stack and stores it.
+  //
+  // Every frame's locals are serialized now, from the live variables, into one
+  // heap. So a caller's frame shows a vector its callee just changed, and every
+  // ref in any frame points into this step's heap.
+  //
+  // Order fixes which object gets which new id: frames bottom to top, each
+  // frame's locals in the order they were passed, then the return value.
+  // `return_value`, when given, serializes the top frame's return value.
+  inline void push_step(const std::function<Json(Ctx&)>& return_value = nullptr) {
+    Heap heap{};
+    Ctx ctx { .id_table = tracer.id_table, .heap = heap };
+
+    std::string frames = "[";
+    for (std::size_t i = 0; i < tracer.frames.size(); ++i) {
+      const FrameState& frame = tracer.frames[i];
+      if (i > 0) {
+        frames += ", ";
+      }
+      const Json locals = frame.locals ? frame.locals(ctx) : Json("{}");
+      frames += std::format(R"({{"id": {}, "function": {}, "line": {}, "locals": {})",
+        quote(frame.id), quote(frame.function), frame.line, locals);
+      // Only the top frame can be returning.
+      if (return_value && i + 1 == tracer.frames.size()) {
+        frames += R"(, "return_value": )" + return_value(ctx);
+      }
+      frames += "}";
+    }
+    frames += "]";
+
+    tracer.steps.push_back(std::format(R"({{"step": {}, "frames": {}, "heap": {}}})",
+      tracer.steps.size(), frames, write_heap(heap)));
+  }
+
+  // Sets what the running frame is doing: the line, and the variables in scope.
+  //
+  // The lambda copies the Values (vars...), not the variables. Each copy holds
+  // a reference to its variable, so calling the lambda at a later step reads
+  // the variables as they are then. std::function hides the lambda's type, so
+  // every frame can be stored in one vector even though each record() call
+  // passes different variable types.
+  template <typename... Ts>
+  void set_frame(FrameState& frame, int line, const Value<Ts>&... vars) {
+    frame.line = line;
+    frame.locals = [vars...](Ctx& ctx) { return write_locals(ctx, vars...); };
+  }
+
+  // Records one pre-execution snapshot: the running frame is about to execute
+  // `line`, with these variables in scope. Every frame below it is written too.
+  template<typename... Ts>
+  void record(int line, const Value<Ts>&... vars) {
+    FrameState& frame = top_frame("record");
+    if (!step_allowed()) return;
+    set_frame(frame, line, vars...);
+    push_step();
+  }
+
+  // A return step: the running frame is returning `value` from `line`. The
+  // step shows the frame with its locals and "return_value", just before it is
+  // popped. Then the value is handed back unchanged, so the rewriter can write
+  //
+  //   return ::trace::ret<int>(7, 1 + max(left, right), ::trace::var("root", root), ...);
+  //
+  // R is named explicitly, never deduced. That is what lets a braced return
+  // such as `return {it->second, i};` still work: a braced list cannot be
+  // deduced, but it can initialize a parameter of a known type.
+  template <typename R, typename... Ts>
+  R ret(int line, R value, const Value<Ts>&... vars) {
+    FrameState& frame = top_frame("ret");
+    if (step_allowed()) {
+      set_frame(frame, line, vars...);
+      push_step([&value](Ctx& ctx) { return serialize(value, ctx); });
+    }
+    return value;
+  }
+
+  // A return step for a function that returns no value: before each `return;`
+  // and at the closing brace. Its return_value is null.
+  template <typename... Ts>
+  void ret_void(int line, const Value<Ts>&... vars) {
+    FrameState& frame = top_frame("ret_void");
+    if (!step_allowed()) return;
+    set_frame(frame, line, vars...);
+    push_step([](Ctx&) { return Json("null"); });
+  }
+
+  // Pushes a frame for one call, and pops it when the call ends.
+  //
+  // RAII: the constructor runs where the object is declared (the first line of
+  // the function), and the destructor runs whenever the function is left,
+  // through any return, at the closing brace, or by an exception. So the
+  // frame stack always matches the real call stack, and no exit path needs its
+  // own pop. Not copyable: copying would pop the same frame twice.
+  class Frame {
+  public:
+    explicit Frame(const char* function) {
+      ++tracer.calls;
+      tracer.frames.push_back(FrameState{std::format("f{}", tracer.calls), function, 0, nullptr});
+    }
+    ~Frame() { tracer.frames.pop_back(); }
+    Frame(const Frame&) = delete;
+    Frame& operator=(const Frame&) = delete;
+  };
+
+  // Keeps a frame's stored Values from outliving the variables they name.
+  //
+  // The problem it solves: a frame keeps the Values of its latest record(). If
+  // that record was inside a block, its Values may name variables declared in
+  // the block, and those die when the block ends. If the function then calls
+  // another one before its next record (for example from a loop condition),
+  // the callee's steps would serialize this frame from dead variables.
+  //
+  // A Scope at the start of the block saves the frame's state on entry and
+  // restores it on exit. The saved Values only name variables declared
+  // outside the block, which are still alive. `line` is the line of the
+  // statement that owns the block (the `while`, `for`, or `if`), which is where
+  // the frame is when the block has ended.
+  class Scope {
+  public:
+    explicit Scope(int line) : index_(tracer.frames.size() - 1), line_(line) {
+      saved_ = top_frame("Scope").locals;
+    }
+    ~Scope() {
+      // Frames are popped in reverse order, so this Scope's frame is on top again.
+      FrameState& frame = tracer.frames[index_];
+      frame.locals = std::move(saved_);
+      frame.line = line_;
+    }
+    Scope(const Scope&) = delete;
+    Scope& operator=(const Scope&) = delete;
+
+  private:
+    std::size_t index_;
+    int line_;
+    std::function<Json(Ctx&)> saved_;
+  };
 }
