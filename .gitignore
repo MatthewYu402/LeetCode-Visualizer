@@ -1,6 +1,7 @@
 # ---- C++ adapter ----
 # Makefile output (one folder per compiler)
 adapters/cpp/build/
+adapters/cpp/rewriter/build/
 # Stray binaries and objects from building by hand
 *.o
 *.out

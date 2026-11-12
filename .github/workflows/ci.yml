@@ -96,6 +96,38 @@ jobs:
       - name: Driver (Apple Clang, libc++)
         run: CXX=clang++ python3 -m unittest discover -s driver/tests -t .
 
+  rewriter-linux:
+    # The rewriter links against Clang 18's libraries. Ubuntu 24.04 ships
+    # clang 18; its development headers and libclang-cpp come from apt.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install jsonschema
+      - name: Install Clang 18 development files
+        run: sudo apt-get update && sudo apt-get install -y libclang-18-dev libclang-cpp18-dev llvm-18-dev
+      - name: Build the rewriter and run its tests (every golden fixture from its plain source)
+        run: make -C adapters/cpp/rewriter test LLVM_CONFIG=llvm-config-18 CXX=g++-14
+
+  rewriter-macos:
+    # The author's platform: Homebrew's LLVM, Apple's SDK for the headers.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install jsonschema
+      - run: brew install llvm
+      - name: Build the rewriter and run its tests
+        run: make -C adapters/cpp/rewriter test LLVM_CONFIG="$(brew --prefix llvm)/bin/llvm-config"
+
   frontend:
     runs-on: ubuntu-24.04
     defaults:
