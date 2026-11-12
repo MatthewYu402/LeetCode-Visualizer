@@ -183,6 +183,8 @@ Step 4 depends on the return type, which the driver knows from the signature:
 | A pointer (`ListNode*`, `TreeNode*`) | `trace::write_result(answer);` | `result` is a `ref`, and the objects it reaches are in `result_heap` |
 | `void` | `trace::write_void_result();` | `"result": null`, with `"returns": {"type": "void"}` |
 
+The driver's `main` is not a frame: the user's method gets its frame from the `::trace::Frame` guard the rewriter puts on its first line, and is the bottom frame of every step ([`adapters/cpp.md` §4](adapters/cpp.md#4-the-recording-api)).
+
 **Decided (spec v0.5):** both special cases are part of the contract ([`trace-format.md` Section 3, The return value](trace-format.md#the-return-value)).
 
 How a run can end:

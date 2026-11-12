@@ -281,30 +281,31 @@ int main() {
   std::cout << "the dummy-head pattern through record()\n";
   {
     trace::tracer = trace::Tracer{};
+    trace::Frame frame("f"); // record() runs only inside a frame
     ListNode one(1);
     ListNode dummy(0);
     ListNode *tail = &dummy;
 
     record(1, var("dummy", dummy), var("tail", tail));
     check("step 0: dummy and tail are the same node", last_step(),
-          R"({"step": 0, "line": 1, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": null}}}})");
+          R"({"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}}}], "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": null}}}})");
 
     tail->next = &one;
     record(2, var("dummy", dummy), var("tail", tail));
     check("step 1: a change through tail shows on dummy", last_step(),
-          R"({"step": 1, "line": 2, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": null}}}})");
+          R"({"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n1"}}}], "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": null}}}})");
 
     tail = tail->next;
     record(3, var("dummy", dummy), var("tail", tail));
     check("step 2: tail moves on, dummy stays", last_step(),
-          R"({"step": 2, "line": 3, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n2"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": null}}}})");
-    trace::tracer = trace::Tracer{};
+          R"({"step": 2, "frames": [{"id": "f1", "function": "f", "line": 3, "locals": {"dummy": {"kind": "ref", "id": "n1"}, "tail": {"kind": "ref", "id": "n2"}}}], "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 0, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": null}}}})");
   }
 
   std::cout << "a returned pointer: the result has a heap of its own\n";
   {
     // What write_result() does, without the file: a fresh heap, the run-long ids.
     trace::tracer = trace::Tracer{};
+    trace::Frame frame("f"); // record() runs only inside a frame
     trace::tracer.begin(R"({"method": "f", "params": [], "returns": {"type": "ListNode"}, "input": {}})");
     ListNode b(2), a(1, &b);
     ListNode *head = &a;
@@ -317,7 +318,7 @@ int main() {
     check("the returned node keeps the id it had in the steps", result, R"({"kind": "ref", "id": "n2"})");
     check_true("the result heap holds only what the result reaches", result_heap.size() == 1 && result_heap.contains("n2"));
     check("the document carries result and result_heap", trace::build_document(result, result_heap),
-          R"({"version": "0.5", "language": "cpp", "problem": {"method": "f", "params": [], "returns": {"type": "ListNode"}, "input": {}}, "steps": [{"step": 0, "line": 1, "locals": {"head": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}}], "result": {"kind": "ref", "id": "n2"}, "result_heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
+          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "returns": {"type": "ListNode"}, "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"head": {"kind": "ref", "id": "n1"}}}], "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}}], "result": {"kind": "ref", "id": "n2"}, "result_heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
 
     ListNode *nothing = nullptr;
     trace::Heap empty_heap;
@@ -326,41 +327,40 @@ int main() {
     check("a returned null pointer is a null result", null_result, R"(null)");
     check_true("with nothing in its heap", empty_heap.empty());
     check_true("so the document has no result_heap", trace::build_document(null_result, empty_heap).find("\"result_heap\"") == std::string::npos);
-    trace::tracer = trace::Tracer{};
   }
 
   std::cout << "through record(): ids last the run, the heap lasts one step\n";
   {
     trace::tracer = trace::Tracer{};
+    trace::Frame frame("f"); // record() runs only inside a frame
     ListNode b(2), a(1, &b);
     ListNode *head = &a;
 
     record(1, var("head", head));
     check("step 0: head is n1, both nodes in the heap", last_step(),
-          R"({"step": 0, "line": 1, "locals": {"head": {"kind": "ref", "id": "n1"}}, "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
+          R"({"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"head": {"kind": "ref", "id": "n1"}}}], "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
 
     head = head->next;
     record(2, var("head", head));
     check("step 1: the second node is still n2, and n1 is no longer reachable", last_step(),
-          R"({"step": 1, "line": 2, "locals": {"head": {"kind": "ref", "id": "n2"}}, "heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
+          R"({"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"head": {"kind": "ref", "id": "n2"}}}], "heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
 
     head->val = 50;
     record(3, var("head", head));
     check("step 2: a changed field shows", last_step(),
-          R"({"step": 2, "line": 3, "locals": {"head": {"kind": "ref", "id": "n2"}}, "heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 50, "next": null}}}})");
+          R"({"step": 2, "frames": [{"id": "f1", "function": "f", "line": 3, "locals": {"head": {"kind": "ref", "id": "n2"}}}], "heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 50, "next": null}}}})");
 
     ListNode c(3);
     head->next = &c;
     record(4, var("head", head));
     check("step 3: a new node gets the next id", last_step(),
-          R"({"step": 3, "line": 4, "locals": {"head": {"kind": "ref", "id": "n2"}}, "heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 50, "next": {"kind": "ref", "id": "n3"}}}, "n3": {"kind": "object", "type": "ListNode", "fields": {"val": 3, "next": null}}}})");
+          R"({"step": 3, "frames": [{"id": "f1", "function": "f", "line": 4, "locals": {"head": {"kind": "ref", "id": "n2"}}}], "heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 50, "next": {"kind": "ref", "id": "n3"}}}, "n3": {"kind": "object", "type": "ListNode", "fields": {"val": 3, "next": null}}}})");
 
     head = nullptr;
     record(5, var("head", head));
-    check("step 4: a null local, empty heap", last_step(), R"({"step": 4, "line": 5, "locals": {"head": null}, "heap": {}})");
+    check("step 4: a null local, empty heap", last_step(), R"({"step": 4, "frames": [{"id": "f1", "function": "f", "line": 5, "locals": {"head": null}}], "heap": {}})");
 
     check_true("three objects were seen in the whole run", trace::tracer.id_table.size() == 3);
-    trace::tracer = trace::Tracer{};
   }
 
   std::cout << "\n"

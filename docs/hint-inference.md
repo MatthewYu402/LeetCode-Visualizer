@@ -62,7 +62,7 @@ Today a hint lives on an entry of `problem.params`. A local variable has nowhere
 Options:
 
 - **A.** A top-level map from variable name to hint. Simple, but two variables with the same name in different scopes would share one hint. That is the same shadowing problem the call-stack design has to solve.
-- **B.** Hints inside each stack frame, once the call stack exists ([`native-tracing.md` §8](native-tracing.md#8-open-questions)).
+- **B.** Hints inside each stack frame. The call stack exists since trace format v0.6 (`frames`, [`trace-format.md` §6](trace-format.md#6-steps)), so this is now possible.
 - **C.** Leave locals without hints and rely on "view as".
 
 Any of A or B is a spec change and follows the procedure in `Skills.md` §3.
