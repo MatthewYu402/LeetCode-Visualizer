@@ -21,17 +21,19 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 | Area | Status |
 |---|---|
-| Trace format specification | Draft v0.6 |
-| JSON Schema + golden fixtures | v0.6, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking) |
+| Trace format specification | Draft v0.7 |
+| JSON Schema + golden fixtures | v0.7, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking) |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object`, and so do those objects held by value |
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
+| C++ adapter: iterators | Done, with tests. An iterator into a local container becomes an `iterator` value (`index`, `key`, or `end`); the rewriter pairs each iterator variable with its container and the runtime checks the type |
 | C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
 | CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
 | C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
 | C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines. Every golden fixture is reproduced from its plain source |
+| CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command, with a time limit but no sandbox |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.6 (every kind, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
+| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.7 (every kind, iterators as markers on arrays, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
 | API service + sandbox | Planned |
 
@@ -43,11 +45,11 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.6 |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.7 |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.6 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.6 |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.7 |
+| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.7 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
@@ -164,6 +166,7 @@ An adapter turns "the user's code plus an example" into a trace. Four stages:
 │                                                                                │
 │   native values -> trace kinds: array · list · stack · queue · deque           │
 │     priority-queue · tuple · set · map · object · ref · int · float            │
+│     iterator (a position in a local container)                                 │
 │   pointers / references -> stable ids (n1, n2 ...), never addresses            │
 │   unknown type -> fail loudly, never emit raw debugger or runtime text         │
 └─────────────┬──────────────────────────────────────────────────────────────────┘
@@ -304,7 +307,7 @@ The full specification is [`docs/trace-format.md`](docs/trace-format.md). The sh
 {"kind": "ref",            "id": "n3"}
 ```
 
-The full list (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `map`, `object`, `ref`, `int`, `float`) is in the [summary of kinds](docs/trace-format.md#summary-of-kinds). What the type cannot say, such as whether an `array` of `array`s is a grid or a graph, is a **hint** that the adapter infers.
+The full list (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `map`, `object`, `ref`, `int`, `float`, and `iterator` for a position in a container) is in the [summary of kinds](docs/trace-format.md#summary-of-kinds). What the type cannot say, such as whether an `array` of `array`s is a grid or a graph, is a **hint** that the adapter infers.
 
 Numbers are plain JSON whenever JavaScript can read them back exactly. Two cases cannot be, so they are tagged, with the exact value kept in a string:
 
@@ -415,7 +418,7 @@ Gaps in the trace format that the tracing work exposed. They are planned for a m
 2. **Member variables.** Fields on the `Solution` instance (memo tables, visited sets) have nowhere to go yet.
 3. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
 
-Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6.
+Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6. Iterators, which had no kind and were left out, are `iterator` values naming a local container since v0.7.
 
 ---
 
@@ -454,6 +457,10 @@ Items marked *(planned)* do not exist yet.
 │   └── <name>_hand_inst.cpp   the same solution, instrumented by hand
 ├── tools/
 │   └── check_trace.py         validate a trace; compare with a fixture
+├── pipeline/                  the CLI: python3 -m pipeline SOLUTION --example TEXT
+│   ├── __init__.py            run(): driver, rewriter, compile, run, validate
+│   ├── __main__.py            the command line and its exit codes
+│   └── tests/                 every fixture end to end, and each kind of failure
 ├── driver/                    LeetCode's harness, rebuilt (Python): python3 -m driver
 │   ├── example.py             example text -> neutral JSON (every language)
 │   ├── shapes.py              LeetCode's notations for lists, trees, graphs (every language)
@@ -476,6 +483,7 @@ Items marked *(planned)* do not exist yet.
 │           ├── test_pointers.cpp
 │           ├── test_frames.cpp
 │           ├── test_document.cpp
+│           ├── test_iterators.cpp
 │           └── programs/
 │               ├── loop_forever.cpp    never returns; proves the step cap
 │               ├── return_pointer.cpp  returns a ListNode*; proves result_heap
@@ -511,7 +519,7 @@ Tentative. The architecture does not depend on these choices.
 
 ## Roadmap
 
-- [x] Trace format specification and JSON Schema (v0.6)
+- [x] Trace format specification and JSON Schema (v0.7)
 - [x] Tracing strategy docs (native, DAP)
 - [x] C++ serializers for every value kind, including pointers and by-value objects as `ref` and `object`
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
@@ -519,7 +527,9 @@ Tentative. The architecture does not depend on these choices.
 - [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
 - [x] Driver generation for C++
 - [x] LibTooling rewriter
-- [ ] Any C++ solution: iterators, member variables, lambdas, hint inference
+- [x] Iterators: the `iterator` kind, paired with their container by the rewriter
+- [x] CLI: one command from a Solution and an example to a validated trace
+- [ ] Any C++ solution: member variables, lambdas, hint inference
 - [x] The call stack: frames and return steps, with recursive golden traces
 - [ ] Resolve the open questions above
 - [ ] API service and sandbox
@@ -528,7 +538,7 @@ Tentative. The architecture does not depend on these choices.
 
 ## Getting started
 
-Nothing takes a pasted solution end to end yet. You can run the C++ adapter's tests and its end-to-end check, run the hand-instrumented Two Sum to write a real trace, check a trace, and open the frontend's sandbox page, which replays the Two Sum fixture. CI runs the same commands on every push and pull request to `main`.
+`python3 -m pipeline` takes a pasted Solution and an example to a validated trace in one command (it needs the rewriter built). You can also run the C++ adapter's tests and its end-to-end check, run the hand-instrumented Two Sum to write a real trace, check a trace, and open the frontend's sandbox page, which replays the Two Sum fixture. CI runs the same commands on every push and pull request to `main`.
 
 ```bash
 # Prerequisites: clang++ or g++ with C++20 <format> support, make, Python 3
@@ -559,6 +569,11 @@ python3 -m unittest discover -s driver/tests -t .    # its tests (they compile w
 # The rewriter (needs LLVM: brew install llvm), then a plain Solution end to end
 make -C adapters/cpp/rewriter LLVM_CONFIG=$(brew --prefix llvm)/bin/llvm-config
 python3 -m driver fixtures/max_depth_trace.cpp --example "root = [3,9,20,null,null,15,7]" --out /tmp/md --rewrite
+
+# The whole pipeline in one command: driver, rewriter, compile, run, check.
+# It runs your code directly, with a 10-second limit and no sandbox.
+python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" -o /tmp/two-sum.json
+python3 -m unittest discover -s pipeline/tests -t .  # its tests (need the rewriter)
 ```
 
 ```bash

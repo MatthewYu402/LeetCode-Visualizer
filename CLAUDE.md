@@ -12,12 +12,12 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.6) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), and writes the trace to a file, with tests. The driver (`driver/`, Python) rebuilds LeetCode's harness for C++: it reads the Solution and an example and generates a prelude and `main`. The rewriter (`adapters/cpp/rewriter/`, Clang LibTooling) inserts the runtime's calls into a plain Solution; every golden fixture is reproduced from its plain source by the rewriter and a generated `main`. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.7) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), shows iterators as positions in their containers, and writes the trace to a file, with tests. The driver (`driver/`, Python) rebuilds LeetCode's harness for C++: it reads the Solution and an example and generates a prelude and `main`. The rewriter (`adapters/cpp/rewriter/`, Clang LibTooling) inserts the runtime's calls into a plain Solution; every golden fixture is reproduced from its plain source by the rewriter and a generated `main`. The CLI (`pipeline/`, `python3 -m pipeline`) runs all of it in one command and validates the trace. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
 | [`README.md`](README.md) | Overview, architecture diagrams, doc map |
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.6). Source of truth |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.7). Source of truth |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | Runtime hooks and source instrumentation |
 | [`docs/dap.md`](docs/dap.md) | Tracing through a debugger via the Debug Adapter Protocol |
 | [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes. `driver-generation.md` describes the implemented driver; the last two are proposals |
@@ -35,12 +35,13 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`adapters/cpp/rewriter/`](adapters/cpp/rewriter/) | The rewriter, `trace-rewrite`: a `RecursiveASTVisitor` (`instrumenter.hpp`/`.cpp`) that inserts `Frame`, `record`, `Scope`, and `ret` into a plain Solution without adding lines, the tool around it (`main.cpp`), and a `Makefile` using `llvm-config` |
 | [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests and the end-to-end check (`e2e`) |
 | [`driver/`](driver/) | The driver, in Python with no dependencies: `example.py` (example text to neutral JSON) and `shapes.py` (LeetCode's notations for linked structures) are shared by every language; `cpp/` reads the signature and commented node definitions and generates the prelude and `main`; `tests/` runs unit tests, compiles and runs generated programs, and checks every golden fixture through a generated `main` |
-| [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, checks that every `ref` names an object in its heap and that frames follow the spec's rules, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`), a returned pointer (`--expect-result-heap`), or a `void` method (`--expect-void`) |
+| [`pipeline/`](pipeline/) | The CLI: `run()` chains driver, rewriter, compiler, program (with a time limit, no sandbox), and `check_trace`; `python3 -m pipeline SOLUTION --example TEXT [-o FILE]` exits 2 for bad input, 3 for a build bug, 4 for a crash or timeout, 5 for an invalid trace; `tests/` runs every fixture and each failure |
+| [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, checks that every `ref` names an object in its heap and that frames and iterators follow the spec's rules, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`), a returned pointer (`--expect-result-heap`), or a `void` method (`--expect-void`) |
 | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, the driver's tests with each compiler, the rewriter built and tested on Linux (Clang 18) and macOS (Homebrew LLVM), and the frontend's tests and build |
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
-Still planned: the CLI that runs the whole pipeline in one command, iterators, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
+Still planned: the sandbox, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
 
 Reusable procedures for this repo are in [`Skills.md`](Skills.md).
 
@@ -108,6 +109,14 @@ make -C adapters/cpp/rewriter test                                             #
 python3 -m driver fixtures/max_depth_trace.cpp --example "root = [3,9,20,null,null,15,7]" --out /tmp/md --rewrite
 ```
 
+Run the whole pipeline in one command (needs the rewriter built). It runs the code directly on this machine with a time limit (`--timeout`, default 10 s) and no sandbox, so use it for your own code only:
+
+```bash
+python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" -o /tmp/two-sum.json
+python3 -m pipeline SOLUTION --example TEXT --keep      # keep the work folder (prelude, program.cpp, binary)
+python3 -m unittest discover -s pipeline/tests -t .    # every fixture end to end, and each kind of failure
+```
+
 Run the frontend (from `frontend/`; rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md)):
 
 ```bash
@@ -117,7 +126,7 @@ npm test                                 # vitest
 npm run build                            # typecheck + production build
 ```
 
-Check traces with `tools/check_trace.py`. Needs `pip install jsonschema`. It loads each file with `parse_constant` set to raise, so the bare tokens `NaN` and `Infinity` (which Python's `json` accepts by default) are rejected, then validates it against the schema and checks that every `ref` names an object in the heap that travels with it (a step's `heap`, or `result_heap` for the result), and the frame rules: `return_value` only on the top frame, frame ids unique in a step, one function per id, and no id coming back after its call returned. It prints one `OK` or `FAIL` line per file and exits nonzero if any failed:
+Check traces with `tools/check_trace.py`. Needs `pip install jsonschema`. It loads each file with `parse_constant` set to raise, so the bare tokens `NaN` and `Infinity` (which Python's `json` accepts by default) are rejected, then validates it against the schema and checks that every `ref` names an object in the heap that travels with it (a step's `heap`, or `result_heap` for the result), and the frame rules: `return_value` only on the top frame, frame ids unique in a step, one function per id, and no id coming back after its call returned; and the iterator rules: an `iterator` names a container among its frame's locals, an `index` is within it (`array`, `list`, `deque`, or a string), and a `key` is one of its keys or items (`map`, `multimap`, `set`, `multiset`). It prints one `OK` or `FAIL` line per file and exits nonzero if any failed:
 
 ```bash
 python3 -I tools/check_trace.py fixtures/*.trace.json                          # schema only, several files
@@ -130,7 +139,7 @@ python3 -I tools/check_trace.py --expect-truncated adapters/cpp/build/traces/cla
 ## Conventions
 
 - **Neutral type names** in problem metadata mirror the kinds: `int`, `float`, `bool`, `string`, `char`, `array<int>`, `list<int>`, `map<int, int>`, `tuple<int, int>`, `TreeNode`, `void` (returns only). The table is in spec §4. Arguments are separated by `", "` (one comma, one space), the one spelling everywhere. Never language types such as `vector<int>&` (the schema rejects `std::`, `vector<`, `unordered_`, `&`, `*`).
-- **Value kinds** are exactly: bare primitives, plus the tagged kinds `int`, `float`, `array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `multiset`, `map`, `multimap`, `object`, `ref`. `array` is indexed (`vector`); `list` is node-based (`std::list`). Maps use `entries` as raw `[key, value]` pairs because JSON object keys must be strings.
+- **Value kinds** are exactly: bare primitives, plus the tagged kinds `int`, `float`, `array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `multiset`, `map`, `multimap`, `object`, `ref`, and `iterator` (only directly in a frame's `locals`: `container` names another local, with `index`, `key`, or `end`). `array` is indexed (`vector`); `list` is node-based (`std::list`). Maps use `entries` as raw `[key, value]` pairs because JSON object keys must be strings.
 - **Tagged numbers.** Integers outside ±(2^53 − 1) use the `int` kind, and NaN/±Infinity use the `float` kind. Everything else is a bare JSON number.
 - **Hints** (`grid`, `adjacency-matrix`, `adjacency-list`, `edge-list`, `intervals`, `tree`, `linked-list`, `graph`, `priority-queue`, `stack`, `queue`) are only for what the type cannot say.
 - **Step cap** is 2,000. Adapters set `"truncated": true` when they stop at the cap, and write the trace at that moment so it survives a program that never ends.

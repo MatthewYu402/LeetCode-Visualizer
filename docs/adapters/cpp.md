@@ -58,7 +58,7 @@ Two Sum calls no function of its own, so every one of its steps has one frame. A
 - **Parameters are locals too.** `nums` is a `vector<int>&`, and it is written as its value, not as a reference.
 - **Callers are read live.** A caller's locals are serialized at every step from its variables as they are at that step, so a vector the callee changes through a reference shows the change in every frame that can see it.
 - **Order** follows the order of the `var(...)` arguments. Consumers must not depend on it, because JSON object order carries no meaning.
-- **Variables with no serializer are left out.** The rewriter passes every variable in scope, because it cannot know which types `trace.hpp` supports. The concept `Serializable<T>` (true when a `Serializer<T>` specialization exists) lets `write_locals` drop the others at compile time, so Two Sum's `auto it`, a lambda, or a `std::function` simply does not appear. Serializing such a type directly with `serialize()` is still a compile error. An iterator kind is planned.
+- **Variables with no serializer are left out.** The rewriter passes every variable in scope, because it cannot know which types `trace.hpp` supports. The concept `Serializable<T>` (true when a `Serializer<T>` specialization exists) lets `write_locals` drop the others at compile time, so a lambda or a `std::function` simply does not appear. Serializing such a type directly with `serialize()` is still a compile error. An iterator is passed with `var_iter` instead, which names its container too (§5.1).
 
 ### 2.2 `heap`
 
@@ -222,6 +222,7 @@ int maxDepth(TreeNode *root) {
 | Piece | What it is |
 |---|---|
 | `var(name, value)` | Returns a `Value<T>`: the name (a `const char*` literal) and a `const T&` to the live variable. It must name a variable: `var("n", nums.size())` does not compile (§4.2) |
+| `var_iter(name, it, container_name, container)` | Returns an `IterValue`: an iterator and the local container it points into. It becomes an `iterator` value (§5.1). Like `var`, both arguments must be variables |
 | `Frame frame("name")` | An RAII guard on the first line of every function. Pushes a frame for the call, pops it when the call ends |
 | `record(line, vars...)` | Records one step: the running frame is about to execute `line`, with these variables in scope |
 | `ret<T>(line, value, vars...)` | Records the return step, then returns `value`. `ret_void(line, vars...)` is the same for a function with no return value |
@@ -321,6 +322,22 @@ The line number is passed explicitly rather than taken from `std::source_locatio
 
 Any other type fails to compile at the primary `Serializer` template's `static_assert`, so an unknown type is an error, never a pass-through.
 
+### 5.1 Iterators
+
+An iterator has no value of its own: it is a position in a container. So it is never serialized alone. `var_iter("it", it, "numMap", numMap)` gives the runtime the iterator and the container together, and `write_local` writes ([`trace-format.md`, "Positions in a container"](../trace-format.md#positions-in-a-container-iterators)):
+
+| The iterator | Written as |
+|---|---|
+| equal to `container.end()` | `{"kind": "iterator", "container": "numMap", "end": true}` |
+| into a `map`, `multimap`, `unordered_map` (it has `mapped_type`) | `"key"`: the serialized `pos->first` |
+| into a `set`, `multiset`, `unordered_set` | `"key"`: the serialized `*pos` |
+| random access (`vector`, `deque`, `string`, `array`) | `"index"`: `pos - begin()` |
+| any other (`list`, `forward_list`) | `"index"`: counted by walking from `begin()` |
+
+The concept `IteratorOf<It, C>` accepts only `C::iterator` and `C::const_iterator`. Anything else passed through `var_iter` falls back to an ordinary local: an `int` the rewriter paired by mistake is written as an `int`, and a reverse iterator, or an iterator into another container type, has no serializer and is left out. So a wrong guess by the rewriter loses a marker, but never writes a wrong one. An index outside the container (impossible for a valid iterator) is left out too.
+
+The rewriter checks nothing at run time: it cannot know whether `it` still points into `nums` after `it = other.begin()` in a branch it did not see. It re-pairs on every assignment it can read (§8.2), and the runtime's type check catches the rest.
+
 ## 6. Layout of `trace.hpp`
 
 Each section uses only what is above it, so no part depends on something declared later.
@@ -333,7 +350,7 @@ Each section uses only what is above it, so no part depends on something declare
 | 4. JSON text helpers | `escape`, `quote` |
 | 5. Writing helpers | `write_items`, `write_entries`, `write_tuple`, `get_container`, `write_heap`, `comparator_name` |
 | 6. Serializers | Grouped by the kind they produce. Group 6i holds `Fields`, `HasFields`, the pointer serializer, and the serializer for objects held by value |
-| 7. The recorder | `FrameState`, `Tracer`, `tracer`, `Value`, `var`, then the document writer (`output_path`, `write_file`, `build_document`, `write_document`, `write_result`, `write_void_result`), then the steps: `write_locals`, `top_frame`, `step_allowed`, `push_step`, `set_frame`, `record`, `ret`, `ret_void`, and the `Frame` and `Scope` guards |
+| 7. The recorder | `FrameState`, `Tracer`, `tracer`, `Value`, `var`, `IterValue`, `var_iter`, `IteratorOf`, `write_iterator`, then the document writer (`output_path`, `write_file`, `build_document`, `write_document`, `write_result`, `write_void_result`), then the steps: `write_locals`, `top_frame`, `step_allowed`, `push_step`, `set_frame`, `record`, `ret`, `ret_void`, and the `Frame` and `Scope` guards |
 
 The recorder comes last because it uses everything else. Nothing above it touches the global `tracer`. Inside it, the document writer sits above `record`, because `record` calls it at the step cap.
 
@@ -374,7 +391,7 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.6"`) |
+| `version` | Always | The `VERSION` constant (`"0.7"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `steps` | Always | `tracer.steps`, joined with `", "` |
@@ -458,6 +475,8 @@ The scope is a stack of name lists: the parameters, then one list per block, and
 
 **Order at one position.** Every insertion is appended after earlier ones at the same position. The walk is ordered so that this is right: a body's `{` is inserted before the `record` that follows it, and an inner block's `}` before the `}` of the block around it.
 
+**Iterators are paired with a container.** For each variable declared or assigned (`auto it = m.find(x);`, `it = s.lower_bound(v);`), the walk looks for the container in the initializer: the object of a `begin`, `end`, `cbegin`, `cend`, `find`, `lower_bound`, `upper_bound`, `erase`, `insert`, `emplace`, or `emplace_hint` call, or the argument of a free `begin`/`end`. If exactly one visible variable is found, the variable's later `var(...)` becomes `var_iter("it", it, "m", m)`. An assignment with no container (`it = f();`) clears the pairing. The runtime decides whether the type really is that container's iterator (§5.1), so `int i = v.size();`-like lookalikes that pass the syntax check (`auto n = m.find(x)->second;`) are written as ordinary locals.
+
 **A `switch` body** gets records but no `Scope`: a jump to a `case` label may not skip a variable's initialization, and the guard is a variable. The `record` for `case 1: x = 2;` goes after the label, so it stays in that case.
 
 ### 8.3 Limits
@@ -480,10 +499,11 @@ make -C adapters/cpp e2e                # the end-to-end check (needs python3 an
 The test programs are built into `adapters/cpp/build/<compiler>/`, and the traces the end-to-end check writes go to `adapters/cpp/build/traces/<compiler>/`. Both are ignored by git.
 
 - `tests/test_serialize.cpp` checks the exact JSON text of every serializer, with its own `Ctx` and no `Tracer`.
-- `tests/test_record.cpp` checks that `record` reproduces Two Sum's steps character for character (each section declares a `Frame`), the rules for `locals`, that locals with no serializer (an iterator, a lambda, a `std::function`) are left out, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
+- `tests/test_record.cpp` checks that `record` reproduces Two Sum's steps character for character (each section declares a `Frame`), the rules for `locals`, that locals with no serializer (a bare iterator, a lambda, a `std::function`) are left out, snapshot-at-call, the step cap, and the heap and id rules. The heap tests use a test-only `Probe` type as a stand-in until pointer serializers exist. It sets `exit_at_cap` to `false` so it can reach the cap and keep running.
 - `tests/test_pointers.cpp` checks the object serializers: null, one node, a chain, aliases, cycles, `TreeNode`, pointers inside containers, a problem's own graph `Node`, pointers to `const`, objects held by value (alone, next to a pointer to them, copied, and inside a `vector`), the dummy-head pattern through `record`, ids staying stable across steps while the heap is rebuilt, and a returned pointer's own heap.
 - `tests/test_frames.cpp` checks the call stack: one frame, a call (two frames, a return step, one frame again), frame ids never reused, callers read live after a callee changes their vector, one heap shared by every frame, `ret` with a braced value and with a pointer, `ret_void`, recursion three levels deep and its unwinding, `Scope` restoring a frame after a block, a frame popped by an exception, the step cap inside `ret`, and (at compile time) that `var` rejects a temporary.
 - `tests/test_document.cpp` checks the exact text of `build_document`: no steps, one step and several joined with `", "`, steps written by `record` itself, a result (including a `null` one), no `result` key at all when there is none, `result_heap` after a `ref` result and absent when the heap is empty or there is no result, no `truncated` key unless it is `true`, a problem pasted in unchanged (odd spacing, escapes, UTF-8), and that building the document twice gives the same text and changes nothing.
+- `tests/test_iterators.cpp` checks `var_iter`: an index into a `vector` (and `end`, a `const_iterator`, an empty vector), a key into a `map`, `set`, and `multimap`, a pointer key as a `ref` with its object in the heap, an index into a `list`, `forward_list`, `deque`, and `string`, the fallbacks (an `int` stays an `int`; a reverse iterator or another container's iterator is left out), a loop step by step, and that `ret` gives no `return_value` for an iterator.
 - `tests/test_write_file.cpp` checks `output_path` and `write_file`: a successful write, a failed open, a failed write, and a failed rename. After every failure the old file must be unchanged and the `.tmp` file gone. Its files go in a private folder in the system's temp directory, which it removes at the end. It is POSIX only (`setenv`, `setrlimit`).
 
 `make e2e` is the end-to-end check. It runs every hand-instrumented fixture, and three test programs, with `TRACE_OUT` set, then checks what they wrote with [`tools/check_trace.py`](../../tools/check_trace.py):
@@ -500,7 +520,7 @@ Every trace is also checked for dangling refs: each `ref` must name an object in
 - **Equality is after parsing**, not byte for byte, so spacing can change. Types must still match, and `set` items and `map` entries compare in any order, because their order is unspecified ([`trace-format.md` §10](../trace-format.md#10-validation-and-testing)).
 - **The old trace is deleted before each run**, so a program that writes nothing cannot pass on a stale file.
 - **Each run has a 20-second limit** (`E2E_TIMEOUT`). If the cap stops ending the run, `loop_forever` spins until the limit kills it, and the target fails with exit code 142 instead of hanging. The limit uses `perl`'s `alarm`, because coreutils `timeout` is not on macOS by default.
-- `driver/tests/test_rewriter.py` checks the rewriter (§8): every golden fixture, rewritten from its plain `_trace.cpp`, equals its golden trace; every original line survives on its own line; and unbraced bodies, `else if` chains, loop-variable scope, shadowing, recursion through a private helper, lambdas, iterators, `void` returns, `switch`, structured bindings, `if` with an initializer, `do`/`while`, and compile errors at the user's line. `make -C adapters/cpp/rewriter test` builds the tool and runs them.
+- `driver/tests/test_rewriter.py` checks the rewriter (§8): every golden fixture, rewritten from its plain `_trace.cpp`, equals its golden trace; every original line survives on its own line; and unbraced bodies, `else if` chains, loop-variable scope, shadowing, recursion through a private helper, lambdas, iterators (from `find`, walking a `list`, reassigned, `lower_bound`, and lookalikes that are not iterators), `void` returns, `switch`, structured bindings, `if` with an initializer, `do`/`while`, and compile errors at the user's line. `make -C adapters/cpp/rewriter test` builds the tool and runs them.
 - **The files in `tests/programs/` are not `tests/test_*.cpp`**, so `make test` never builds them. Each is a whole program that writes a trace, and `loop_forever.cpp` is meant to end the process.
 
 CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make both header e2e` on Ubuntu 24.04 with GCC 14 and Clang 18, which both use libstdc++, and `make test header e2e` on macOS with Apple Clang and libc++. On macOS `g++` is Apple Clang too, so `make both` there would build with the same compiler twice.
@@ -510,7 +530,7 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 - **Shadowed names inside one function.** Two variables named `i` in scope at once in the same function (an inner block's `int i` hiding an outer one) produce a duplicate key in that frame's `locals`. The call stack fixed the same name in *different* calls, since each call has its own frame, but not this case. The rewriter will have to pass only the innermost one.
 - **Instrumentation rules are not checked at run time.** A `record` outside any `Frame` stops the program with a message. A call made before a function's first `record` would write a frame with line 0, which the schema rejects. A missing `Scope` is undefined behavior only when a call happens between the end of the block and the next `record` (§4.5).
 - **Step size grows with recursion depth.** Every step writes every frame. For LeetCode examples and a 2,000-step cap this is small. A cap on frames can be added if a test shows it is needed.
-- **Iterators** have no kind, so they are left out of `record` calls.
+- **Iterators into something that is not a local** (a member, a temporary, a container inside a container: `g[u].begin()`) have no container to name, so they are left out. So are reverse iterators.
 - **Container aliasing.** Two references to the same `vector` appear as two copies. Only objects have identity.
 - **Wide character types** (`wchar_t`, `char8_t`, `char16_t`, `char32_t`) are rejected by the integer serializer's comparisons.
 - **Dangling and uninitialized pointers, and reused addresses.** A pointer to a deleted node, or one that was never assigned, is followed as if it were valid, which is undefined behavior. An object that reuses an address also reuses its id. See §3.7.
