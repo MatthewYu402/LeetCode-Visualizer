@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from driver.cpp import generate
 from driver.tests.support import check_trace
 from driver.tests.test_fixtures import CASES, FIXTURES
 from pipeline import EXIT_INVALID, EXIT_RUN, EXIT_SANDBOX, PipelineError, run
-from pipeline.runners import IMAGE, PROGRAM_USER, Container, Limits, SandboxError
+from pipeline.runners import IMAGE, PROGRAM_USER, Container, Limits, Pool, SandboxError
 
 SANDBOX = os.environ.get("TRACE_SANDBOX", "docker")
 
@@ -51,6 +52,17 @@ def containers():
     r = subprocess.run(["docker", "ps", "--all", "--filter", "name=trace-run-", "--format", "{{.Names}}"],
                        capture_output=True, text=True, timeout=30)
     return set(r.stdout.split())
+
+
+def new_containers_after(before, seconds=15):
+    """The containers not in `before` that still exist after waiting up to
+    `seconds`: a run's container is removed in the background, right after it."""
+    deadline = time.monotonic() + seconds
+    while True:
+        left = containers() - before
+        if not left or time.monotonic() > deadline:
+            return left
+        time.sleep(0.2)
 
 
 @needs_sandbox
@@ -123,7 +135,7 @@ class Isolation(unittest.TestCase):
         error = self.fails(solution("        while (n > 0) {}\n        return n;"), timeout=2)
         self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
         self.assertIn("did not finish within 2 seconds", str(error))
-        self.assertEqual(containers() - before, set())
+        self.assertEqual(new_containers_after(before), set())
 
     def test_output_is_capped(self):
         # 1 MB of output: the run still succeeds, and only the first 64 KB come back.
@@ -151,14 +163,12 @@ class Isolation(unittest.TestCase):
         program = generate(source, "n = 3", None)
         container = Container(runtime="runsc" if SANDBOX == "gvisor" else None)
         try:
-            container.put("prelude.hpp", program.prelude)
-            container.put("solution.cpp", source)
-            container.put("program.cpp", program.source(container.rewrite("solution.cpp").stdout))
-            self.assertEqual(container.compile().returncode, 0)
+            self.assertEqual(container.build(program.prelude, source, program.main).stage, "")
             self.assertEqual(container.execute(10).returncode, 0)
-            listing = container._exec(["sh", "-c", "for p in /proc/[0-9]*; do cat $p/comm; done"], timeout=10).stdout.split()
-            self.assertNotIn("program", listing)
-            self.assertIsNotNone(container.take("trace.json", 1 << 20))
+            _, listing, _ = container._exec(["sh", "-c", "for p in /proc/[0-9]*; do cat $p/comm; done"], timeout=10)
+            self.assertNotIn("program", listing.decode().split())
+            trace, _ = container.collect(1 << 20)
+            self.assertIsNotNone(trace)
         finally:
             container.close()
 
@@ -189,7 +199,7 @@ class Isolation(unittest.TestCase):
             killer.cancel()
         self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
         self.assertIn("The sandbox was stopped while the program ran", str(error))
-        self.assertEqual(containers() - before, set())
+        self.assertEqual(new_containers_after(before), set())
 
     def test_compile_errors_name_the_users_file(self):
         with self.assertRaises(PipelineError) as caught:
@@ -197,6 +207,46 @@ class Isolation(unittest.TestCase):
         self.assertEqual(caught.exception.stage, "rewriter")
         self.assertIn("mine.cpp:4:", str(caught.exception))
         self.assertNotIn("/work/", str(caught.exception))
+
+
+class Settings(unittest.TestCase):
+    def test_limits_come_from_the_environment(self):
+        saved = {k: os.environ.pop(k, None) for k in ("TRACE_RUN_MEMORY", "TRACE_RUN_CPUS", "TRACE_RUN_PIDS")}
+        try:
+            self.assertEqual((Limits().memory, Limits().cpus, Limits().pids), ("1g", "1", 64))
+            os.environ.update(TRACE_RUN_MEMORY="512m", TRACE_RUN_CPUS="0.5", TRACE_RUN_PIDS="32")
+            self.assertEqual((Limits().memory, Limits().cpus, Limits().pids), ("512m", "0.5", 32))
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None)
+                if v is not None:
+                    os.environ[k] = v
+
+
+@needs_sandbox
+class PoolOfContainers(unittest.TestCase):
+    def test_each_pooled_container_is_used_once(self):
+        # A pool only starts containers earlier: two runs get two different
+        # containers, each removed after its run, and closing the pool leaves none.
+        before = containers()
+        pool = Pool(1)
+        seen = []
+        original = Container.build
+
+        def build_and_note(container, *args):
+            seen.append(container.name)
+            return original(container, *args)
+
+        Container.build = build_and_note
+        try:
+            for _ in range(2):
+                run(solution("        return n;"), "n = 3", sandbox=SANDBOX, pool=pool)
+                time.sleep(2)  # the pool starts a replacement in the background
+        finally:
+            Container.build = original
+            pool.close()
+        self.assertEqual(len(set(seen)), 2)
+        self.assertEqual(new_containers_after(before), set())
 
 
 @unittest.skipUnless(shutil.which("docker"), "no Docker")

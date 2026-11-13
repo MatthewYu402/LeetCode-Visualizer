@@ -31,12 +31,9 @@ from .types import clean, declared_type, neutral, parse_neutral
 # is ours: <bits/stdc++.h> does not exist in libc++ (macOS), so each header is
 # named. LeetCode's own stubs write `vector<int>` with no std::, which is why
 # the prelude says `using namespace std;`.
-HEADERS = [
-    "algorithm", "array", "bitset", "cassert", "cctype", "climits", "cmath", "cstdint", "cstdio", "cstdlib",
-    "cstring", "deque", "functional", "iomanip", "iostream", "iterator", "limits", "list", "map", "memory",
-    "numeric", "optional", "queue", "set", "sstream", "stack", "string", "string_view", "tuple",
-    "unordered_map", "unordered_set", "utility", "vector",
-]
+# The standard headers and the runtime: adapters/cpp/runtime/prelude_common.hpp,
+# one file shared with the sandbox image, which precompiles it.
+COMMON_HEADER = "prelude_common.hpp"
 
 RAW_DELIMITER = "__trace__"
 
@@ -125,9 +122,7 @@ def _prelude(types):
         "// with -include, so it comes before the user's code without adding lines to it.",
         "#pragma once",
         "",
-        *[f"#include <{h}>" for h in HEADERS],
-        "",
-        '#include "leetcode_types.hpp"  // ListNode, TreeNode, and trace.hpp',
+        f'#include "{COMMON_HEADER}"  // the standard headers, ListNode, TreeNode, and trace.hpp',
         "",
         "using namespace std;",
     ]

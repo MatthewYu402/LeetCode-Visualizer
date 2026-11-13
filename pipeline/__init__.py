@@ -50,7 +50,6 @@ EXIT_INVALID = 5    # the trace failed validation (a bug in the runtime)
 EXIT_SANDBOX = 6    # the sandbox could not run: no Docker, no image, no gVisor runtime
 
 SANDBOXES = (None, "none", "docker", "gvisor")
-SOLUTION = "solution.cpp"           # the Solution's name in the run folder; messages show the user's name instead
 TRACE_CAP = 16 * 1024 * 1024        # bytes of trace read back; a larger trace is an error
 
 
@@ -80,19 +79,20 @@ def compiler():
 
 
 def run(source, example, *, source_name="solution.cpp", method=None, rewriter=REWRITER,
-        cxx=None, timeout=10.0, compile_timeout=120.0, keep=False, sandbox=None, limits=None):
+        cxx=None, timeout=10.0, compile_timeout=120.0, keep=False, sandbox=None, limits=None, pool=None):
     """Runs every stage. Returns a Result, or raises PipelineError.
 
     sandbox: None (or "none") runs stages 2 to 4 on this machine; "docker" runs
     them in a locked-down container; "gvisor" does the same under gVisor's
     runsc runtime (docs/sandboxing.md). limits: a runners.Limits for the container.
+    pool: a runners.Pool of containers started ahead of time (the API service keeps one).
     """
     if sandbox not in SANDBOXES:
         raise ValueError(f"sandbox must be one of {sorted(s for s in SANDBOXES if s)}, not {sandbox!r}")
     work = Path(tempfile.mkdtemp(prefix="trace-run-"))
     try:
         result = _run(work, source, example, source_name, method, Path(rewriter), cxx, timeout, compile_timeout,
-                      sandbox, limits or Limits())
+                      sandbox, limits or Limits(), pool)
         if keep:
             result.work_dir = work
         return result
@@ -101,20 +101,20 @@ def run(source, example, *, source_name="solution.cpp", method=None, rewriter=RE
             shutil.rmtree(work, ignore_errors=True)
 
 
-def _runner(work, sandbox, rewriter, cxx, compile_timeout, limits):
+def _runner(work, sandbox, rewriter, cxx, compile_timeout, limits, pool):
     if sandbox in (None, "none"):
         if not rewriter.exists():
             raise PipelineError("rewriter", f"The rewriter is not built ({rewriter}). Run: make -C adapters/cpp/rewriter", EXIT_BUILD)
         return Local(work, rewriter, cxx or compiler(), RUNTIME, compile_timeout)
     try:
-        return Container(runtime="runsc" if sandbox == "gvisor" else None, limits=limits, compile_timeout=compile_timeout)
+        return Container(runtime="runsc" if sandbox == "gvisor" else None, limits=limits, compile_timeout=compile_timeout, pool=pool)
     except SandboxError as error:
         raise PipelineError("sandbox", str(error), EXIT_SANDBOX) from None
     except StageTimeout:
         raise PipelineError("sandbox", "Docker did not answer in time.", EXIT_SANDBOX) from None
 
 
-def _run(work, source, example, source_name, method, rewriter, cxx, timeout, compile_timeout, sandbox, limits):
+def _run(work, source, example, source_name, method, rewriter, cxx, timeout, compile_timeout, sandbox, limits, pool):
     # 1. driver (outside the sandbox: it reads text and never runs the user's code)
     try:
         program = generate(source, example, method)
@@ -123,13 +123,15 @@ def _run(work, source, example, source_name, method, rewriter, cxx, timeout, com
     # The work folder on this machine keeps a copy of every input (for --keep),
     # whether or not the stages below run here.
     (work / "prelude.hpp").write_text(program.prelude, encoding="utf-8")
-    (work / SOLUTION).write_text(source, encoding="utf-8")
+    (work / "solution.cpp").write_text(source, encoding="utf-8")
 
-    runner = _runner(work, sandbox, rewriter, cxx, compile_timeout, limits)
+    runner = _runner(work, sandbox, rewriter, cxx, compile_timeout, limits, pool)
     try:
         trace_bytes, output = _stages(runner, work, program, source, source_name, timeout, compile_timeout, limits, sandbox)
     except SandboxError as error:
         raise PipelineError("sandbox", str(error), EXIT_SANDBOX) from None
+    except StageTimeout:
+        raise PipelineError("sandbox", "The sandbox did not answer in time.", EXIT_SANDBOX) from None
     finally:
         runner.close()
 
@@ -145,27 +147,20 @@ def _run(work, source, example, source_name, method, rewriter, cxx, timeout, com
 
 def _stages(runner, work, program, source, source_name, timeout, compile_timeout, limits, sandbox):
     """Stages 2 to 4. Returns (the trace file's bytes, what the program printed)."""
-    runner.put("prelude.hpp", program.prelude)
-    runner.put(SOLUTION, source)
-
-    # 2. rewriter. It parses the Solution exactly as the compiler will, so this
-    # is also where the user's own compile errors are found and reported.
-    try:
-        rewritten = runner.rewrite(SOLUTION)
-    except StageTimeout:
-        raise PipelineError("rewriter", f"Reading the code took longer than {compile_timeout:g} seconds, and was stopped.", EXIT_INPUT) from None
-    if rewritten.returncode != 0:
-        raise PipelineError("rewriter", "The code does not compile:\n" + runner.shown(rewritten.stderr, SOLUTION, source_name), EXIT_INPUT)
-
-    # 3. compile
-    code = program.source(rewritten.stdout)
-    (work / "program.cpp").write_text(code, encoding="utf-8")
-    runner.put("program.cpp", code)
-    try:
-        built = runner.compile()
-    except StageTimeout:
-        raise PipelineError("compile", f"Compiling took longer than {compile_timeout:g} seconds, and was stopped.", EXIT_BUILD) from None
-    if built.returncode != 0:
+    # 2 and 3. rewrite, then compile. The rewriter parses the Solution exactly
+    # as the compiler will, so it is also where the user's own compile errors
+    # are found and reported.
+    built = runner.build(program.prelude, source, program.main)
+    if built.stage == "rewriter":
+        if built.stopped:
+            raise PipelineError("rewriter", f"Reading the code took longer than {compile_timeout:g} seconds or used more "
+                                f"than {limits.memory} of memory, and was stopped.", EXIT_INPUT)
+        raise PipelineError("rewriter", "The code does not compile:\n" + runner.shown(built.stderr, source_name), EXIT_INPUT)
+    (work / "program.cpp").write_text(program.source(built.rewritten), encoding="utf-8")
+    if built.stage == "compile":
+        if built.stopped:
+            raise PipelineError("compile", f"Compiling took longer than {compile_timeout:g} seconds or used more than "
+                                f"{limits.memory} of memory, and was stopped.", EXIT_BUILD)
         raise PipelineError("compile", "The generated program does not compile. This is a bug in the driver or the "
                             f"rewriter, not in your code:\n{built.stderr}", EXIT_BUILD)
 
@@ -183,19 +178,20 @@ def _stages(runner, work, program, source, source_name, timeout, compile_timeout
             why = f"most likely by one of its limits, such as memory ({limits.memory}) or processes ({limits.pids})"
         raise PipelineError("run", f"The sandbox was stopped while the program ran: {why}. No trace was written "
                             f"({stopped.detail}).", EXIT_RUN) from None
+    trace_bytes, collected = runner.collect(TRACE_CAP)
+    output = ran.output if collected is None else collected
     if ran.signal:
         why = ""
         if ran.signal == "SIGKILL" and sandbox not in (None, "none"):
             why = f" It was most likely stopped for using more than the memory limit ({limits.memory})."
         elif ran.signal == "SIGXFSZ" or ran.signal == "SIGBUS":
             why = " It may have run out of space for its output."
-        raise PipelineError("run", f"The program crashed ({ran.signal}) before writing a trace.{why}" + _printed(ran.output), EXIT_RUN)
-    trace_bytes = runner.take("trace.json", TRACE_CAP)
+        raise PipelineError("run", f"The program crashed ({ran.signal}) before writing a trace.{why}" + _printed(output), EXIT_RUN)
     if ran.returncode != 0 or trace_bytes is None:
-        raise PipelineError("run", f"The program exited with status {ran.returncode} and wrote no trace." + _printed(ran.output), EXIT_RUN)
+        raise PipelineError("run", f"The program exited with status {ran.returncode} and wrote no trace." + _printed(output), EXIT_RUN)
     if len(trace_bytes) > TRACE_CAP:
         raise PipelineError("run", f"The trace is larger than {TRACE_CAP // (1024 * 1024)} MB, and was not read.", EXIT_RUN)
-    return trace_bytes, ran.output
+    return trace_bytes, output
 
 
 def _printed(output):

@@ -2,7 +2,8 @@
 # else. docs/sandboxing.md §6.
 #
 #   /opt/trace/bin/trace-rewrite   the rewriter (stage 2)
-#   /opt/trace/runtime/            trace.hpp and leetcode_types.hpp (stage 3)
+#   /opt/trace/runtime/            trace.hpp, leetcode_types.hpp, prelude_common.hpp
+#                                  and its precompiled header (stages 2 and 3)
 #   clang++-18 with libstdc++      the compiler (stage 3)
 #
 # No Python, no driver, no checker: the driver runs before the container and
@@ -33,6 +34,14 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/rewriter/build/trace-rewrite /opt/trace/bin/trace-rewrite
 COPY adapters/cpp/runtime/ /opt/trace/runtime/
+# The fixed part of every prelude, precompiled once (docs/sandboxing.md §4.1).
+# Every run would otherwise parse these headers twice: in the rewriter and in
+# the compiler. Built with the same clang++-18 and -std that runs use, which a
+# precompiled header requires; the rewriter links Clang 18's libraries too.
+RUN clang++-18 -std=c++20 -x c++-header /opt/trace/runtime/prelude_common.hpp \
+      -o /opt/trace/runtime/prelude_common.hpp.pch
+# Tells the pipeline the precompiled header exists (pipeline/runners.py).
+LABEL org.leetcode-visualizer.pch="/opt/trace/runtime/prelude_common.hpp.pch"
 # Every run gets a fresh tmpfs at /work (docs/sandboxing.md §4). The directory
 # exists so the image also works without one, for debugging.
 RUN mkdir -m 1777 /work
