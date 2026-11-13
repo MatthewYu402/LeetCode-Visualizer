@@ -1,14 +1,14 @@
 # Frontend
-> **Status:** Draft v0.2 (reads trace format v0.7)
-> **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace this version replays), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
+> **Status:** Draft v0.3 (reads trace format v0.7)
+> **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace the page opens on), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
 
-This document covers the first version: a single **sandbox page** that replays the Two Sum fixture. It describes what exists in `frontend/` and the decisions behind it. Later pages (home page, real runs through the API) are listed in [Section 12](#12-out-of-scope) and are only proposals.
+This document covers a single **sandbox page**. It opens on the Two Sum fixture, and with the API service running it traces the user's own Solution on their inputs ([Section 10.1](#101-inputs-and-runs)). It describes what exists in `frontend/` and the decisions behind it. Later pages are listed in [Section 12](#12-out-of-scope) and are only proposals.
 
 ```
-fixtures/two-sum.trace.json ──► loader ──► step player ──► code panel
-                                                     └───► diff ──► renderer registry ──► renderers
+fixtures/two-sum.trace.json, or POST /api/run ──► loader ──► step player ──► code panel
+                                                                       └───► diff ──► renderer registry ──► renderers
 ```
 
 ---
@@ -18,14 +18,15 @@ fixtures/two-sum.trace.json ──► loader ──► step player ──► cod
 | In | Out |
 |---|---|
 | One sandbox page at `/` | The home page |
-| Replaying `fixtures/two-sum.trace.json` | Any backend or API call, running user code |
+| Replaying `fixtures/two-sum.trace.json`, then the trace of each run | Visual design of the inputs panel |
+| An inputs panel: one field per parameter, Run code through the API | Design problems (LRU Cache, Min Stack) |
 | Monaco code panel with the current line highlighted | Pointers: `object` and `ref` renderers |
 | Renderers for `array` and `map`, a fallback for every other kind | Hint renderers (grid, graph, intervals, ...) |
 | Diff highlighting between adjacent steps | The "view as" override UI |
 | Playback: step, run, pause, scrub, speed, keyboard | Comparing two traces side by side |
 | A language select that changes the editor mode | Sending the language anywhere |
 
-The goal is to prove the shape of the frontend (loader, player, registry, diff) against a real trace before there is a backend. Every piece is written against the contract, not against Two Sum, so a new fixture should replay without code changes as long as it uses `array`, `map`, and primitives.
+The first goal was to prove the shape of the frontend (loader, player, registry, diff) against a real trace before there was a backend; the inputs panel now feeds it real runs. Every piece is written against the contract, not against Two Sum, so a new fixture should replay without code changes as long as it uses `array`, `map`, and primitives.
 
 ## 2. Page layout
 One screen, dark theme, no page scroll on a 1440×900 window. Panels are separated by thin borders (`--border`).
@@ -33,23 +34,25 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ TOOLBAR   language · title · first prev run/pause next last · Step 5/8   │
-│           scrubber · speed · "code does not run yet" notice              │
+│           scrubber · speed · which trace is showing                      │
 ├──────────────────────────────┬───────────────────────────────────────────┤
 │ CODE PANEL   (~40%)          │ VISUAL PANEL                              │
 │                              │   one structure per container local       │
 │   Monaco, editable           │   array: boxes, indices, pointer markers  │
 │   step.line highlighted      │   map:   key / value table                │
 │   (background + gutter)      │                                           │
-│   scrolled into view         ├───────────────────────────────────────────┤
-│                              │ STATE PANEL                               │
-│                              │   Step N of M · line L   [truncated]      │
-│                              │   name · kind · value  (one row / local)  │
-│                              │   result or "did not return" (last step)  │
+│   scrolled into view         │                                           │
+├──────────────────────────────┼───────────────────────────────────────────┤
+│ INPUTS PANEL                 │ STATE PANEL                               │
+│   method (when several)      │   Step N of M · line L   [truncated]      │
+│   one field per parameter    │   name · kind · value  (one row / local)  │
+│   paste a LeetCode example   │   result or "did not return" (last step)  │
+│   Run code · status · output │                                           │
 └──────────────────────────────┴───────────────────────────────────────────┘
           ◄── drag ──►                        ▲ drag ▼
 ```
 
-Both splits are resizable by dragging the border between panels: the code / right split horizontally, the visual / state split vertically. The split sizes are plain UI state and are not saved.
+Every split is resizable by dragging the border between panels: the left / right split horizontally, and the code / inputs and visual / state splits vertically. The split sizes are plain UI state and are not saved.
 
 ## 3. Components
 
@@ -70,9 +73,13 @@ Both splits are resizable by dragging the border between panels: the code / righ
 | `components/Split.tsx` | A draggable split between two panels | Pointer events |
 | `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables | `theme.css` |
 | `editor/languages.ts` | Editor languages and the Java / Python starter templates | Nothing |
-| `fixtures.ts` | Stands in for the backend: source and trace per editor language | `fixtures/` |
+| `fixtures.ts` | The example the page opens with: source and trace per editor language | `fixtures/` |
+| `api/client.ts` | `signature()` and `run()`: the two API calls, answers as unions, the trace through the loader | The API |
+| `api/form.ts` | Fields for a method, placeholders, kept values, filling from an example, the run request | A signature |
+| `api/useInputs.ts` | The form's state: the signature re-read 400 ms after an edit, the method, the values, the run | Source |
+| `components/InputsPanel.tsx` | The form: method picker, one field per parameter, paste an example, Run code, the outcome | The form's state |
 
-The only module that knows which language is selected is `App.tsx`, and it uses that only to pick the editor mode and to ask `fixtures.ts` for a trace. `fixtures.ts` is the stand-in for the future run request ([Section 10](#10-language-select)).
+The only module that knows which language is selected is `App.tsx`, and it uses that only to pick the editor mode, to ask `fixtures.ts` for the opening trace, and to enable the inputs (only C++ runs so far) ([Section 10](#10-language-select)).
 
 ## 4. Loading traces
 
@@ -233,11 +240,22 @@ The select (C++, Java, Python) is a **UI input**. It changes the Monaco language
 | Selected | Editor | Visual panel |
 |---|---|---|
 | C++ | The Two Sum source from `fixtures/` | The Two Sum trace |
-| Java / Python | A short starter `Solution` template | "No trace for this language yet. Showing nothing until the backend is connected." |
+| Java / Python | A short starter `Solution` template | "No trace for this language yet: only C++ can run so far." The inputs are disabled |
 
-Switching back to C++ restores the fixture source and trace. The editor is editable, and the toolbar says that code does not run yet. Editing does not change the trace. The highlighted line still comes from `step.line`, so after edits it may point at a different line of text.
+Switching back to C++ restores the fixture source and trace. The editor is editable. Editing does not change the trace until Run code is pressed again; until then the highlighted line still comes from `step.line`, so it may point at a different line of text. The toolbar says which trace is showing: the Two Sum example, or the last run.
 
-`fixtures.ts` is the only place a language maps to a trace. When the backend exists, it is replaced by the run request, which sends the language with the source, and the rest of the page does not change.
+`fixtures.ts` is the only place a language maps to a trace.
+
+### 10.1 Inputs and runs
+
+The inputs panel turns the pasted Solution into a form ([`backend.md`](backend.md) §2.2):
+
+1. **The signature.** 400 ms after the source stops changing, `POST /api/signature` returns the public methods, each parameter's name and neutral type, and the method to preselect. A request still in flight when the source changes again is cancelled. If the new source cannot be read, the last good fields stay, with the error above them, so typing does not make the form flicker.
+2. **The fields.** One per parameter of the chosen method, labeled with its name and neutral type (`nums array<int>`), with LeetCode's notation for that type as the placeholder (`[1,2,3]`, `[3,9,20,null,null,15,7]`). An extra such as `pos` is an optional field. A method picker appears only when the Solution has several public methods. A value typed earlier is kept when the signature changes but the field still exists.
+3. **Paste a LeetCode example.** The whole example block from the problem page (`Input: ... Output: ...`) fills the fields: by name, or in order when none of the names match (Clone Graph's `adjList` for the parameter `node`), as the driver does.
+4. **Run code.** Disabled, with the reason, until every required field has a value. It sends the source, the method, and the fields to `POST /api/run`. A trace that comes back goes through the same loader as the fixture and replaces it in the player, which restarts at step 0. A failure shows its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. The program's output and the driver's notes are shown under the button.
+
+The panel is functional only. Its visual design comes later.
 
 ## 11. Theme tokens
 GitHub dark. Every colour is a CSS variable on `:root` in `src/styles/theme.css`, and components use only the variables.
@@ -266,7 +284,9 @@ Fonts: the system UI stack for text, `ui-monospace, SFMono-Regular, Menlo, monos
 ## 12. Out of scope
 Planned for later versions, not designed here:
 - The home page, and any routing.
-- Running code: the run request, the API service, loading states, error traces.
+- The visual design of the inputs panel.
+- Design problems (LRU Cache, Min Stack), whose example is a sequence of calls.
+- Several examples at once (one run and one trace each).
 - `object` and `ref` renderers (tree, linked list, graph) and anything that reads `heap`. A `ref` local currently goes to the fallback and shows `→ n1`.
 - Hint renderers (grid, adjacency list, intervals, ...). The registry slot exists and is empty.
 - The "view as" override.

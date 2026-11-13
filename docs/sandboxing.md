@@ -1,6 +1,6 @@
 # Sandboxing
 
-> **Status:** Draft v0.2. The sandbox exists (`sandbox/`, `pipeline/runners.py`, `python3 -m pipeline --sandbox`). The API service does not yet.
+> **Status:** Draft v0.3. The sandbox exists (`sandbox/`, `pipeline/runners.py`, `python3 -m pipeline --sandbox`). The API service does not yet.
 > **Related:** [`trace-format.md`](trace-format.md) (the contract), [`adapters/cpp.md`](adapters/cpp.md) §7 (how the C++ runtime writes a trace), [`native-tracing.md`](native-tracing.md) §6 (why tracer output is untrusted)
 
 This document describes how the system runs a stranger's code safely: where the code runs, what it is allowed to use, how files get in and out, and what comes back for each way a run can end.
@@ -24,11 +24,11 @@ outside (this machine)          inside (one container per run)          outside
 ```
 
 1. **Driver, outside.** `generate()` reads the Solution and the example as text and writes the prelude and `main`. It never runs or compiles the user's code, so it needs no sandbox, and a bad example fails fast.
-2. **One container starts** from the sandbox image, with every limit in §3. It runs `sleep infinity` and waits.
-3. **Files go in** through `docker exec` on stdin: `prelude.hpp` and `solution.cpp`.
-4. **Rewrite, compile, run**, each a separate `docker exec` with its own time limit. The program writes its trace to `/work/trace.json`, and its output to `/work/output.txt`.
-5. **Files come out** through `docker exec` on stdout, each read up to a cap (§4).
-6. **The container is removed.** It is also removed at once whenever any step runs out of time.
+2. **One container starts** from the sandbox image, with every limit in §3, or is taken from a pool of containers started ahead of time (§4.1). It runs `sleep infinity` and waits.
+3. **Build**, one `docker exec`: the files go in as a tar on stdin (`prelude.hpp`, `solution.cpp`, and `main.cpp`, the driver's `main`), then the rewriter and the compiler run, each with its own time limit, using the precompiled header (§4.1).
+4. **Run**, one `docker exec` as the program's own user, with its own time limit. The program writes its trace to `/work/trace.json`, and its output to `/work/output.txt`.
+5. **Collect**, one `docker exec`: the trace and the output come back on stdout, each read up to a cap (§4).
+6. **The container is removed**, in the background, so the answer does not wait for it. It is removed at once whenever any step runs out of time.
 7. **Validation, outside.** `tools/check_trace.py` checks the trace bytes. Only then does anything read them as a trace.
 
 This is `pipeline.run(..., sandbox="docker")` or `sandbox="gvisor"` (`pipeline/runners.py`, class `Container`). The same run with `sandbox=None` does stages 2 to 4 on the host instead (class `Local`), for your own code.
@@ -42,11 +42,11 @@ The values are starting points (`pipeline/runners.py`, `Limits`). §8 lists them
 | Limit | Setting | What it stops |
 |---|---|---|
 | Network | `--network none` | Sending data out, attacking other machines |
-| Memory | `--memory 1g --memory-swap 1g` (no swap) | A huge allocation taking down the host |
+| Memory | `--memory 1g --memory-swap 1g` (no swap). Set with `TRACE_RUN_MEMORY`, such as `512m` on a 1 GB server; a run needs under 200 MB to rewrite or compile Two Sum | A huge allocation taking down the host |
 | CPU | `--cpus 1` | One run starving the others |
-| Processes | 64 processes and threads. Docker's runtime: `--pids-limit 64`. gVisor: `--ulimit nproc=64`, enforced by gVisor's kernel, plus `--pids-limit 1024` on gVisor itself (§6.1) | Fork bombs |
+| Processes | 64 processes and threads (`TRACE_RUN_PIDS`). Docker's runtime: `--pids-limit 64`. gVisor: `--ulimit nproc=64`, enforced by gVisor's kernel, plus `--pids-limit 1024` on gVisor itself (§6.1) | Fork bombs |
 | Open files | `--ulimit nofile=256`, `core=0` | Descriptor exhaustion, core dumps |
-| Wall-clock time | Per step, from outside: 60 s for rewrite and compile each, 10 s for the run (`--timeout`). The container is killed at the limit | A loop that never reaches the tracer, a compile that never ends |
+| Wall-clock time | Per step: 60 s for rewrite and compile each (`timeout` inside the container, so the error says which step), 10 s for the run (`--timeout`). Every `docker` command also has a limit from outside; past it, the container is killed | A loop that never reaches the tracer, a compile that never ends |
 | Filesystem | `--read-only` image. The only writable places are two tmpfs mounts: `/work` (64 MB) and `/tmp` (64 MB) | Changing the image, filling the host's disk, leaving files behind |
 | Output size | The trace is read up to 16 MB, the program's output up to 64 KB | A program that writes without end |
 | Users | Never root: the tools (rewriter, compiler) run as uid 65534, and the program as uid 65533, a user of its own. `--cap-drop ALL`, `--security-opt no-new-privileges` | Using root inside the container to attack the kernel; the program signalling or tracing anything but itself |
@@ -78,6 +78,25 @@ The runtime already behaves the way the sandbox needs ([`adapters/cpp.md` §7](a
 - **It never writes the trace to stdout**, so the user's own prints cannot corrupt or forge it.
 - **The write is atomic.** A container killed at the time limit leaves a complete trace or no file, never half of one.
 - **At the step cap it writes the trace and exits.** An infinite loop that calls `record` ends in about 2,000 steps with a truncated trace, long before the time limit.
+
+### 4.1 Making a run fast
+
+Measured for Two Sum under Docker on Linux, end to end through `pipeline.run()`, including validation:
+
+| | Before | Now |
+|---|---|---|
+| A whole run | 3.7 s | **2.1 s** |
+| Rewrite and compile | 1.4 s + 1.7 s | 1.56 s together |
+| `docker` commands per run | about 13 | 4 (start, build, run, collect), plus a removal in the background |
+| Start a container | 0.2 s | 0.12 s, or none with a pooled container |
+
+Three changes, each keeping one container per run:
+
+- **A precompiled header.** Every prelude begins with the same 33 standard headers and the runtime, now one file, `adapters/cpp/runtime/prelude_common.hpp`. The image compiles it once with `clang++-18` into `prelude_common.hpp.pch`, and the rewriter and the compiler both load it with `-include-pch` instead of parsing it again. A precompiled header works only with the compiler that built it, so the image's label `org.leetcode-visualizer.pch` says where it is, and an image without one still runs, only slower. Runs outside the sandbox (macOS, Apple Clang) never use it.
+- **One `docker exec` per step.** Build, run, and collect are one command each. Inside the build, `timeout` gives each step its own limit and the exit status says which step failed. The program file is assembled inside the container exactly as the driver assembles it: the instrumented Solution without its trailing newlines, a blank line, then `main`.
+- **Containers started ahead of time** (`runners.Pool`, used by the API service, `TRACE_POOL`, default 1). A pooled container is started with the same limits and is handed out once, for one run, then removed like any other; it is never returned. So the pool moves the start earlier and changes nothing about isolation. Under Docker the start is only 0.12 s; under gVisor it is longer, which is where the pool helps.
+
+Docker, the runtime, and the image are checked once per process, not once per run. What is left is the compiler's own work on the user's code and the tracing templates it instantiates.
 
 ## 5. How a run can end
 
@@ -142,17 +161,17 @@ So the pipeline uses `--ulimit nproc` for the process limit under gVisor, and ke
 
 ## 8. Open decisions
 
-1. **The actual numbers** (§3): memory, CPU, time, process count, output size. They need measuring on real solutions. Measured for Two Sum under Docker on Linux: starting the container 0.2 s, rewriting 1.4 s, compiling 1.7 s, running 0.1 s. Rewriting and compiling both spend their time parsing the standard headers and `trace.hpp`, so a precompiled header would cut both. gVisor adds to every step.
+1. **The actual numbers** (§3): memory, CPU, time, process count, output size. They need measuring on real solutions, and under gVisor. Two Sum is measured in §4.1.
 2. **Crashes.** Should the runtime catch fatal signals and write the steps recorded so far? The spec already allows a trace with no `result` and no `truncated`.
 3. **What the user's stdout is for.** The pipeline returns it (up to 64 KB). It could be shown next to the trace, or dropped.
 4. **Where the backend is hosted.** The frontend is a static site. The API service and the sandbox need a Linux server that can run containers under gVisor, which a static host cannot do.
-5. **Warm containers.** A container starts in about 0.2 s under Docker, more under gVisor. A pool of ready containers would be faster but must be shown to leak nothing between runs (Q2).
+5. **Warm containers.** Decided as a pool of fresh containers, each used once (§4.1). Reusing one container for several runs is still not done (Q2).
 
 ## 9. Design questions
 
 **Q1. Why validate outside the sandbox when the adapter is our own code?** The adapter shares a process with the user's code. Code that can run can also write any file the adapter can, including a trace that looks real. Only a check outside the container is out of its reach. `test_a_forged_trace_is_rejected_outside` proves it.
 
-**Q2. Why a new container per run instead of a pool of warm ones?** A fresh container cannot carry anything over from the last user's run. Reuse is faster and is a possible later optimization, but it must be shown to leak nothing first.
+**Q2. Why a new container per run, when there is a pool?** The pool holds containers no run has used yet; it only starts them earlier. A container is never given a second run, because a used one could carry something over from the last user's run. Reusing containers would save the start too, but it must be shown to leak nothing first.
 
 **Q3. Why is the time limit still needed if the step cap ends infinite loops?** The step cap only fires inside `record`. A loop with an empty body, a loop in library code, or a compile that never finishes never calls it.
 

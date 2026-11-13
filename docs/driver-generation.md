@@ -95,6 +95,12 @@ Arguments inside a type name are separated by `", "`. A type with no neutral nam
 
 ---
 
+### 2.1 For an input form: `describe()`
+
+The page builds one input field per parameter before anything runs, so it needs the signature on its own. `driver.cpp.describe(source)` returns every public method with its parameters' names and neutral types, its neutral return type, and `extras` (`pos` when a method takes a `ListNode*`), plus the method to preselect: the first public one the driver can read. A method it cannot read is listed with the reason. `example_fields(text)` splits a pasted example into `{name: value text}` to fill the fields, and `example_text(fields)` joins the fields back into `name = value, ...` for `generate()`, checking that each value is valid JSON and each name is a name. The API serves these at `/api/signature` ([`backend.md`](backend.md) §2.2).
+
+A Solution with no `class Solution` but another class (`class LRUCache`) is answered with an error that names the class and says design problems are not supported yet (§8).
+
 ## 3. Parsing the example
 
 ### Stage 1: text to neutral JSON
@@ -172,7 +178,7 @@ User-defined structs inside the solution are the rewriter's job: their tables ar
 | Output | What it is |
 |---|---|
 | `problem` | The trace's problem object, passed to `begin()` |
-| `prelude.hpp` | Passed to the compiler with `-include`: the standard headers, `leetcode_types.hpp`, `using namespace std;`, and each node class from a comment with its `Fields` table |
+| `prelude.hpp` | Passed to the compiler with `-include`: `prelude_common.hpp` (the standard headers and `leetcode_types.hpp`), `using namespace std;`, and each node class from a comment with its `Fields` table |
 | `main` | Appended after the user's code: `begin()`, one declaration per argument, the call, and `write_result()` or `write_void_result()` |
 
 ### Line numbers and the prelude
@@ -184,7 +190,7 @@ clang++ -std=c++20 -I adapters/cpp/runtime -include prelude.hpp program.cpp -o p
 TRACE_OUT=trace.json ./program
 ```
 
-The prelude names each standard header, because `<bits/stdc++.h>` does not exist in libc++ (macOS). It says `using namespace std;` because LeetCode's own C++ stubs write `vector<int>` with no `std::`, so names from `std` must be in scope.
+The prelude's fixed part is one file, `adapters/cpp/runtime/prelude_common.hpp`, which names each standard header, because `<bits/stdc++.h>` does not exist in libc++ (macOS). It is a file, not a list in the driver, so the sandbox image can precompile exactly what every prelude includes ([`sandboxing.md`](sandboxing.md) §4.1). It says `using namespace std;` because LeetCode's own C++ stubs write `vector<int>` with no `std::`, so names from `std` must be in scope.
 
 ### `main`
 
@@ -258,6 +264,7 @@ The driver runs **outside** the sandbox: it only reads text and writes text. The
 | `test_example.py` | Stage 1: names, nesting, strings with commas and brackets, pasted `Input:`/`Output:` blocks, every error |
 | `test_shapes.py` | Each notation, including empty structures, trailing nulls, cycles, and out-of-range indices |
 | `test_signature.py`, `test_nodes.py` | Reading declarations past comments, strings, nested types, and initializers; the method rule; the type table; node classes from comments |
+| `test_describe.py` | `describe()`: methods, neutral types, `pos`, the preselected method, unreadable methods, the design-problem error; `example_fields` and `example_text`, each way a field can be wrong, and a round trip that gives the same `problem` |
 | `test_generate.py` | Compiles and runs a plain Solution for each input kind (strings and chars with escapes, a char grid, bools and doubles, 64-bit integers, `void`, trees, a cycle with `pos`, an array of lists, a graph, a random list, an N-ary tree, a tree with `next`). Each Solution computes something from its input, so a right result proves the input was built right |
 | `test_fixtures.py` | Every golden fixture, with its hand-written `main` replaced by a generated one, equals its golden trace, problem object included |
 
@@ -269,7 +276,7 @@ The tests that compile use `$CXX`, else `clang++`, else `g++`, and are skipped w
 
 | # | Question | Leaning |
 |---|---|---|
-| 1 | Design-class problems (LRU Cache, Min Stack), where the example is a list of calls | Later. One trace covering the whole call sequence, which needs a spec change |
+| 1 | Design-class problems (LRU Cache, Min Stack), where the example is a list of calls | Decided: not supported yet; only algorithmic problems. The driver says so when it finds another class and no `Solution`. Later: one trace covering the whole call sequence, which needs a spec change |
 | 2 | Several examples for one problem | One run and one trace per example |
 | 3 | Notations not covered yet: Intersection of Two Linked Lists (`intersectVal`, `skipA`, ...), multilevel lists (`prev`, `child`) | Add each when a problem needs it, verified against its page |
 | 4 | Input types with no notation yet (`map`, `set`) | LeetCode inputs are arrays, strings, numbers, and nodes; add only if a problem needs it |

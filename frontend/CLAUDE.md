@@ -6,7 +6,9 @@ Claude writes the frontend code; the author writes the adapter runtime and rewri
 
 ## What this is
 
-The sandbox page: it replays `fixtures/two-sum.trace.json` with a Monaco code panel, a visual panel, and a state panel. There is no backend, home page, `object`/`ref` renderer, or "view as" override yet.
+The sandbox page: a Monaco code panel, an inputs panel, a visual panel, and a state panel. It opens on `fixtures/two-sum.trace.json`. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code replaces the trace with the one the API returns. The inputs are functional only: no visual design yet. There is no home page, `object`/`ref` renderer, or "view as" override yet.
+
+The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000.
 
 ## Commands
 
@@ -31,7 +33,11 @@ React + TypeScript + Vite, `@monaco-editor/react` with `monaco-editor` bundled l
 src/
 ├── App.tsx              the sandbox page: layout, language select, keyboard shortcuts
 ├── main.tsx             entry
-├── fixtures.ts          stand-in for the backend: language -> source + trace (imports ../fixtures with ?raw)
+├── fixtures.ts          the example the page opens with: language -> source + trace (imports ../fixtures with ?raw)
+├── api/
+│   ├── client.ts        signature() and run(): fetch /api, answers as unions, the trace through checkTrace
+│   ├── form.ts          fields per method, placeholders, kept values, filling from an example, the run request
+│   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
 │   ├── loader.ts        JSON.parse + version check (accepts exactly "0.7")
@@ -45,7 +51,7 @@ src/
 │   ├── ArrayRenderer.tsx, MapRenderer.tsx, FallbackRenderer.tsx
 │   ├── pointers.ts      the index-name rule and iterators, for pointer markers
 │   └── types.ts         Renderer, RendererProps, RenderContext
-├── components/          Toolbar, CodePanel, VisualPanel, StatePanel, Split
+├── components/          Toolbar, CodePanel, InputsPanel, VisualPanel, StatePanel, Split
 ├── editor/              Monaco setup and theme, editor languages and starter templates
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -94,3 +100,6 @@ Fonts: system UI stack for text, `ui-monospace, SFMono-Regular, Menlo, monospace
 - Monaco uses the class `.current-line` for its own cursor-line overlay. The trace line uses `.trace-line` and `.trace-line-gutter`. Do not rename them back.
 - Monaco accepts only hex colours. `editor/monaco.ts` converts `rgba(...)` tokens with `toHex`.
 - Keyboard shortcuts are ignored inside Monaco and form controls. Space on a focused button is left to the button.
+- "Run" in the toolbar is playback. Running the code is the inputs panel's "Run code" button.
+- `.btn` is sized for the toolbar's icon buttons. Text buttons in the inputs panel override the width.
+- A browser test that types code into Monaco gets auto-indent and auto-closed braces, which breaks the code. Paste it through the clipboard instead, as a user does.

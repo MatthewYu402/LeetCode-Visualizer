@@ -15,6 +15,8 @@ You paste a LeetCode `Solution` class, give it an example input, and step throug
 
 It works with the `Solution` class exactly as LeetCode gives it to you. No annotations or rewriting by hand are needed. There is no problem catalog: everything the visualizer needs is derived from your code and the example.
 
+**Supported problems: algorithmic ones**, where you call one method of `Solution` with arguments (Two Sum, Reverse Linked List, Maximum Depth of Binary Tree, Clone Graph, Subsets, ...). The page shows one input field per parameter of that method. **Design problems are not supported yet**: LRU Cache, Min Stack, and the like, where the example is a sequence of calls on an object you construct (`["LRUCache","put","get"]` with `[[2],[1,1],[1]]`). One trace covering a whole call sequence needs a change to the trace format; it is planned for later ([`docs/driver-generation.md` §8](docs/driver-generation.md)).
+
 ## Status
 
 > **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind, including pointers (`ref` and `object`), record steps, and write a trace file: a hand-instrumented Two Sum reproduces the golden trace. The frontend's sandbox page replays the Two Sum fixture. Update this table as pieces land.
@@ -32,11 +34,12 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
 | C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines. Every golden fixture is reproduced from its plain source |
 | CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command. Without `--sandbox` it runs the code directly with a time limit |
-| Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside |
+| Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.7 (every kind, iterators as markers on arrays, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
-| Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
-| API service (`backend/`) | Planned |
+| Frontend: input form and real runs | Done, functional only (no visual design yet). One field per parameter of the chosen method, read from the pasted Solution; a pasted LeetCode example can fill them; Run code sends them to the API and replays the trace that comes back |
+| Frontend: home page, `object` / `ref` and hint renderers, "view as" | Planned |
+| API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
 
 ---
 
@@ -56,11 +59,12 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
 | [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, diffing, playback, theme | Draft v0.1 |
 | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
-| [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs, how a run can end, gVisor on macOS | Draft v0.2, implemented (API service planned) |
+| [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs, how a run can end, gVisor on macOS | Draft v0.2, implemented |
+| [`docs/backend.md`](docs/backend.md) | The API service: endpoints, errors and status codes, limits, settings, running it with the frontend | Draft v0.1, implemented |
 | [`docs/hint-inference.md`](docs/hint-inference.md) | How an adapter will work out which structure a value is when its type does not say | Proposal, not started |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
 | [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, normalization rules | Draft |
-| [`LICENSE`](LICENSE) | MIT license terms | Done |
+| [`LICENSE`](LICENSE), [`NOTICE`](NOTICE) | Apache License 2.0 terms, and the copyright notice that must travel with copies | Done |
 
 Planned. This link is a template: create the file, then move it into the table above.
 
@@ -432,7 +436,8 @@ Items marked *(planned)* do not exist yet.
 ├── README.md
 ├── CLAUDE.md                  rules for working in this repo
 ├── Skills.md                  repeatable procedures
-├── LICENSE
+├── LICENSE                    Apache License 2.0
+├── NOTICE                     the copyright notice to keep with copies
 ├── .clang-format              C++ formatting (attached braces, 2 spaces)
 ├── .github/
 │   └── workflows/
@@ -444,6 +449,7 @@ Items marked *(planned)* do not exist yet.
 │   ├── driver-generation.md   signatures, example parsing, helper types
 │   ├── frontend.md            the sandbox page: registry, diff, playback
 │   ├── sandboxing.md          isolation, limits, where validation runs
+│   ├── backend.md             the API service: endpoints, errors, limits
 │   ├── hint-inference.md      (proposal) inferring hints
 │   └── adapters/
 │       ├── cpp.md             the C++ adapter
@@ -481,7 +487,8 @@ Items marked *(planned)* do not exist yet.
 │       │   └── Makefile       builds with llvm-config; make test
 │       ├── runtime/
 │       │   ├── trace.hpp      serializers, recorder, document writer
-│       │   └── leetcode_types.hpp  ListNode, TreeNode, and their field tables
+│       │   ├── leetcode_types.hpp  ListNode, TreeNode, and their field tables
+│       │   └── prelude_common.hpp  the standard headers every prelude includes (precompiled in the sandbox)
 │       └── tests/
 │           ├── test_serialize.cpp
 │           ├── test_record.cpp
@@ -500,14 +507,19 @@ Items marked *(planned)* do not exist yet.
 │   ├── vite.config.ts
 │   └── src/
 │       ├── App.tsx            the page: layout, language select, shortcuts
-│       ├── fixtures.ts        stand-in for the backend (imports fixtures/)
+│       ├── fixtures.ts        the example the page opens with (imports fixtures/)
+│       ├── api/               API client, input form logic, useInputs hook
 │       ├── trace/             types, loader, value formatting, diff
 │       ├── player/            playback reducer and Run timer
 │       ├── render/            renderer registry and renderers
-│       ├── components/        toolbar, code, visual, state panels
+│       ├── components/        toolbar, code, inputs, visual, state panels
 │       ├── editor/            Monaco setup, theme, starter templates
 │       └── styles/            theme tokens and layout
-└── backend/                   (planned) API service
+└── backend/                   the API service (FastAPI): python3 -m backend
+    ├── app.py                 /api/health, /api/signature, /api/run
+    ├── __main__.py            serves it with Uvicorn on 127.0.0.1:8000
+    ├── requirements.txt       fastapi, uvicorn (and httpx for the tests)
+    └── tests/                 every endpoint and error, and a real run in the sandbox
 ```
 
 ## Tech stack (proposed)
@@ -519,7 +531,7 @@ Tentative. The architecture does not depend on these choices.
 | C++ adapter | C++20, header-only runtime, Clang LibTooling for the rewriter |
 | Frontend | React + TypeScript + Vite, Monaco editor for the code panel |
 | Renderers | SVG with Framer Motion for arrays and maps, React Flow or Cytoscape for graphs and trees |
-| API service | FastAPI (or Go) |
+| API service | FastAPI on Uvicorn (decided, [`docs/backend.md`](docs/backend.md)) |
 | Sandbox | Docker with gVisor (`runsc`), one container per run, strict CPU, memory, process, disk, and time limits (decided, [`docs/sandboxing.md`](docs/sandboxing.md)) |
 | Contract | JSON Schema, validated in CI and at runtime |
 
@@ -539,13 +551,15 @@ Tentative. The architecture does not depend on these choices.
 - [x] The call stack: frames and return steps, with recursive golden traces
 - [ ] Resolve the open questions above
 - [x] Sandbox: Docker and gVisor, one container per run
-- [ ] API service
+- [x] API service
+- [x] Input page: one field per parameter, Run code, replay (functional; visual design later)
+- [ ] Design problems (LRU Cache, Min Stack): a trace over a sequence of calls
 - [ ] Python adapter, proving the schema is truly language-neutral
 - [ ] More renderers (union-find, trie), diff animations, "view as" override
 
 ## Getting started
 
-`python3 -m pipeline` takes a pasted Solution and an example to a validated trace in one command (it needs the rewriter built). You can also run the C++ adapter's tests and its end-to-end check, run the hand-instrumented Two Sum to write a real trace, check a trace, and open the frontend's sandbox page, which replays the Two Sum fixture. CI runs the same commands on every push and pull request to `main`.
+`python3 -m pipeline` takes a pasted Solution and an example to a validated trace in one command (it needs the rewriter built). You can also run the C++ adapter's tests and its end-to-end check, run the hand-instrumented Two Sum to write a real trace, check a trace, and open the frontend's page, which opens on the Two Sum example and, with the API service running, traces your own Solution on your inputs. CI runs the same commands on every push and pull request to `main`.
 
 ```bash
 # Prerequisites: clang++ or g++ with C++20 <format> support, make, Python 3
@@ -589,11 +603,21 @@ TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
 ```
 
 ```bash
+# The API service (needs the sandbox image above). From the repository root,
+# in a virtual environment (Homebrew's Python refuses system-wide pip installs):
+python3 -m venv .venv && source .venv/bin/activate
+python3 -m pip install jsonschema -r backend/requirements.txt
+python3 -m backend                                   # http://127.0.0.1:8000, under gVisor by default
+TRACE_SANDBOX=docker python3 -m backend              # without gVisor (Linux without runsc)
+python3 -m unittest discover -s backend/tests -t .   # its tests
+```
+
+```bash
 # Prerequisites: Node.js 20.19+ and npm
 
 cd frontend
 npm install
-npm run dev        # sandbox page on http://localhost:5173
+npm run dev        # the page on http://localhost:5173; /api is proxied to the API service on :8000
 npm test           # vitest
 npm run build      # typecheck + production build
 ```
@@ -604,7 +628,7 @@ An adapter needs a driver template, a tracer (or a DAP configuration), a normali
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [Apache License 2.0](LICENSE). See [`NOTICE`](NOTICE) for the copyright notice to keep with copies and derived works.
 
 ## Acknowledgements
 
