@@ -2,6 +2,11 @@
 #   schema       every golden fixture is a valid trace
 #   cpp-linux    the C++ adapter with libstdc++ (GCC and Clang)
 #   cpp-libcxx   the C++ adapter with libc++ (Apple Clang on macOS)
+#   rewriter-linux, rewriter-macos
+#                the rewriter's tests and the pipeline's, on each platform
+#   sandbox-linux
+#                the sandbox image, and every isolation test under Docker
+#                and under gVisor (docs/sandboxing.md)
 #   frontend     the sandbox page's tests and production build
 #
 # The C++ jobs run the same targets a contributor runs locally:
@@ -131,6 +136,38 @@ jobs:
         run: make -C adapters/cpp/rewriter test LLVM_CONFIG="$(brew --prefix llvm)/bin/llvm-config"
       - name: Pipeline (python3 -m pipeline, from Solution to validated trace)
         run: CXX=clang++ python3 -m unittest discover -s pipeline/tests -t . -v
+
+  sandbox-linux:
+    # The sandbox image and its isolation tests (pipeline/tests/test_sandbox.py),
+    # first under Docker's own runtime, then under gVisor's runsc, which is what
+    # the backend will use. The runner has Docker; gVisor is installed as its
+    # install guide says (gvisor.dev/docs/user_guide/install).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install jsonschema
+      - name: Install gVisor and register runsc with Docker
+        run: |
+          cd "$RUNNER_TEMP"
+          URL=https://storage.googleapis.com/gvisor/releases/release/latest/$(uname -m)
+          curl -fsSLO "$URL/gvisor.tar.bz2"
+          curl -fsSLO "$URL/gvisor.tar.bz2.sha512"
+          sha512sum -c gvisor.tar.bz2.sha512
+          sudo tar -xjf gvisor.tar.bz2 -C /usr/local/bin
+          sudo /usr/local/bin/runsc install
+          sudo systemctl restart docker
+          docker run --rm --runtime=runsc ubuntu:24.04 dmesg
+      - name: Build the sandbox image
+        run: docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+      - name: Isolation tests (Docker)
+        run: TRACE_SANDBOX=docker python3 -m unittest pipeline.tests.test_sandbox -v
+      - name: Isolation tests (gVisor)
+        run: TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
 
   frontend:
     runs-on: ubuntu-24.04
