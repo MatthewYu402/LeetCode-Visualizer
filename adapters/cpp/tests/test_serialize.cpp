@@ -154,6 +154,31 @@ int main()
       check("backslash", serialize('\\', ctx), R"("\\")");
       check("newline", serialize('\n', ctx), R"("\n")");
 
+      // ---- VOLATILE TESTS ---- //
+      // A volatile scalar gets the plain type's kind. Before the fix, none of
+      // these compiled with libc++ (std::format refuses volatile arguments),
+      // and volatile bool and char compiled nowhere (they fell into the
+      // integral case, whose std::cmp_less rejects bool and char).
+      std::cout << "volatile scalars\n";
+      {
+            volatile int v_int = 42;
+            const volatile int cv_int = -7;
+            volatile long long v_big = 9007199254740992LL;
+            volatile bool v_bool = true;
+            volatile char v_char = 'a';
+            volatile double v_nan = nan;
+            volatile double v_half = 0.5;
+            check("volatile int", serialize(v_int, ctx), R"(42)");
+            check("const volatile int", serialize(cv_int, ctx), R"(-7)");
+            check("volatile big int is tagged", serialize(v_big, ctx), R"({"kind": "int", "value": "9007199254740992"})");
+            check("volatile bool is a bool", serialize(v_bool, ctx), R"(true)");
+            check("volatile char is text", serialize(v_char, ctx), R"("a")");
+            check("volatile NaN is tagged", serialize(v_nan, ctx), R"({"kind": "float", "value": "NaN"})");
+            check("volatile double", serialize(v_half, ctx), R"(0.5)");
+      }
+      static_assert(Serializable<volatile int> && Serializable<const volatile bool>);
+      static_assert(!Serializable<volatile std::nullptr_t>, "a volatile type with no plain serializer stays unserializable");
+
       // ---- C-STRING TESTS ---- //
       std::cout << "C strings\n";
       check("literal", serialize("abc", ctx), R"("abc")"); // must not become true

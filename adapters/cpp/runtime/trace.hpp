@@ -292,9 +292,27 @@ namespace trace {
     static Json write(const char& c, Ctx&) { return quote(std::string(1, c)); }
   };
 
+  // A volatile scalar (`volatile int x`, `ListNode* volatile p`) is read once into
+  // a plain copy and serialized as the plain type, so it gets the same kind.
+  // Without this, a volatile type misses the exact bool and char
+  // specializations and falls into the integral case below, which cannot take
+  // it: std::cmp_less rejects bool and char, and libc++'s std::format rejects
+  // every volatile argument (a `volatile int` local did not compile on macOS).
+  // Requiring the plain type to be Serializable keeps a volatile local with no
+  // serializer out of the step, as for any other such local.
+  template <typename T>
+    requires std::is_volatile_v<T> && std::is_scalar_v<T> && Serializable<std::remove_cv_t<T>>
+  struct Serializer<T> {
+    static Json write(const T& value, Ctx& ctx) {
+      const std::remove_cv_t<T> copy = value;
+      return serialize(copy, ctx);
+    }
+  };
+
   // Integers: bare when JavaScript reads them exactly, tagged otherwise.
   // bool and char are integral too, but their explicit specializations above win.
-  template <std::integral T> struct Serializer<T> {
+  // Volatile integers are taken by the case above.
+  template <std::integral T> requires (!std::is_volatile_v<T>) struct Serializer<T> {
     static Json write(const T& value, Ctx&) {
       if (std::cmp_greater(value, POS_BIG_INT) || std::cmp_less(value, NEG_BIG_INT)) {
         return std::format(R"({{"kind": "int", "value": "{}"}})", value);
@@ -304,7 +322,7 @@ namespace trace {
   };
 
   // Floats: NaN and infinities are tagged; finite values use the shortest round-trip text.
-  template <std::floating_point T> struct Serializer<T> {
+  template <std::floating_point T> requires (!std::is_volatile_v<T>) struct Serializer<T> {
     static Json write(const T& value, Ctx&) {
       if (std::isnan(value)) {
         return R"({"kind": "float", "value": "NaN"})";

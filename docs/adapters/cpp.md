@@ -319,6 +319,7 @@ The line number is passed explicitly rather than taken from `std::source_locatio
 | `std::optional<T>` | `null` when empty, otherwise the value |
 | `TreeNode*`, `ListNode*`, `Node*`, and pointers to `const` | `ref`, plus an `object` in the heap. `nullptr` is `null`. Needs a field table (§3.5) |
 | `TreeNode`, `ListNode`, `Node` held by value | The same `ref` a pointer to it would give (§3.6) |
+| a `volatile` scalar (`volatile int`, `volatile bool`, `ListNode* volatile`) | The plain type's kind. It is read once into a plain copy, the way a debugger reads it |
 
 Any other type fails to compile at the primary `Serializer` template's `static_assert`, so an unknown type is an error, never a pass-through.
 
