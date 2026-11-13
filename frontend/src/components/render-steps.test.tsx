@@ -144,6 +144,44 @@ describe("the call stack (Maximum Depth fixture)", () => {
   });
 });
 
+describe("iterators", () => {
+  const withLocals = (locals: Record<string, Value>) => ({
+    ...trace,
+    steps: [{ step: 0, frames: [{ id: "f1", function: "f", line: 1, locals }], heap: {} }],
+  });
+
+  it("an iterator into an array is a marker under its index, named after the iterator", () => {
+    const html = renderStep(
+      withLocals({ nums: { kind: "array", items: [4, 5, 6] }, it: { kind: "iterator", container: "nums", index: 2 } }),
+      0,
+      false,
+    );
+    expect(html).toContain("translate(104px, 0px)"); // index 2 → two cells to the right
+    expect(html).toMatch(/▲<\/span> it</);
+    expect(html).toContain("→ nums[2]"); // and its row in the state panel
+  });
+
+  it("an iterator into another array, or at end(), draws no marker", () => {
+    const html = renderStep(
+      withLocals({
+        a: { kind: "array", items: [1] },
+        b: { kind: "array", items: [2] },
+        it: { kind: "iterator", container: "b", index: 0 },
+        done: { kind: "iterator", container: "a", end: true },
+      }),
+      0,
+      false,
+    );
+    expect(html.match(/▲<\/span> it</g)).toHaveLength(1); // under b only
+    expect(html).not.toMatch(/▲<\/span> done</);
+    expect(html).toContain("→ a.end()");
+  });
+
+  it("Two Sum's step 8 shows it pointing at key 2 of numMap", () => {
+    expect(renderStep(trace, 8, false)).toContain("→ numMap[2]");
+  });
+});
+
 describe("title", () => {
   const toolbar = (title: string | null) =>
     renderToStaticMarkup(
@@ -172,7 +210,7 @@ describe("title", () => {
   });
 });
 
-describe("every v0.6 kind renders without crashing", () => {
+describe("every v0.7 kind renders without crashing", () => {
   const values: Record<string, Value> = {
     arr: { kind: "array", items: [1, { kind: "int", value: "9007199254740993" }] },
     lst: { kind: "list", items: [1, 2] },

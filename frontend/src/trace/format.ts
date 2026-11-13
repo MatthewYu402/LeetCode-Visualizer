@@ -39,6 +39,11 @@ export function formatValue(v: Value): string {
         .join(", ")}}`;
     case "ref":
       return `→ ${v.id}`;
+    case "iterator":
+      // Where it points, in the container's own terms: nums[2], numMap[7], numMap.end().
+      if (v.index !== undefined) return `→ ${v.container}[${v.index}]`;
+      if (v.key !== undefined) return `→ ${v.container}[${formatValue(v.key)}]`;
+      return `→ ${v.container}.end()`;
     default:
       // A kind from a newer minor version. Show something rather than crash.
       return JSON.stringify(v);

@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.6).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.7).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -48,6 +48,18 @@ export interface RefValue {
   id: string;
 }
 
+/**
+ * A position in a container (spec §5, positions in a container): the name of a local
+ * in the same frame, and exactly one of index, key, or end. Only directly in locals.
+ */
+export interface IteratorValue {
+  kind: "iterator";
+  container: string;
+  index?: number;
+  key?: Value;
+  end?: true;
+}
+
 export type Tagged =
   | TaggedInt
   | TaggedFloat
@@ -55,7 +67,8 @@ export type Tagged =
   | PriorityQueueValue
   | MapValue
   | ObjectValue
-  | RefValue;
+  | RefValue
+  | IteratorValue;
 
 export type Value = Primitive | Tagged;
 

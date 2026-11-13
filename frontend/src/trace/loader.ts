@@ -1,7 +1,7 @@
 import type { Trace } from "./types";
 
 /** The only trace version this frontend reads. Spec §9: while the major is 0, every minor may break. */
-export const SUPPORTED_VERSION = "0.6";
+export const SUPPORTED_VERSION = "0.7";
 
 export type LoadResult = { ok: true; trace: Trace } | { ok: false; error: string };
 
