@@ -36,6 +36,11 @@ def read_methods(source):
     stripped = blank_comments_and_literals(source)
     found = find_class(stripped, "Solution")
     if not found:
+        other = re.search(r"\b(?:class|struct)\s+([A-Za-z_]\w*)\s*\{", stripped)
+        if other:
+            raise DriverError(f"No `class Solution` found, only `{other.group(1)}`. If this is a design problem (LRU Cache, "
+                              "Min Stack, ...), where the example is a sequence of calls, it is not supported yet: only "
+                              "algorithmic problems, where Solution has a method to call with arguments.")
         raise DriverError("No `class Solution { ... };` found. Paste the whole Solution class.")
     start, end, keyword = found
     access = "private" if keyword == "class" else "public"
