@@ -16,6 +16,9 @@ Every file is always:
       refs: every ref in a step (in any frame's locals or return_value) names
         an object in that step's heap, and every ref in the result names an
         object in result_heap
+      iterators: an iterator's container names a local of its frame, and its
+        position fits it (an index inside an array, list, deque, or string; a
+        key present in a map, multimap, set, or multiset)
       frames: only the top frame has return_value; frame ids are unique in a
         step; an id keeps one function name for the whole run, and never comes
         back after its call returned
@@ -158,6 +161,60 @@ def check_refs(doc):
         missing(doc["result"], doc.get("result_heap", {}), "$.result")
 
 
+def same_value(a, b):
+    """Equality of two normalized values, ignoring set and map order."""
+    return canonical(a) == canonical(b)
+
+
+def canonical(v):
+    if isinstance(v, dict):
+        kind = v.get("kind")
+        if kind in ("set", "multiset"):
+            return (kind, sorted(json.dumps(canonical(x), sort_keys=True) for x in v["items"]))
+        if kind in ("map", "multimap"):
+            return (kind, sorted(json.dumps(canonical(e), sort_keys=True) for e in v["entries"]))
+        return tuple(sorted((k, canonical(x)) for k, x in v.items()))
+    if isinstance(v, list):
+        return [canonical(x) for x in v]
+    return (type(v).__name__, v)
+
+
+def check_iterators(doc):
+    """Each iterator names a local of its own frame, at a position that local has."""
+    for i, step in enumerate(doc["steps"]):
+        for depth, frame in enumerate(step["frames"]):
+            local_values = frame["locals"]
+            for name, value in local_values.items():
+                if not (isinstance(value, dict) and value.get("kind") == "iterator"):
+                    continue
+                where = f"$.steps[{i}].frames[{depth}].locals.{name}"
+                container = value["container"]
+                if container not in local_values:
+                    raise CheckError(f'{where}: container "{container}" is not a local of this frame')
+                target = local_values[container]
+                kind = target.get("kind") if isinstance(target, dict) else ("string" if isinstance(target, str) else None)
+                described = kind or type(target).__name__
+                described = ("an " if described[0] in "aeiou" else "a ") + described
+                if "index" in value:
+                    if kind in ("array", "list", "deque"):
+                        size = len(target["items"])
+                    elif kind == "string":
+                        size = len(target)
+                    else:
+                        raise CheckError(f'{where}: an index into "{container}", which is {described}, not an array, list, deque, or string')
+                    if value["index"] >= size:
+                        raise CheckError(f'{where}: index {value["index"]} is outside "{container}" (length {size}); end() is written "end": true')
+                elif "key" in value:
+                    if kind in ("map", "multimap"):
+                        keys = [entry[0] for entry in target["entries"]]
+                    elif kind in ("set", "multiset"):
+                        keys = target["items"]
+                    else:
+                        raise CheckError(f'{where}: a key into "{container}", which is {described}, not a map or set')
+                    if not any(same_value(value["key"], k) for k in keys):
+                        raise CheckError(f'{where}: key {json.dumps(value["key"])} is not in "{container}"')
+
+
 def check_frames(doc):
     """Frame rules from trace-format.md section 6, Frames and Return steps."""
     function_of = {}   # frame id -> function name, for the whole run
@@ -227,6 +284,7 @@ def check_file(path, validator, fixture, expect):
 
     check_refs(doc)
     check_frames(doc)
+    check_iterators(doc)
 
     if fixture is not None:
         diff = first_difference(doc, fixture[1], [])

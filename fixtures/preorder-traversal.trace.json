@@ -1,5 +1,5 @@
 {
-  "version": "0.6",
+  "version": "0.7",
   "language": "cpp",
   "problem": {"method": "preorderTraversal", "params": [{"name": "root", "type": "TreeNode"}], "returns": {"type": "array<int>"}, "input": {"root": [1, null, 2, 3]}},
   "steps": [

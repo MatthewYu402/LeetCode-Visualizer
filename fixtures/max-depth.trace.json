@@ -1,5 +1,5 @@
 {
-  "version": "0.6",
+  "version": "0.7",
   "language": "cpp",
   "problem": {"method": "maxDepth", "params": [{"name": "root", "type": "TreeNode"}], "returns": {"type": "int"}, "input": {"root": [3, 9, 20, null, null, 15, 7]}},
   "steps": [

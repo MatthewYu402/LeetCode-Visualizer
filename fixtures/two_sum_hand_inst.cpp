@@ -50,24 +50,28 @@ public:
       ::trace::record(9, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
                       ::trace::var("complement", complement));
-      auto it = numMap.find(complement); // `it` has no serializer, so it is never passed
+      auto it = numMap.find(complement); // from here on, `it` is a position in numMap
 
       ::trace::record(11, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
-                      ::trace::var("complement", complement));
+                      ::trace::var("complement", complement),
+                      ::trace::var_iter("it", it, "numMap", numMap));
       if (it != numMap.end()) {
         ::trace::record(12, ::trace::var("nums", nums), ::trace::var("target", target),
                         ::trace::var("numMap", numMap), ::trace::var("i", i),
-                        ::trace::var("complement", complement));
+                        ::trace::var("complement", complement),
+                      ::trace::var_iter("it", it, "numMap", numMap));
         return ::trace::ret<vector<int>>(12, {it->second, i}, ::trace::var("nums", nums), ::trace::var("target", target),
                                          ::trace::var("numMap", numMap), ::trace::var("i", i),
-                                         ::trace::var("complement", complement));
+                                         ::trace::var("complement", complement),
+                      ::trace::var_iter("it", it, "numMap", numMap));
       }
 
       // not found: remember this number and its index
       ::trace::record(16, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
-                      ::trace::var("complement", complement));
+                      ::trace::var("complement", complement),
+                      ::trace::var_iter("it", it, "numMap", numMap));
       numMap[nums[i]] = i;
     }
 
