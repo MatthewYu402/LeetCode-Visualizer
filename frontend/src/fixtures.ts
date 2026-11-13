@@ -1,5 +1,5 @@
-// Stand-in for the backend. Given the editor language, returns the source to show and the
-// trace a run would return. When the API exists, this module is replaced by the run request.
+// The example the page opens with, before any run: given the editor language, the source to
+// show and its trace. A run (api/useInputs.ts) replaces the trace with the backend's.
 // It is the only place a language maps to a trace; nothing reads trace.language.
 
 import twoSumSource from "../../fixtures/two_sum_trace.cpp?raw";
@@ -21,4 +21,4 @@ export function fixtureFor(language: EditorLanguage): Fixture {
   return language === "cpp" ? CPP : { source: TEMPLATES[language], load: null };
 }
 
-export const NO_TRACE_NOTICE = "No trace for this language yet. Showing nothing until the backend is connected.";
+export const NO_TRACE_NOTICE = "No trace for this language yet: only C++ can run so far.";

@@ -592,3 +592,74 @@ tr.diff-removed td {
     transition: none !important;
   }
 }
+
+/* ---- Inputs (functional only; visual design comes later) ---- */
+
+.inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inputs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inputs-label {
+  flex: 0 0 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inputs-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.inputs-type,
+.inputs-status {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.inputs-value,
+.inputs-example textarea,
+.inputs select {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-inset);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.inputs-example {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inputs-example textarea {
+  width: 100%;
+  resize: vertical;
+  margin: 6px 0;
+}
+
+.inputs-pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* .btn is sized for the toolbar's icon buttons; text buttons size to their label. */
+.inputs .btn {
+  width: auto;
+  padding: 0 12px;
+  white-space: nowrap;
+  align-self: flex-start;
+}

@@ -11,9 +11,11 @@ interface Props {
   onSpeed: (s: Speed) => void;
   /** The problem's name, or its method name when the trace has no name. null with no trace. */
   title: string | null;
+  /** Which trace is showing: the built-in example, or the user's last run. */
+  notice: string;
 }
 
-export function Toolbar({ language, onLanguage, player, dispatch, speed, onSpeed, title }: Props) {
+export function Toolbar({ language, onLanguage, player, dispatch, speed, onSpeed, title, notice }: Props) {
   const has = player.count > 0;
   const last = Math.max(0, player.count - 1);
   const atStart = player.index === 0;
@@ -90,8 +92,8 @@ export function Toolbar({ language, onLanguage, player, dispatch, speed, onSpeed
         </select>
       </label>
 
-      <span className="toolbar-notice" title="The backend is not connected yet">
-        Code does not run yet. Edits do not change the trace.
+      <span className="toolbar-notice" title={notice}>
+        {notice}
       </span>
     </header>
   );

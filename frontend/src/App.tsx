@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useInputs } from "./api/useInputs";
 import { CodePanel } from "./components/CodePanel";
+import { InputsPanel } from "./components/InputsPanel";
 import { Split } from "./components/Split";
 import { StatePanel } from "./components/StatePanel";
 import { Toolbar } from "./components/Toolbar";
@@ -11,7 +13,7 @@ import type { PlayerAction } from "./player/playback";
 import { diffForStep } from "./trace/diff";
 import { problemTitle, topFrame } from "./trace/types";
 
-/** The sandbox page: replays a fixture trace. */
+/** The sandbox page: a Solution, its inputs, Run, and the trace replayed. Opens on the Two Sum example. */
 export function App() {
   // The language is a UI input: it picks the editor mode and which fixture to ask for.
   // It is never passed to a renderer, the diff, or the state panel.
@@ -19,8 +21,12 @@ export function App() {
   const fixture = fixtureFor(language);
   const [source, setSource] = useState(fixture.source);
 
+  // Only C++ runs so far. The language picks the editor mode and whether the form is enabled.
+  const inputs = useInputs(source, language === "cpp");
+  const ran = inputs.run.status === "done" ? inputs.run.result.trace : null;
+
   const load = fixture.load;
-  const trace = load?.ok ? load.trace : null;
+  const trace = ran ?? (load?.ok ? load.trace : null);
   const { state, dispatch, speed, setSpeed } = usePlayer(trace?.steps.length ?? 0, trace);
 
   // For one render after a trace swap the index may be stale, so guard the lookup.
@@ -30,8 +36,9 @@ export function App() {
     [trace, state.index, state.cameFrom],
   );
 
-  const notice =
-    load === null
+  const notice = ran
+    ? undefined
+    : load === null
       ? { text: NO_TRACE_NOTICE, tone: "info" as const }
       : !load.ok
         ? { text: load.error, tone: "error" as const }
@@ -54,6 +61,7 @@ export function App() {
         speed={speed}
         onSpeed={setSpeed}
         title={trace ? problemTitle(trace.problem) : null}
+        notice={ran ? "Showing your last run. Edit the code or inputs and press Run code again." : "Showing the Two Sum example. Fill in the inputs and press Run code to trace your own."}
       />
       <main className="workspace">
         <Split
@@ -61,10 +69,25 @@ export function App() {
           initial={40}
           label="Resize code panel"
           first={
-            <section className="panel" aria-label="Code">
-              <h2 className="panel-title">Code</h2>
-              <CodePanel source={source} language={monacoLanguage(language)} line={step ? topFrame(step).line : null} onChange={setSource} />
-            </section>
+            <Split
+              direction="column"
+              initial={65}
+              label="Resize inputs panel"
+              first={
+                <section className="panel" aria-label="Code">
+                  <h2 className="panel-title">Code</h2>
+                  <CodePanel source={source} language={monacoLanguage(language)} line={step ? topFrame(step).line : null} onChange={setSource} />
+                </section>
+              }
+              second={
+                <section className="panel" aria-label="Inputs">
+                  <h2 className="panel-title">Inputs</h2>
+                  <div className="panel-body">
+                    <InputsPanel inputs={inputs} />
+                  </div>
+                </section>
+              }
+            />
           }
           second={
             <Split

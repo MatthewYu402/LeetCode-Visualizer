@@ -193,6 +193,7 @@ describe("title", () => {
         speed={1}
         onSpeed={() => {}}
         title={title}
+        notice="Showing the Two Sum example."
       />,
     );
 

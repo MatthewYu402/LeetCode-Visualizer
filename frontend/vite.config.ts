@@ -9,6 +9,9 @@ export default defineConfig({
     // They are imported directly (never copied), so the dev server must be
     // allowed to read the repository root. Relative to the project root.
     fs: { allow: [".."] },
+    // The API service (python3 -m backend) listens on 127.0.0.1:8000. Proxying /api
+    // keeps the page and the API on one origin, so the backend needs no CORS in development.
+    proxy: { "/api": "http://127.0.0.1:8000" },
   },
   build: {
     // Monaco is bundled locally (no CDN) and is most of the bundle (~4 MB minified).
