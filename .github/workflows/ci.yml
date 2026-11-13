@@ -5,8 +5,9 @@
 #   rewriter-linux, rewriter-macos
 #                the rewriter's tests and the pipeline's, on each platform
 #   sandbox-linux
-#                the sandbox image, and every isolation test under Docker
-#                and under gVisor (docs/sandboxing.md)
+#                the sandbox image, every isolation test under Docker and
+#                under gVisor (docs/sandboxing.md), and the API service's
+#                tests, with real runs under gVisor (docs/backend.md)
 #   frontend     the sandbox page's tests and production build
 #
 # The C++ jobs run the same targets a contributor runs locally:
@@ -168,6 +169,10 @@ jobs:
         run: TRACE_SANDBOX=docker python3 -m unittest pipeline.tests.test_sandbox -v
       - name: Isolation tests (gVisor)
         run: TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
+      - name: API service tests (real runs under gVisor)
+        run: |
+          python -m pip install -r backend/requirements.txt
+          TRACE_SANDBOX=gvisor python3 -m unittest discover -s backend/tests -t . -v
 
   frontend:
     runs-on: ubuntu-24.04
