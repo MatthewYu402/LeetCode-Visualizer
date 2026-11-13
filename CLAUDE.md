@@ -12,7 +12,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 
 ## Current status
 
-**Implementation started.** The trace format (v0.7) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), shows iterators as positions in their containers, and writes the trace to a file, with tests. The driver (`driver/`, Python) rebuilds LeetCode's harness for C++: it reads the Solution and an example and generates a prelude and `main`. The rewriter (`adapters/cpp/rewriter/`, Clang LibTooling) inserts the runtime's calls into a plain Solution; every golden fixture is reproduced from its plain source by the rewriter and a generated `main`. The CLI (`pipeline/`, `python3 -m pipeline`) runs all of it in one command and validates the trace. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
+**Implementation started.** The trace format (v0.7) is specified and validated. The C++ adapter serializes every value kind, including pointers and objects held by value as `ref` and `object`, records steps with the whole call stack (frames and return steps), shows iterators as positions in their containers, and writes the trace to a file, with tests. The driver (`driver/`, Python) rebuilds LeetCode's harness for C++: it reads the Solution and an example and generates a prelude and `main`. The rewriter (`adapters/cpp/rewriter/`, Clang LibTooling) inserts the runtime's calls into a plain Solution; every golden fixture is reproduced from its plain source by the rewriter and a generated `main`. The CLI (`pipeline/`, `python3 -m pipeline`) runs all of it in one command and validates the trace. The sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) runs the rewriter, compiler, and program in one locked-down container per run, under gVisor for anyone's code; the driver and validation stay outside. Six hand-instrumented fixtures (two of them recursive) reproduce their golden traces, a looping program proves the step cap writes a truncated trace, and two small programs prove `result_heap` and a `void` method's `null` result; `make e2e` checks them all. A GitHub Actions workflow checks the fixtures, the adapter, and the frontend on every push and pull request to `main`. The frontend sandbox page replays the Two Sum fixture. What exists:
 
 | File | Role |
 |---|---|
@@ -20,7 +20,7 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.7). Source of truth |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | Runtime hooks and source instrumentation |
 | [`docs/dap.md`](docs/dap.md) | Tracing through a debugger via the Debug Adapter Protocol |
-| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes. `driver-generation.md` describes the implemented driver; the last two are proposals |
+| [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes. `driver-generation.md` and `sandboxing.md` describe what is implemented (the sandbox's API service is still planned); `frontend.md` describes the sandbox page; `hint-inference.md` is a proposal |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md), [`docs/adapters/python.md`](docs/adapters/python.md) | Per-language adapter notes |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | Machine-readable form of the contract |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | Golden trace for Two Sum |
@@ -35,13 +35,14 @@ The whole design rests on one idea: the backend and the frontend communicate **o
 | [`adapters/cpp/rewriter/`](adapters/cpp/rewriter/) | The rewriter, `trace-rewrite`: a `RecursiveASTVisitor` (`instrumenter.hpp`/`.cpp`) that inserts `Frame`, `record`, `Scope`, and `ret` into a plain Solution without adding lines, the tool around it (`main.cpp`), and a `Makefile` using `llvm-config` |
 | [`adapters/cpp/Makefile`](adapters/cpp/Makefile) | Builds and runs the adapter tests and the end-to-end check (`e2e`) |
 | [`driver/`](driver/) | The driver, in Python with no dependencies: `example.py` (example text to neutral JSON) and `shapes.py` (LeetCode's notations for linked structures) are shared by every language; `cpp/` reads the signature and commented node definitions and generates the prelude and `main`; `tests/` runs unit tests, compiles and runs generated programs, and checks every golden fixture through a generated `main` |
-| [`pipeline/`](pipeline/) | The CLI: `run()` chains driver, rewriter, compiler, program (with a time limit, no sandbox), and `check_trace`; `python3 -m pipeline SOLUTION --example TEXT [-o FILE]` exits 2 for bad input, 3 for a build bug, 4 for a crash or timeout, 5 for an invalid trace; `tests/` runs every fixture and each failure |
+| [`pipeline/`](pipeline/) | The CLI: `run()` chains driver, rewriter, compiler, program, and `check_trace`; `runners.py` runs stages 2 to 4 on this machine (`Local`, time limits only) or in a container (`Container`, `--sandbox docker`/`gvisor`); `python3 -m pipeline SOLUTION --example TEXT [-o FILE] [--sandbox ...]` exits 2 for bad input, 3 for a build bug, 4 for a crash or timeout, 5 for an invalid trace, 6 when the sandbox cannot run; `tests/` runs every fixture and each failure, and `test_sandbox.py` proves each sandbox limit |
+| [`sandbox/`](sandbox/) | The sandbox image (`Dockerfile`: the rewriter, `clang++-18`, and the runtime headers, no Python), its build context (`Dockerfile.dockerignore`), and `colima-gvisor.yaml`, which installs gVisor in a Colima VM on macOS. Design in [`docs/sandboxing.md`](docs/sandboxing.md) |
 | [`tools/check_trace.py`](tools/check_trace.py) | Checks trace files: rejects bare `NaN`/`Infinity`, validates against the schema, checks that every `ref` names an object in its heap and that frames and iterators follow the spec's rules, and optionally compares with a fixture (`--equals`) or checks a capped run (`--expect-truncated`), a returned pointer (`--expect-result-heap`), or a `void` method (`--expect-void`) |
-| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, the driver's tests with each compiler, the rewriter built and tested on Linux (Clang 18) and macOS (Homebrew LLVM), and the frontend's tests and build |
+| [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | CI: fixtures against the schema, C++ tests with libstdc++ (GCC 14, Clang 18) and libc++ (Apple Clang), the end-to-end check, the driver's tests with each compiler, the rewriter built and tested on Linux (Clang 18) and macOS (Homebrew LLVM), the sandbox image built and its isolation tests run under Docker and under gVisor (`sandbox-linux`), and the frontend's tests and build |
 | [`frontend/`](frontend/) | Sandbox page (React + TypeScript + Vite) that replays the Two Sum fixture. Rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md) |
 | [`LICENSE`](LICENSE) | MIT |
 
-Still planned: the sandbox, the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
+Still planned: the frontend beyond the sandbox page (home page, real runs, `object`/`ref` renderers), `backend/`, the Python adapter, and `CONTRIBUTING.md`. Do not describe planned things as existing, and do not link to files that are not there without marking them *Planned*.
 
 Reusable procedures for this repo are in [`Skills.md`](Skills.md).
 
@@ -109,12 +110,20 @@ make -C adapters/cpp/rewriter test                                             #
 python3 -m driver fixtures/max_depth_trace.cpp --example "root = [3,9,20,null,null,15,7]" --out /tmp/md --rewrite
 ```
 
-Run the whole pipeline in one command (needs the rewriter built). It runs the code directly on this machine with a time limit (`--timeout`, default 10 s) and no sandbox, so use it for your own code only:
+Run the whole pipeline in one command (needs the rewriter built). Without `--sandbox` it runs the code directly on this machine with only a time limit (`--timeout`, default 10 s), so use that for your own code only:
 
 ```bash
 python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" -o /tmp/two-sum.json
 python3 -m pipeline SOLUTION --example TEXT --keep      # keep the work folder (prelude, program.cpp, binary)
 python3 -m unittest discover -s pipeline/tests -t .    # every fixture end to end, and each kind of failure
+```
+
+Run it in the sandbox instead (needs Docker and the image; `docs/sandboxing.md` §6). `--sandbox docker` uses Docker's own runtime; `--sandbox gvisor` adds gVisor, which is what anyone else's code needs. On macOS, gVisor runs in a Colima VM set up from `sandbox/colima-gvisor.yaml`; point Docker at it with `DOCKER_CONTEXT=colima-gvisor`:
+
+```bash
+docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
+TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v   # every limit, proven (skipped without Docker or the image)
 ```
 
 Run the frontend (from `frontend/`; rules in [`frontend/CLAUDE.md`](frontend/CLAUDE.md)):
@@ -171,6 +180,6 @@ Architecture diagrams are ASCII with box-drawing characters. Keep every box the 
 - **The author writes the runtime and rewriter code** (it is a learning project). Explain, review, and point out bugs instead of handing over implementations. Test scaffolding, fixtures, schema and doc text, and build files are fine when asked.
 - Do not invent details about how LeetCode behaves. If unsure, say so.
 - Before claiming an example is valid, run it through the schema.
-- Do not add dependencies, frameworks, or directories that the docs have not proposed without checking first. Approved so far: `jsonschema` (Python, for `tools/check_trace.py`), and LLVM/Clang for the LibTooling rewriter (`brew install llvm` on macOS; the backend's build image will need it too). The driver uses only Python's standard library.
+- Do not add dependencies, frameworks, or directories that the docs have not proposed without checking first. Approved so far: `jsonschema` (Python, for `tools/check_trace.py`), LLVM/Clang for the LibTooling rewriter (`brew install llvm` on macOS; the sandbox image has it), and Docker with gVisor (`runsc`) for the sandbox, with Colima on macOS (`brew install colima`) to run gVisor locally. The driver uses only Python's standard library.
 - When a doc and the code disagree, the spec in `docs/trace-format.md` wins until it is deliberately changed.
 - Keep `README.md`'s status table, doc map, and repository layout accurate whenever files are added or removed.

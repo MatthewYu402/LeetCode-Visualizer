@@ -28,14 +28,15 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
 | C++ adapter: iterators | Done, with tests. An iterator into a local container becomes an `iterator` value (`index`, `key`, or `end`); the rewriter pairs each iterator variable with its container and the runtime checks the type |
 | C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
-| CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, frontend tests and build |
+| CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, the rewriter and pipeline on Linux and macOS, the sandbox under Docker and gVisor, frontend tests and build |
 | C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
 | C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines. Every golden fixture is reproduced from its plain source |
-| CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command, with a time limit but no sandbox |
+| CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command. Without `--sandbox` it runs the code directly with a time limit |
+| Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside |
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.7 (every kind, iterators as markers on arrays, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
 | Frontend: home page, real runs, `object` / `ref` and hint renderers, "view as" | Planned |
-| API service + sandbox | Planned |
+| API service (`backend/`) | Planned |
 
 ---
 
@@ -55,7 +56,7 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
 | [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, diffing, playback, theme | Draft v0.1 |
 | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
-| [`docs/sandboxing.md`](docs/sandboxing.md) | Isolation, resource limits, where validation runs, how a run can end | Draft v0.1, proposal |
+| [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs, how a run can end, gVisor on macOS | Draft v0.2, implemented (API service planned) |
 | [`docs/hint-inference.md`](docs/hint-inference.md) | How an adapter will work out which structure a value is when its type does not say | Proposal, not started |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
 | [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, normalization rules | Draft |
@@ -460,7 +461,12 @@ Items marked *(planned)* do not exist yet.
 ├── pipeline/                  the CLI: python3 -m pipeline SOLUTION --example TEXT
 │   ├── __init__.py            run(): driver, rewriter, compile, run, validate
 │   ├── __main__.py            the command line and its exit codes
-│   └── tests/                 every fixture end to end, and each kind of failure
+│   ├── runners.py             where stages 2 to 4 run: this machine, or a container
+│   └── tests/                 every fixture end to end, each failure, each sandbox limit
+├── sandbox/                   the sandbox (docs/sandboxing.md)
+│   ├── Dockerfile             the image: rewriter, clang++, runtime headers
+│   ├── Dockerfile.dockerignore  its build context
+│   └── colima-gvisor.yaml     gVisor on macOS: a Colima profile's runsc setup
 ├── driver/                    LeetCode's harness, rebuilt (Python): python3 -m driver
 │   ├── example.py             example text -> neutral JSON (every language)
 │   ├── shapes.py              LeetCode's notations for lists, trees, graphs (every language)
@@ -501,7 +507,7 @@ Items marked *(planned)* do not exist yet.
 │       ├── components/        toolbar, code, visual, state panels
 │       ├── editor/            Monaco setup, theme, starter templates
 │       └── styles/            theme tokens and layout
-└── backend/                   (planned) API service and sandbox runner
+└── backend/                   (planned) API service
 ```
 
 ## Tech stack (proposed)
@@ -514,7 +520,7 @@ Tentative. The architecture does not depend on these choices.
 | Frontend | React + TypeScript + Vite, Monaco editor for the code panel |
 | Renderers | SVG with Framer Motion for arrays and maps, React Flow or Cytoscape for graphs and trees |
 | API service | FastAPI (or Go) |
-| Sandbox | gVisor, nsjail, or Firecracker, with strict CPU, memory, and time limits |
+| Sandbox | Docker with gVisor (`runsc`), one container per run, strict CPU, memory, process, disk, and time limits (decided, [`docs/sandboxing.md`](docs/sandboxing.md)) |
 | Contract | JSON Schema, validated in CI and at runtime |
 
 ## Roadmap
@@ -532,7 +538,8 @@ Tentative. The architecture does not depend on these choices.
 - [ ] Any C++ solution: member variables, lambdas, hint inference
 - [x] The call stack: frames and return steps, with recursive golden traces
 - [ ] Resolve the open questions above
-- [ ] API service and sandbox
+- [x] Sandbox: Docker and gVisor, one container per run
+- [ ] API service
 - [ ] Python adapter, proving the schema is truly language-neutral
 - [ ] More renderers (union-find, trie), diff animations, "view as" override
 
@@ -571,9 +578,14 @@ make -C adapters/cpp/rewriter LLVM_CONFIG=$(brew --prefix llvm)/bin/llvm-config
 python3 -m driver fixtures/max_depth_trace.cpp --example "root = [3,9,20,null,null,15,7]" --out /tmp/md --rewrite
 
 # The whole pipeline in one command: driver, rewriter, compile, run, check.
-# It runs your code directly, with a 10-second limit and no sandbox.
+# Without --sandbox it runs your code directly, with a 10-second limit.
 python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" -o /tmp/two-sum.json
 python3 -m unittest discover -s pipeline/tests -t .  # its tests (need the rewriter)
+
+# The same run in the sandbox (needs Docker; gVisor on macOS: sandbox/colima-gvisor.yaml)
+docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
+TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
 ```
 
 ```bash
