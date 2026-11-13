@@ -99,8 +99,9 @@ class Failures(unittest.TestCase):
         self.assertIn("crashed", str(error))
 
     def test_time_limit(self):
-        error = self.fails(solution("        volatile int x = 0;\n        while (true) {}\n        return x + n;"), timeout=2)
-        self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN))
+        # An empty body has no statement to record, so the step cap never stops it: only the time limit does.
+        error = self.fails(solution("        while (n > 0) {}\n        return n;"), timeout=2)
+        self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
         self.assertIn("did not finish within 2 seconds", str(error))
 
     def test_what_the_program_prints_is_kept(self):

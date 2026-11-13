@@ -366,6 +366,48 @@ public:
         trace, _ = run_source(src, "n = 2")
         self.assertEqual(trace["result"], 20)
 
+    def test_empty_bodies(self):
+        # An empty block gets only its Scope: `{}` becomes `{ ::trace::Scope trace_scope_(LINE);}`,
+        # on the same line. No step comes from inside it.
+        src = """class Solution {
+public:
+    int f(int n) {
+        int k = 0;
+        for (int i = 0; i < n; i++) {}
+        while (k > n) {}
+        do {} while (k > n);
+        if (n > 0) {} else {}
+        if (n < 0) {}
+        {}
+        return k + n;
+    }
+};"""
+        trace, code = run_source(src, "n = 2")
+        self.assertEqual(trace["result"], 2)
+        # Loops and a bare block get no step of their own, and the empty bodies none inside them.
+        self.assertEqual(lines(trace), [4, 8, 9, 11, 11])
+        self.assertEqual(len(code.splitlines()), len(src.splitlines()))
+        # for, while, do, then, else, the second then, and the bare block: one Scope each.
+        self.assertEqual(code.count("{ ::trace::Scope trace_scope_("), 7, code)
+        self.assertNotIn("{}", code, code)
+
+    def test_volatile_locals(self):
+        # A volatile local is shown as its plain type: before the fix in trace.hpp,
+        # a volatile int did not compile with libc++ and a volatile bool nowhere.
+        src = """class Solution {
+public:
+    int f(int n) {
+        volatile int v = n;
+        volatile bool b = n > 0;
+        volatile double d = 0.5;
+        return v + n;
+    }
+};"""
+        trace, _ = run_source(src, "n = 3")
+        self.assertEqual(trace["result"], 6)
+        last = trace["steps"][-1]["frames"][-1]["locals"]
+        self.assertEqual((last["v"], last["b"], last["d"]), (3, True, 0.5))
+
     def test_compile_errors_point_at_the_users_line(self):
         src = "class Solution {\npublic:\n    int f(int n) {\n        int x = n;\n        return y;\n    }\n};"
         work = Path(tempfile.mkdtemp())
