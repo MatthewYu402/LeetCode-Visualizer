@@ -472,6 +472,23 @@ select {
   color: var(--fg);
 }
 
+.call-stack .frame-folded {
+  border-style: dashed;
+}
+
+.frame-unfold {
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.frame-unfold:hover {
+  color: var(--fg);
+}
+
 .frame-returning {
   color: var(--done);
 }
@@ -582,6 +599,342 @@ tr.diff-removed td {
   from {
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 50%, transparent);
   }
+}
+
+/* ---- Stacks, queues, deques, lists, tuples, priority queues, sets (render/SequenceRenderer.tsx) ---- */
+
+.sequence {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.sequence-vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  flex-wrap: nowrap;
+}
+
+.sequence-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.sequence-vertical .sequence-item .cell {
+  min-width: 64px;
+}
+
+.sequence-top {
+  font-size: 10px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.sequence-vertical .sequence-top {
+  position: absolute;
+  left: calc(100% + 6px);
+}
+
+.sequence:not(.sequence-vertical) .sequence-top {
+  position: absolute;
+  top: -14px;
+  left: 0;
+}
+
+.sequence-end,
+.sequence-paren,
+.sequence-link {
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  align-self: center;
+}
+
+.sequence-paren {
+  font-size: 22px;
+}
+
+.set {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.set-member {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-inset);
+}
+
+/* ---- The recursion tree (components/RecursionTree.tsx) ---- */
+
+.recursion {
+  max-width: 100%;
+}
+
+.recursion-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-item i {
+  width: 12px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1.5px solid var(--call-stroke, var(--border));
+  background: var(--call-fill, var(--bg-inset));
+}
+
+.recursion-scroll {
+  max-width: 100%;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.recursion-svg {
+  display: block;
+  overflow: visible;
+  font-family: var(--font-mono);
+}
+
+.call rect {
+  fill: var(--call-fill, var(--bg-inset));
+  stroke: var(--call-stroke, var(--border));
+  stroke-width: 1.5;
+  transition: fill 300ms ease, stroke 300ms ease;
+}
+
+.call-label {
+  fill: var(--fg);
+  font-size: 12px;
+  text-anchor: middle;
+}
+
+.call-value {
+  fill: var(--done);
+  font-size: 12px;
+  text-anchor: middle;
+}
+
+.call-edge {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1.4;
+  transition: stroke 300ms ease;
+}
+
+.call-edge-path {
+  stroke: var(--accent);
+}
+
+/* One colour per state; the legend uses the same variables. */
+.call-current {
+  --call-stroke: var(--accent);
+  --call-fill: color-mix(in srgb, var(--accent) 22%, var(--bg-inset));
+}
+
+.call-waiting {
+  --call-stroke: color-mix(in srgb, var(--accent) 55%, var(--border));
+  --call-fill: var(--bg-inset);
+}
+
+.call-waiting rect {
+  stroke-dasharray: 4 3;
+}
+
+.call-returning {
+  --call-stroke: var(--done);
+  --call-fill: color-mix(in srgb, var(--done) 22%, var(--bg-inset));
+}
+
+.call-returning rect {
+  animation: call-pulse 900ms ease-out;
+}
+
+.call-returned {
+  --call-stroke: var(--border);
+  --call-fill: var(--bg-subtle);
+}
+
+.call-returned .call-label {
+  fill: var(--fg-muted);
+}
+
+.call-base {
+  --call-stroke: var(--attention);
+  --call-fill: color-mix(in srgb, var(--attention) 12%, var(--bg-inset));
+}
+
+.call-folded {
+  --call-stroke: var(--border);
+  --call-fill: var(--bg-subtle);
+}
+
+.call-folded rect {
+  stroke-dasharray: 2 3;
+}
+
+.call-folded .call-label {
+  fill: var(--fg-muted);
+}
+
+@keyframes call-pulse {
+  from {
+    stroke-width: 4;
+  }
+}
+
+/* ---- Linked structures: lists, trees, graphs (render/HeapView.tsx) ---- */
+/* Movement and fades are framer-motion's; these rules set colours, and the one-step highlights. */
+
+.heap {
+  display: block;
+  overflow: visible;
+  font-family: var(--font-mono);
+}
+
+.heap .node circle {
+  fill: var(--bg-inset);
+  stroke: var(--border);
+  stroke-width: 1.5;
+  transition: fill 300ms ease, stroke 300ms ease, stroke-width 300ms ease;
+}
+
+.heap .node-value {
+  fill: var(--fg);
+  font-size: 13px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+/* The node the running function points at. */
+.heap .node-current circle {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+/* A node a caller points at: the path the recursion took to get here. */
+.heap .node-path circle {
+  stroke: color-mix(in srgb, var(--accent) 45%, var(--border));
+  stroke-dasharray: 3 3;
+}
+
+.heap .node-result circle {
+  stroke: var(--done);
+  stroke-width: 2.5;
+  fill: color-mix(in srgb, var(--done) 18%, var(--bg-inset));
+}
+
+.heap .node-added circle {
+  animation: node-flash-added 900ms ease-out;
+}
+
+.heap .node-changed circle {
+  animation: node-flash-changed 900ms ease-out;
+}
+
+@keyframes node-flash-added {
+  from {
+    fill: color-mix(in srgb, var(--success) 45%, var(--bg-inset));
+    stroke: var(--success);
+  }
+}
+
+@keyframes node-flash-changed {
+  from {
+    fill: color-mix(in srgb, var(--attention) 45%, var(--bg-inset));
+    stroke: var(--attention);
+  }
+}
+
+.heap .edge {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.6;
+  transition: stroke 400ms ease;
+}
+
+.heap .edge-secondary {
+  stroke-dasharray: 4 4;
+  opacity: 0.8;
+}
+
+/* An edge that is new, or now points somewhere else, on this step. */
+.heap .edge-new {
+  stroke: var(--success);
+  stroke-width: 2.2;
+}
+
+.heap .arrow-head {
+  fill: var(--fg-muted);
+}
+
+.heap .arrow-head-new {
+  fill: var(--success);
+}
+
+.heap .edge-label {
+  fill: var(--fg-muted);
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.heap .null-tail line {
+  stroke: var(--border);
+  stroke-width: 1.4;
+}
+
+.heap .null-tail text {
+  fill: var(--fg-muted);
+  font-size: 11px;
+}
+
+.heap .null-tail .null-below {
+  text-anchor: middle;
+}
+
+.heap .pointer-label text {
+  fill: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.heap .pointer-result text {
+  fill: var(--done);
+}
+
+.null-pointers {
+  flex-basis: 100%;
+  align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px 0 4px;
+}
+
+.null-pointer {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

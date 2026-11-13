@@ -1,5 +1,7 @@
-import { canonical, formatValue } from "../trace/format";
+import { canonical } from "../trace/format";
+import { itemText } from "./SequenceRenderer";
 import { diffClass } from "./ArrayRenderer";
+import type { ObjectValue, Value } from "../trace/types";
 import type { RendererProps } from "./types";
 
 /**
@@ -8,7 +10,7 @@ import type { RendererProps } from "./types";
  * A multimap may repeat a key, so its rows are coloured per entry (diff.entries),
  * and a map's per key (diff.keys).
  */
-export function MapRenderer({ name, value, diff }: RendererProps) {
+export function MapRenderer({ name, value, diff, ctx }: RendererProps) {
   if (typeof value !== "object" || value === null || (value.kind !== "map" && value.kind !== "multimap")) {
     throw new Error(`MapRenderer got a non-map value for ${name}`);
   }
@@ -37,15 +39,15 @@ export function MapRenderer({ name, value, diff }: RendererProps) {
             const status = multi ? diff?.entries?.[i] : diff?.keys?.get(key);
             return (
               <tr key={key} className={diffClass(status)}>
-                <td>{formatValue(k)}</td>
-                <td>{formatValue(v)}</td>
+                <Cell v={k} heap={ctx.heap} />
+                <Cell v={v} heap={ctx.heap} />
               </tr>
             );
           })}
           {removed.map(({ key, value: v }, i) => (
             <tr key={multi ? `removed-${i}` : `removed-${canonical(key)}`} className="diff-removed">
-              <td>{formatValue(key)}</td>
-              <td>{formatValue(v)}</td>
+              <Cell v={key} heap={ctx.heap} />
+              <Cell v={v} heap={ctx.heap} />
             </tr>
           ))}
           {value.entries.length === 0 && removed.length === 0 && (
@@ -59,4 +61,10 @@ export function MapRenderer({ name, value, diff }: RendererProps) {
       </table>
     </section>
   );
+}
+
+/** One cell: a ref shows its node's value (the id on hover), anything else its compact text. */
+function Cell({ v, heap }: { v: Value; heap?: Record<string, ObjectValue> }) {
+  const { text, title } = itemText(v, heap);
+  return <td title={title}>{text}</td>;
 }

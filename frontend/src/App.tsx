@@ -1,3 +1,4 @@
+import { MotionConfig } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { useInputs } from "./api/useInputs";
 import { CodePanel } from "./components/CodePanel";
@@ -52,65 +53,69 @@ export function App() {
   useKeyboard(dispatch);
 
   return (
-    <div className="app">
-      <Toolbar
-        language={language}
-        onLanguage={onLanguage}
-        player={state}
-        dispatch={dispatch}
-        speed={speed}
-        onSpeed={setSpeed}
-        title={trace ? problemTitle(trace.problem) : null}
-        notice={ran ? "Showing your last run. Edit the code or inputs and press Run code again." : "Showing the Two Sum example. Fill in the inputs and press Run code to trace your own."}
-      />
-      <main className="workspace">
-        <Split
-          direction="row"
-          initial={40}
-          label="Resize code panel"
-          first={
-            <Split
-              direction="column"
-              initial={65}
-              label="Resize inputs panel"
-              first={
-                <section className="panel" aria-label="Code">
-                  <h2 className="panel-title">Code</h2>
-                  <CodePanel source={source} language={monacoLanguage(language)} line={step ? topFrame(step).line : null} onChange={setSource} />
-                </section>
-              }
-              second={
-                <section className="panel" aria-label="Inputs">
-                  <h2 className="panel-title">Inputs</h2>
-                  <div className="panel-body">
-                    <InputsPanel inputs={inputs} />
-                  </div>
-                </section>
-              }
-            />
-          }
-          second={
-            <Split
-              direction="column"
-              initial={60}
-              label="Resize visual panel"
-              first={
-                <section className="panel" aria-label="Visual">
-                  <h2 className="panel-title">Visual</h2>
-                  <VisualPanel trace={trace} step={step} diff={stepDiff} notice={notice} />
-                </section>
-              }
-              second={
-                <section className="panel" aria-label="State">
-                  <h2 className="panel-title">State</h2>
-                  <StatePanel trace={trace} step={step} index={state.index} diff={stepDiff} />
-                </section>
-              }
-            />
-          }
+    // reducedMotion="user": with the system's "reduce motion" setting on, every
+    // framer-motion animation jumps straight to its end, as the CSS ones already do.
+    <MotionConfig reducedMotion="user">
+      <div className="app">
+        <Toolbar
+          language={language}
+          onLanguage={onLanguage}
+          player={state}
+          dispatch={dispatch}
+          speed={speed}
+          onSpeed={setSpeed}
+          title={trace ? problemTitle(trace.problem) : null}
+          notice={ran ? "Showing your last run. Edit the code or inputs and press Run code again." : "Showing the Two Sum example. Fill in the inputs and press Run code to trace your own."}
         />
-      </main>
-    </div>
+        <main className="workspace">
+          <Split
+            direction="row"
+            initial={40}
+            label="Resize code panel"
+            first={
+              <Split
+                direction="column"
+                initial={65}
+                label="Resize inputs panel"
+                first={
+                  <section className="panel" aria-label="Code">
+                    <h2 className="panel-title">Code</h2>
+                    <CodePanel source={source} language={monacoLanguage(language)} line={step ? topFrame(step).line : null} onChange={setSource} />
+                  </section>
+                }
+                second={
+                  <section className="panel" aria-label="Inputs">
+                    <h2 className="panel-title">Inputs</h2>
+                    <div className="panel-body">
+                      <InputsPanel inputs={inputs} />
+                    </div>
+                  </section>
+                }
+              />
+            }
+            second={
+              <Split
+                direction="column"
+                initial={60}
+                label="Resize visual panel"
+                first={
+                  <section className="panel" aria-label="Visual">
+                    <h2 className="panel-title">Visual</h2>
+                    <VisualPanel trace={trace} step={step} diff={stepDiff} notice={notice} />
+                  </section>
+                }
+                second={
+                  <section className="panel" aria-label="State">
+                    <h2 className="panel-title">State</h2>
+                    <StatePanel trace={trace} step={step} index={state.index} diff={stepDiff} />
+                  </section>
+                }
+              />
+            }
+          />
+        </main>
+      </div>
+    </MotionConfig>
   );
 }
 

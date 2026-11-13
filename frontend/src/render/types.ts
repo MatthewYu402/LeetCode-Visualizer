@@ -1,10 +1,12 @@
 import type { ReactElement } from "react";
 import type { ValueDiff } from "../trace/diff";
-import type { Hint, Value } from "../trace/types";
+import type { Hint, ObjectValue, Value } from "../trace/types";
 
 export interface RenderContext {
   /** Every local in the step being drawn. Used for pointer markers. */
   locals: Record<string, Value>;
+  /** The step's heap, so an item that is a ref can show its node's value. */
+  heap?: Record<string, ObjectValue>;
   /** The hint for this local, if it is a parameter that has one. */
   hint?: Hint;
 }

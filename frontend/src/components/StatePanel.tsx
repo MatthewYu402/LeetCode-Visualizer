@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { StepDiff } from "../trace/diff";
 import { formatValue, kindOf } from "../trace/format";
 import { isReturning, returnsVoid, runEnd, topFrame, type Frame, type RunEnd, type Step, type Trace, type Value } from "../trace/types";
@@ -83,17 +84,45 @@ export function StatePanel({ trace, step, index, diff }: Props) {
  * The call stack, running frame first (the way debuggers list it). Each row is a
  * function and the line it is on. A frame that is returning says so.
  */
-function CallStack({ frames }: { frames: Frame[] }) {
+/** Frames shown at the top of a deep stack before the rest fold into one line. */
+export const STACK_SHOWN = 6;
+
+/**
+ * The call stack, running frame first. A deep one (a long recursion) shows its top
+ * STACK_SHOWN frames, one line "… N more calls" that opens the rest, and the first
+ * call at the bottom, so the panel never grows with the depth.
+ */
+export function CallStack({ frames }: { frames: Frame[] }) {
+  const [open, setOpen] = useState(false);
   const ordered = [...frames].reverse();
+  const fold = !open && ordered.length > STACK_SHOWN + 2;
+  const top = fold ? ordered.slice(0, STACK_SHOWN) : ordered;
+  const hidden = fold ? ordered.length - STACK_SHOWN - 1 : 0;
+  const item = (f: Frame, i: number) => (
+    <li key={f.id} className={i === 0 ? "frame frame-top" : "frame"}>
+      <span className="frame-function">{f.function}</span>
+      <span className="frame-line">line {f.line}</span>
+      {isReturning(f) && <span className="frame-returning">returning</span>}
+    </li>
+  );
   return (
-    <ol className="call-stack" aria-label="Call stack">
-      {ordered.map((f, i) => (
-        <li key={f.id} className={i === 0 ? "frame frame-top" : "frame"}>
-          <span className="frame-function">{f.function}</span>
-          <span className="frame-line">line {f.line}</span>
-          {isReturning(f) && <span className="frame-returning">returning</span>}
+    <ol className="call-stack" aria-label={`Call stack, depth ${frames.length}`}>
+      {top.map(item)}
+      {fold && (
+        <li className="frame frame-folded">
+          <button type="button" className="frame-unfold" onClick={() => setOpen(true)} title="Show every call">
+            … {hidden} more calls
+          </button>
         </li>
-      ))}
+      )}
+      {fold && item(ordered[ordered.length - 1], ordered.length - 1)}
+      {open && ordered.length > STACK_SHOWN + 2 && (
+        <li className="frame frame-folded">
+          <button type="button" className="frame-unfold" onClick={() => setOpen(false)}>
+            fold the middle
+          </button>
+        </li>
+      )}
     </ol>
   );
 }

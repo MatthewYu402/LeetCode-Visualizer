@@ -1,4 +1,5 @@
 import { canonical, valuesEqual } from "./format";
+import { heapDiff, type HeapDiff } from "./heap";
 import { hasItems, isTagged, topFrame, type Step, type Value } from "./types";
 
 // Diffs are for animation only (spec §6). A step must draw correctly with no diff.
@@ -30,6 +31,8 @@ export interface ValueDiff {
 export interface StepDiff {
   /** The running frame's locals: one entry per local in either version of that frame. Removed locals are included. */
   locals: Record<string, ValueDiff>;
+  /** Nodes and edges added, removed, or changed in the heap (trace/heap.ts). */
+  heap: HeapDiff;
 }
 
 /**
@@ -50,7 +53,7 @@ export function diff(prev: Step, curr: Step): StepDiff {
   for (const [name, value] of Object.entries(before)) {
     if (!(name in now.locals)) locals[name] = { status: "removed", prev: value };
   }
-  return { locals };
+  return { locals, heap: heapDiff(prev, curr) };
 }
 
 /** Diff one value against its previous version. Goes one level into containers. */

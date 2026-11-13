@@ -235,7 +235,7 @@ describe("every v0.7 kind renders without crashing", () => {
 
   it("renders each container through the registry", () => {
     const html = renderStep(t, 0, false);
-    for (const k of ["list", "stack", "queue", "deque", "priority-queue · max", "tuple", "set", "multiset · 3", "multimap · 2", "ref"])
+    for (const k of ["list", "stack", "queue", "deque", "priority queue (max) · 2", "tuple", "set", "multiset · 3", "multimap · 2", "ref"])
       expect(html).toContain(k);
     expect(html).toContain("9007199254740993");
     expect(html).toContain("NaN");
@@ -261,8 +261,8 @@ describe("multiset and multimap with repeated members", () => {
     const html = renderStep(t, 1, true);
 
     // multiset: 5 same, 2 same, 2 added; two 5s removed.
-    expect(html.match(/cell cell-auto diff-added">2</g)).toHaveLength(1);
-    expect(html.match(/cell cell-auto diff-removed">5</g)).toHaveLength(2);
+    expect(html.match(/set-member diff-added"[^>]*>2</g)).toHaveLength(1);
+    expect(html.match(/set-member diff-removed"[^>]*>5</g)).toHaveLength(2);
     // multimap: [1,"a"] same, two [1,"z"] added; [1,"a"] and [2,"b"] removed.
     expect(html.match(/<tr class="diff-added"><td>1<\/td><td>&quot;z&quot;<\/td><\/tr>/g)).toHaveLength(2);
     expect(html).toContain('<tr class="diff-removed"><td>2</td><td>&quot;b&quot;</td></tr>');
