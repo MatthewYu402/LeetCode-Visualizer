@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.3 (reads trace format v0.7)
+> **Status:** Draft v0.4 (reads trace format v0.7)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace the page opens on), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -20,13 +20,15 @@ fixtures/two-sum.trace.json, or POST /api/run ──► loader ──► step pl
 | One sandbox page at `/` | The home page |
 | Replaying `fixtures/two-sum.trace.json`, then the trace of each run | Visual design of the inputs panel |
 | An inputs panel: one field per parameter, Run code through the API | Design problems (LRU Cache, Min Stack) |
-| Monaco code panel with the current line highlighted | Pointers: `object` and `ref` renderers |
-| Renderers for `array` and `map`, a fallback for every other kind | Hint renderers (grid, graph, intervals, ...) |
-| Diff highlighting between adjacent steps | The "view as" override UI |
+| Monaco code panel with the current line highlighted | Hint renderers (grid, adjacency list, intervals, ...) |
+| Renderers for every container kind, and a fallback for unknown kinds | The "view as" override UI |
+| Linked lists, trees, and graphs drawn from `heap`, with pointer labels | Objects that are not nodes (no `val`/`next`/`left`/`neighbors` shape) drawn as more than a node |
+| A recursion tree when calls nest, and a folding call list | |
+| Diff highlighting between adjacent steps, and motion (fade, glide, draw-in) | |
 | Playback: step, run, pause, scrub, speed, keyboard | Comparing two traces side by side |
 | A language select that changes the editor mode | Sending the language anywhere |
 
-The first goal was to prove the shape of the frontend (loader, player, registry, diff) against a real trace before there was a backend; the inputs panel now feeds it real runs. Every piece is written against the contract, not against Two Sum, so a new fixture should replay without code changes as long as it uses `array`, `map`, and primitives.
+The first goal was to prove the shape of the frontend (loader, player, registry, diff) against a real trace before there was a backend; the inputs panel now feeds it real runs. Every piece is written against the contract, not against Two Sum, so a new fixture replays without code changes.
 
 ## 2. Page layout
 One screen, dark theme, no page scroll on a 1440×900 window. Panels are separated by thin borders (`--border`).
@@ -37,11 +39,11 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 │           scrubber · speed · which trace is showing                      │
 ├──────────────────────────────┬───────────────────────────────────────────┤
 │ CODE PANEL   (~40%)          │ VISUAL PANEL                              │
-│                              │   one structure per container local       │
-│   Monaco, editable           │   array: boxes, indices, pointer markers  │
-│   step.line highlighted      │   map:   key / value table                │
-│   (background + gutter)      │                                           │
-│   scrolled into view         │                                           │
+│                              │   recursion tree (when calls nest)        │
+│   Monaco, editable           │   lists, trees, graphs from the heap      │
+│   step.line highlighted      │   one structure per other container local │
+│   (background + gutter)      │   array: boxes, indices, pointer markers  │
+│   scrolled into view         │   map: table · stack, queue, set: boxes   │
 ├──────────────────────────────┼───────────────────────────────────────────┤
 │ INPUTS PANEL                 │ STATE PANEL                               │
 │   method (when several)      │   Step N of M · line L   [truncated]      │
@@ -65,11 +67,16 @@ Every split is resizable by dragging the border between panels: the left / right
 | `player/playback.ts` | Pure reducer for the step index and Run / Pause | Actions |
 | `player/usePlayer.ts` | Wraps the reducer and owns the Run timer | Step count, speed |
 | `render/registry.ts` | Chooses a renderer for a value ([Section 5](#5-renderer-registry)) | Kind and hint |
-| `render/*.tsx` | `ArrayRenderer`, `MapRenderer`, `FallbackRenderer` | One value, its diff, context |
+| `render/*.tsx` | `ArrayRenderer`, `MapRenderer`, `SequenceRenderer`, `SetRenderer`, `FallbackRenderer` | One value, its diff, context |
+| `trace/heap.ts` | Edges between heap objects, a node's label and shape, pointers into the heap, `heapDiff` | One or two steps |
+| `trace/calls.ts` | `callTree(trace)`: every call, its caller, arguments, and return value; where a call stands at a step | The whole trace, once |
+| `render/layout.ts` | `layoutTrace(trace)`: a fixed place for every node of every linked structure ([Section 6.4](#64-linked-structures-layout)) | The whole trace, once |
+| `render/HeapView.tsx` | Draws the linked structures of one step: nodes, edges, pointer labels, highlights | One step, its heap diff, the layout |
+| `components/RecursionTree.tsx` | The recursion tree at one step, whole or focused ([Section 6.6](#66-recursion-tree)) | The call tree, one step |
 | `components/Toolbar.tsx` | Language select, playback buttons, counter, scrubber, speed | Player state |
 | `components/CodePanel.tsx` | Monaco with the line decoration | Source, `step.line` |
-| `components/VisualPanel.tsx` | One renderer per container local, or a notice / error | One step, its diff |
-| `components/StatePanel.tsx` | The snapshot as a table, plus `result` on the last step | One step, its diff |
+| `components/VisualPanel.tsx` | The recursion tree, the linked structures, then one renderer per other container local, or a notice / error | One step, its diff, the per-trace layout and call tree |
+| `components/StatePanel.tsx` | The call stack (folded when deep) and the snapshot as a table, plus `result` on the last step | One step, its diff |
 | `components/Split.tsx` | A draggable split between two panels | Pointer events |
 | `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables | `theme.css` |
 | `editor/languages.ts` | Editor languages and the Java / Python starter templates | Nothing |
@@ -108,7 +115,7 @@ Spec [§9](trace-format.md#9-versioning): while the major version is 0, any mino
 
 A `void` method that returned has `"result": null`, which alone would read as a returned null pointer. `returnsVoid(problem)` in `trace/types.ts` checks `problem.returns.type === "void"` ([trace-format.md §3, The return value](trace-format.md#the-return-value)), and the state panel then shows `returned, no value` with the kind `void` instead of `null`.
 
-**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. Above the table, the state panel lists every frame, running frame first, as `function · line N`, and marks a frame that is `returning`. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. Drawing callers' structures, and animating frames as they push and pop, is planned.
+**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. Above the table, the state panel lists every frame, running frame first, as `function · line N`, and marks a frame that is `returning`. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. A caller's pointers into the heap are drawn as dashed rings on their nodes ([Section 6.5](#65-linked-structures-drawing)), and a stack deeper than 8 frames is folded ([Section 6.6](#66-recursion-tree)).
 
 `result_heap` (the objects a `ref` result points to) is in the `Trace` type but nothing draws it yet. It arrives with the `object` / `ref` renderers.
 
@@ -151,16 +158,26 @@ The README's full order is "view as override, hint, kind, object shape, fallback
 
 ## 6. Renderers in this version
 
+### 6.1 Containers
+
 | Kind | Renderer | Drawing |
 |---|---|---|
 | `array` | `ArrayRenderer` | A row of boxes, the index under each box, pointer markers under that |
 | `map`, `multimap` | `MapRenderer` | Two-column table, `key` and `value`. A multimap may show a key on several rows |
-| every other kind | `FallbackRenderer` | A labelled row of boxes plus the kind name (`stack`, `set`, `multiset`, ...) |
+| `stack` | `SequenceRenderer` | A column of boxes, the top first and marked `top` |
+| `queue`, `deque`, `list` | `SequenceRenderer` | A row of boxes between `front` and `back` (`⇄` between the nodes of a `list`) |
+| `priority-queue` | `SequenceRenderer` | A row of boxes in the trace's order, `items[0]` marked `top`, labelled with its order (`priority queue (max) · 3`) |
+| `tuple` | `SequenceRenderer` | A row of boxes in parentheses |
+| `set`, `multiset` | `SetRenderer` | Chips in the trace's order, never sorted |
+| `object`, `ref` | `HeapView` | Not drawn per local: the heap is drawn once per step, and a local holding a `ref` becomes a pointer label on its node ([Section 6.5](#65-linked-structures-drawing)) |
+| an unknown kind | `FallbackRenderer` | A labelled row of boxes plus the kind name |
 | primitives | none | Not drawn in the visual panel. They appear in the state panel |
 
-The visual panel draws one renderer per **container local**: a local whose value is a tagged kind other than `int` and `float`. Locals appear in the order the trace lists them.
+The visual panel draws, top to bottom: the recursion tree when one call made another ([Section 6.6](#66-recursion-tree)), the linked structures of the step's heap, then one renderer per other **container local** of the running frame (a tagged kind other than `int`, `float`, `ref`, and `object`), in the order the trace lists them. A `ref` inside a container (a queue of nodes, a map from node to clone) shows its node's value, with the id on hover.
 
-#### Pointer markers
+Items of a queue, deque, priority queue, and set are keyed by their value and which copy of that value they are, so popping the front fades that item out and glides the rest forward, instead of every box changing its value.
+
+### 6.2 Pointer markers
 An integer local becomes a labelled marker (`▲ i`) under an array's box when **both** hold:
 1. Its name is one of `i`, `j`, `k`, `l`, `r`, `left`, `right`, `lo`, `hi`, `mid`, `start`, `end`, `slow`, `fast`, `p`, `q`.
 2. Its value is a bare integer `n` with `0 ≤ n < items.length` for that array.
@@ -171,8 +188,59 @@ There is no other heuristic. A local named `idx`, or a `j` that points past the 
 
 This is a frontend display rule, not a hint. Hints are for what the adapter infers about a parameter ([trace-format.md §4](trace-format.md#4-problem-metadata)), and an index marker does not change how `nums` is drawn, only what is drawn under it.
 
-#### Map order
+### 6.3 Map order
 `MapRenderer` lists entries in the order the trace gives them. It does not sort. Map order is unspecified and is real language behaviour (spec §8), so the frontend shows what the program saw. Diffs match entries by key, never by position. The same goes for `set`, `multiset`, and `multimap`.
+
+### 6.4 Linked structures: layout
+`layoutTrace(trace)` runs once when a trace is loaded. It reads every step's heap, joins objects linked by a `ref` field at any step into one **component**, and gives each node a fixed place for the whole run. A node appears where it stays, and when a link changes only the link moves. This is the one exception to "nothing earlier than the step before" (frontend/CLAUDE.md rule 2): a layout is a function of the whole trace, computed once, and drawing step N still reads only step N's heap and that fixed layout.
+
+Each component gets a shape from its fields, never from the language:
+
+| Shape | When | Layout |
+|---|---|---|
+| tree | Its nodes have a `left` or `right` field | A tidy tree: in-order across, children a row under their parent |
+| list | Its nodes have a `next` field and no array field | One row per chain in link order: a node is placed after the node that first links to it |
+| graph | Anything else (`neighbors`, arrays of refs) | A circle of up to 12 nodes, in depth-first order along the edges so neighbours sit side by side; larger graphs in layers by distance from the first node |
+
+A tree whose shape changes during the run (a node that moves under another parent, as in a rotation) cannot keep one place per node without overlaps, so it is marked **dynamic** and laid out from the step's own heap at each step; nodes glide to their new places.
+
+### 6.5 Linked structures: drawing
+`HeapView` draws one SVG per component present at the step. A component is labelled with the names of the running frame's pointers into it (`head, prev, curr`), or by its shape when none points at it.
+
+| Element | Drawing |
+|---|---|
+| Node | A circle with its `val` (or the first scalar field) inside |
+| Edge | An arrow from the field's owner to its target. A field other than the shape's primary ones (`random`, `prev`) is dashed and labelled. Two edges between the same nodes bend apart |
+| Two-way graph link | A node in each other's `neighbors` is one plain line with no arrows |
+| `next = null` | A short stub ending in `null`, to the right, or under the node when a neighbour sits there |
+| Pointer label | Each `ref` local of the running frame is a label over its node, keyed by name so it slides when the pointer moves. Several pointers on one node stack |
+| Caller pointers | A node a caller's frame points at gets a dashed ring: the path the recursion took to get here |
+| Null pointers | A pointer local that is `null` is listed under the structures (`prev → null`), only for names that point at a node at some step |
+| Result | On the last step, the node `result` points at is drawn in `--done` and labelled `result` |
+
+Highlights follow the heap diff (`heapDiff`, [Section 7](#7-diffing)): a new node and a new or redirected edge flash `--success`, a node whose scalar fields changed flashes `--attention`, and a removed node fades out.
+
+### 6.6 Recursion tree
+`callTree(trace)` runs once when a trace is loaded. A frame id belongs to one call for the whole run (spec §6), and the frame under it on the stack is its caller, so every call, its caller, its arguments (its locals on its first step), and its return value (from its return step) can be read from the steps. Drawing step N uses only what the tree says about step N. The tree is shown only when some call was made by another call.
+
+Each box is labelled `f(args)`. Its colour says where the call stands at this step:
+
+| State | Meaning | Colour |
+|---|---|---|
+| running | The running frame | `--accent` |
+| waiting | On the stack, waiting for a call it made | dashed `--accent` |
+| returning | The running frame, at its return step | `--done` |
+| returned | Finished, after making calls | muted |
+| base case | Finished without making any call | `--attention` |
+
+A call's return value appears under its box (`→ 3`) from its return step on. Calls not yet begun are not drawn, so the tree grows as the run goes.
+
+A run of up to 80 calls is drawn whole, every call in a fixed place. A larger run is drawn **focused on the running call**: the calls on the stack, the calls each of them has made so far, and every finished branch folded into one box (`fib(7)` with `→ 13 · 41 calls` under it). A stack deeper than 14 keeps its top 3 and bottom 10 calls and folds the middle into one box (`⋮ 40 calls`). Either way the number of boxes stays small however deep the recursion goes. The tree sits in a scroll box that scrolls to keep the running call in view.
+
+The state panel's call list folds the same way: a stack deeper than 8 frames shows the 6 frames at the top (the running frame first), then `… N more calls` (which unfolds on click), then the bottom frame.
+
+### 6.7 Motion
+Motion uses `framer-motion`. Nothing appears or disappears instantly: nodes, boxes, and labels fade and scale in and out, edges draw themselves in, pointer labels and items glide to their new places, and flashes fade over about 900 ms. Motion only describes the step before; drawing with no diff (step 0, a jump, moving back) shows the step without flashes. `MotionConfig reducedMotion="user"` turns movement off for anyone whose system asks for reduced motion.
 
 ## 7. Diffing
 `diff(prev, curr)` is a pure function of two steps. For each local it reports:
@@ -183,6 +251,8 @@ This is a frontend display rule, not a hint. Hints are for what the adapter infe
 | `removed` | The name is in `prev` but not `curr`. The diff keeps the old value so it can be drawn |
 | `changed` | In both, with different values |
 | `same` | In both, equal |
+
+The heap gets its own diff, `heapDiff(prev, curr)`: nodes added, removed, and changed (a scalar field differs), and edges added, removed, and redirected (the same field of the same node now points elsewhere). Nodes and edges are matched by id and field, never by position.
 
 Inside containers it goes one level deeper:
 - **Indexed kinds** (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`): per index. An index past the old length is `added`, past the new length is `removed`, otherwise `changed` or `same`.
@@ -287,10 +357,9 @@ Planned for later versions, not designed here:
 - The visual design of the inputs panel.
 - Design problems (LRU Cache, Min Stack), whose example is a sequence of calls.
 - Several examples at once (one run and one trace each).
-- `object` and `ref` renderers (tree, linked list, graph) and anything that reads `heap`. A `ref` local currently goes to the fallback and shows `→ n1`.
 - Hint renderers (grid, adjacency list, intervals, ...). The registry slot exists and is empty.
 - The "view as" override.
-- Animating structure (boxes sliding when an item is inserted in the middle). This version only colours what changed and slides pointer markers.
+- Laying out graphs larger than about 30 nodes well. Layers by distance are readable, not pretty.
 
 ## 13. Design questions
 
@@ -311,3 +380,11 @@ Planned for later versions, not designed here:
 > **Q8. Why show the method name as the title?** A bare `Solution` class does not know which problem it solves, so `problem.name` is optional (spec §4). `problem.method` is always present, and it is what the user wrote, so it is the honest fallback. Nothing tries to guess a problem name from it.
 
 > **Q9. Why is a missing result muted instead of shown as an error?** A missing `result` means the method never returned, not that the answer was wrong (spec §3). An infinite loop that hits the step limit is often exactly the bug the user came to see, and its trace is still worth stepping through.
+
+> **Q10. Why lay out linked structures from the whole trace, when every step is a snapshot?** A layout computed per step would move every node whenever a link changed: reversing a list would redraw it backwards at each step, and the user would lose track of which node is which. Fixed places make the change visible as the one thing that moved. The layout is still pure (a function of the trace, computed once), it never replays steps to build state, and every node, edge, and label drawn at step N comes from step N. A tree whose shape changes is the one case laid out per step, because fixed places would overlap.
+
+> **Q11. Why a recursion tree instead of only a call stack?** A stack shows the calls in progress, but recursion is understood by its branching: which calls a call made, what each returned, and where the base cases are. The tree shows all of that and still contains the stack, as the highlighted path from the root to the running call. The state panel keeps the plain call list for the locals of each frame.
+
+> **Q12. How does a deep or wide recursion stay readable?** By folding, not shrinking. Up to 80 calls fit whole. Beyond that only the path to the running call is drawn in full; a finished branch is one box with its result and its size, and the middle of a very deep path is one `⋮` box. The number of boxes grows with the depth shown, not the size of the run, so `fib(25)` draws about as many boxes as `fib(10)`.
+
+> **Q13. Why framer-motion instead of CSS transitions?** CSS can fade a box in, but it cannot fade out an element React has already removed, glide an item to a new place in a list, or draw an SVG path in. framer-motion's `AnimatePresence` and `layout` do those three, and it was already approved. CSS still does the flashes.

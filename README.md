@@ -36,9 +36,9 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command. Without `--sandbox` it runs the code directly with a time limit |
 | Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, `array` / `map` / fallback renderers, diff) | In progress, reads trace v0.7 (every kind, iterators as markers on arrays, unfinished runs, `void` results, the call stack as a list) and replays the Two Sum fixture |
+| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.7: a renderer for every container kind, linked lists, trees, and graphs drawn from the heap with pointer labels and highlights, a recursion tree that folds large runs, a call list that folds deep stacks, and motion throughout |
 | Frontend: input form and real runs | Done, functional only (no visual design yet). One field per parameter of the chosen method, read from the pasted Solution; a pasted LeetCode example can fill them; Run code sends them to the API and replays the trace that comes back |
-| Frontend: home page, `object` / `ref` and hint renderers, "view as" | Planned |
+| Frontend: home page, hint renderers (grid, intervals, ...), "view as" | Planned |
 | API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
 
 ---
@@ -57,7 +57,7 @@ Start with the trace format. Everything else hangs off it.
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
-| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, diffing, playback, theme | Draft v0.1 |
+| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, linked structures, recursion tree, diffing, motion, playback, theme | Draft v0.4 |
 | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
 | [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs, how a run can end, gVisor on macOS | Draft v0.2, implemented |
 | [`docs/backend.md`](docs/backend.md) | The API service: endpoints, errors and status codes, limits, settings, running it with the frontend | Draft v0.1, implemented |
@@ -509,10 +509,10 @@ Items marked *(planned)* do not exist yet.
 │       ├── App.tsx            the page: layout, language select, shortcuts
 │       ├── fixtures.ts        the example the page opens with (imports fixtures/)
 │       ├── api/               API client, input form logic, useInputs hook
-│       ├── trace/             types, loader, value formatting, diff
+│       ├── trace/             types, loader, value formatting, diff, heap edges, call tree
 │       ├── player/            playback reducer and Run timer
-│       ├── render/            renderer registry and renderers
-│       ├── components/        toolbar, code, inputs, visual, state panels
+│       ├── render/            renderer registry, renderers, heap layout and drawing
+│       ├── components/        toolbar, code, inputs, visual, state panels, recursion tree
 │       ├── editor/            Monaco setup, theme, starter templates
 │       └── styles/            theme tokens and layout
 └── backend/                   the API service (FastAPI): python3 -m backend
@@ -530,7 +530,7 @@ Tentative. The architecture does not depend on these choices.
 |---|---|
 | C++ adapter | C++20, header-only runtime, Clang LibTooling for the rewriter |
 | Frontend | React + TypeScript + Vite, Monaco editor for the code panel |
-| Renderers | SVG with Framer Motion for arrays and maps, React Flow or Cytoscape for graphs and trees |
+| Renderers | HTML and SVG with Framer Motion, for containers and for linked lists, trees, and graphs (decided, [`docs/frontend.md`](docs/frontend.md) §6) |
 | API service | FastAPI on Uvicorn (decided, [`docs/backend.md`](docs/backend.md)) |
 | Sandbox | Docker with gVisor (`runsc`), one container per run, strict CPU, memory, process, disk, and time limits (decided, [`docs/sandboxing.md`](docs/sandboxing.md)) |
 | Contract | JSON Schema, validated in CI and at runtime |
@@ -542,7 +542,7 @@ Tentative. The architecture does not depend on these choices.
 - [x] C++ serializers for every value kind, including pointers and by-value objects as `ref` and `object`
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
 - [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
-- [ ] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
+- [x] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
 - [x] Driver generation for C++
 - [x] LibTooling rewriter
 - [x] Iterators: the `iterator` kind, paired with their container by the rewriter

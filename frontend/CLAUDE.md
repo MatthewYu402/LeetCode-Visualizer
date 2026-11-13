@@ -6,7 +6,7 @@ Claude writes the frontend code; the author writes the adapter runtime and rewri
 
 ## What this is
 
-The sandbox page: a Monaco code panel, an inputs panel, a visual panel, and a state panel. It opens on `fixtures/two-sum.trace.json`. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code replaces the trace with the one the API returns. The inputs are functional only: no visual design yet. There is no home page, `object`/`ref` renderer, or "view as" override yet.
+The sandbox page: a Monaco code panel, an inputs panel, a visual panel, and a state panel. It opens on `fixtures/two-sum.trace.json`. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code replaces the trace with the one the API returns. The inputs are functional only: no visual design yet. The visual panel draws a recursion tree when calls nest, linked lists, trees, and graphs from the heap, and every container kind (`docs/frontend.md` §6). There is no home page or "view as" override yet.
 
 The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000.
 
@@ -25,7 +25,7 @@ npm run build      # typecheck, then production build into dist/
 
 ## Stack
 
-React + TypeScript + Vite, `@monaco-editor/react` with `monaco-editor` bundled locally (no CDN), plain CSS with variables, vitest. `framer-motion` is approved but not used yet: CSS transitions cover the current animations. `dompurify` is pinned through `overrides` in `package.json` to a patched version of Monaco's bundled copy. **Ask before adding any other dependency.**
+React + TypeScript + Vite, `@monaco-editor/react` with `monaco-editor` bundled locally (no CDN), plain CSS with variables, vitest. `framer-motion` (pinned `~14.7`) does fades, glides, and edge draw-ins; CSS keyframes do the diff flashes. `App.tsx` wraps the page in `MotionConfig reducedMotion="user"`. `dompurify` is pinned through `overrides` in `package.json` to a patched version of Monaco's bundled copy. **Ask before adding any other dependency.**
 
 ## Structure
 
@@ -42,16 +42,20 @@ src/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
 │   ├── loader.ts        JSON.parse + version check (accepts exactly "0.7")
 │   ├── format.ts        compact value text, kind names, canonical comparison
-│   └── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap
+│   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, plus the heap diff
+│   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
+│   └── calls.ts         callTree(trace): every call, its caller, arguments, return value; callState at a step
 ├── player/
 │   ├── playback.ts      pure reducer: index, cameFrom, playing
 │   └── usePlayer.ts     reducer + Run timer (1x = 700 ms)
 ├── render/
 │   ├── registry.ts      hint -> kind -> fallback
-│   ├── ArrayRenderer.tsx, MapRenderer.tsx, FallbackRenderer.tsx
+│   ├── ArrayRenderer.tsx, MapRenderer.tsx, SequenceRenderer.tsx (stack, queue, deque, list, tuple, priority queue; SetRenderer), FallbackRenderer.tsx
+│   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
+│   ├── HeapView.tsx     one step's linked structures: nodes, edges, pointer labels, highlights
 │   ├── pointers.ts      the index-name rule and iterators, for pointer markers
 │   └── types.ts         Renderer, RendererProps, RenderContext
-├── components/          Toolbar, CodePanel, InputsPanel, VisualPanel, StatePanel, Split
+├── components/          Toolbar, CodePanel, InputsPanel, VisualPanel, StatePanel (with CallStack), RecursionTree, Split
 ├── editor/              Monaco setup and theme, editor languages and starter templates
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -61,7 +65,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 ## Rules
 
 1. **Renderers are pure.** A renderer is a function of `(value, diff, ctx)` for one step. No state, no access to other steps, and it must draw correctly with `diff = null`.
-2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state.
+2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`) and the call tree (`callTree`). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
 3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `App.tsx` and `fixtures.ts` may use it, to pick the editor mode and which fixture to load. Renderers, diff, and the state panel never see it.
 4. **A diff is shown only after a one-step move forward** (`cameFrom === index - 1`). Step 0, jumps, and moving back draw with no diff.
 5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`.
@@ -73,6 +77,8 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`.
 12. **The title is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`.
 13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel lists every frame, running frame first. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
+14. **Refs and objects are drawn by `HeapView`, not per local.** A `ref` local is a pointer label on its node; a `ref` inside a container shows its node's value (`itemText`). Shapes come from field names (`left`/`right`, `next`, anything else is a graph), never from the language.
+15. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
 
 ## Theme tokens (GitHub dark)
 
