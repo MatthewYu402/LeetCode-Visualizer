@@ -7,10 +7,13 @@ Writes the trace to -o, or to stdout. A summary, and anything the program
 printed, go to stderr. Exit status: 0 when a valid trace was written; 2 when the
 Solution or the example cannot be used; 3 when the generated program does not
 build; 4 when the program crashed, timed out, or wrote no trace; 5 when the
-trace is invalid.
+trace is invalid; 6 when the sandbox could not run.
 
-The code runs directly on this machine, with only a time limit. Use it for your
-own code; running other people's code needs the sandbox (docs/sandboxing.md).
+Without --sandbox the code runs directly on this machine, with only a time
+limit: use that for your own code. --sandbox docker runs stages 2 to 4 in a
+locked-down container, and --sandbox gvisor runs them under gVisor too, which
+is what anyone else's code needs (docs/sandboxing.md). The image must be built
+first: docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
 """
 
 import argparse
@@ -29,6 +32,8 @@ def main(argv=None):
     parser.add_argument("--method", help="the method to call, when it cannot be told from the example")
     parser.add_argument("--timeout", type=float, default=10.0, help="seconds the program may run (default 10)")
     parser.add_argument("--rewriter", type=Path, default=REWRITER, help=f"the rewriter binary (default: {REWRITER})")
+    parser.add_argument("--sandbox", choices=["none", "docker", "gvisor"], default="none",
+                        help="where the rewriter, compiler, and program run (default: none, this machine)")
     parser.add_argument("--keep", action="store_true", help="keep the work folder (prelude, program.cpp, binary) and print its path")
     args = parser.parse_args(argv)
 
@@ -40,7 +45,7 @@ def main(argv=None):
 
     try:
         result = run(source, args.example, source_name=str(args.solution), method=args.method,
-                     rewriter=args.rewriter, timeout=args.timeout, keep=args.keep)
+                     rewriter=args.rewriter, timeout=args.timeout, keep=args.keep, sandbox=args.sandbox)
     except PipelineError as error:
         print(f"pipeline: {error.stage}: {error}", file=sys.stderr)
         return error.exit_code
