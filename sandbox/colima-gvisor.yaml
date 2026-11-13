@@ -1,0 +1,49 @@
+# gVisor on macOS, through Colima (docs/sandboxing.md §6).
+#
+# gVisor runs only on Linux. Colima runs Docker in a Linux VM that you control,
+# so gVisor can be installed in that VM, and the Mac then runs exactly what the
+# backend runs: docker run --runtime=runsc.
+#
+# These are two sections to MERGE into a Colima profile's config, not a whole
+# config. Once:
+#
+#   brew install colima
+#   colima start --profile gvisor --vm-type vz --cpu 2 --memory 4
+#   colima stop --profile gvisor
+#   colima start --profile gvisor --edit        (paste both sections below, replacing
+#                                                the empty `docker: {}` and `provision: []`)
+#
+# The provision script runs every time the VM starts, and installs runsc only
+# when it is missing. The docker section is written into the VM's daemon.json
+# on each start, so the runtime stays registered (`runsc install` alone may be
+# undone when Colima rewrites that file).
+#
+# Then, from the repository root:
+#
+#   export DOCKER_CONTEXT=colima-gvisor
+#   docker info --format '{{json .Runtimes}}'            (lists "runsc")
+#   docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+#   python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
+#   TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
+
+docker:
+  runtimes:
+    runsc:
+      path: /usr/local/bin/runsc
+
+provision:
+  - mode: system
+    script: |
+      set -e
+      if [ ! -x /usr/local/bin/runsc ]; then
+        apt-get update -qq
+        apt-get install -y -qq bzip2 curl
+        cd /tmp
+        URL=https://storage.googleapis.com/gvisor/releases/release/latest/$(uname -m)
+        curl -fsSLO "$URL/gvisor.tar.bz2"
+        curl -fsSLO "$URL/gvisor.tar.bz2.sha512"
+        sha512sum -c gvisor.tar.bz2.sha512
+        tar -xjf gvisor.tar.bz2 -C /usr/local/bin
+        rm -f gvisor.tar.bz2 gvisor.tar.bz2.sha512
+        systemctl restart docker
+      fi

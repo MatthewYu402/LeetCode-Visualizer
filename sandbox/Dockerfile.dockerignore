@@ -1,0 +1,6 @@
+# Build context for sandbox/Dockerfile: only what the image copies.
+*
+!adapters/cpp/rewriter/Makefile
+!adapters/cpp/rewriter/*.cpp
+!adapters/cpp/rewriter/*.hpp
+!adapters/cpp/runtime/
