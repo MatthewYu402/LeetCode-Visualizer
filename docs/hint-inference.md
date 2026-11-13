@@ -9,7 +9,7 @@ This document parks an idea so it is not lost: how an adapter works out **which 
 
 ## 1. The problem
 
-A value's **kind** comes from its type, with no guessing. The compiler picks the serializer, so a `std::stack<int>` is always a `stack` and an `unordered_map` is always a `map` ([`trace-format.md` Key Insight 5](trace-format.md#summary-of-kinds)).
+A value's **kind** comes from its type, with no guessing. The compiler picks the serializer, so a `std::stack<int>` is always a `stack` and an `unordered_map` is always a `map` ([`trace-format.md` Key Insight 6](trace-format.md#summary-of-kinds)).
 
 Some types are used for several different structures. A `vector<vector<int>>` is always an `array` of `array`s, but it can mean any of these:
 
