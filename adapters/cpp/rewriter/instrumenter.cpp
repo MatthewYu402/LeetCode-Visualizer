@@ -6,6 +6,7 @@
 #include "clang/Lex/Lexer.h"
 
 #include <algorithm>
+#include <set>
 
 namespace rewriter {
 
@@ -53,10 +54,76 @@ namespace rewriter {
     if (var == nullptr || scopes_.empty()) return;
     if (const auto *decomposition = dyn_cast<DecompositionDecl>(var)) {
       for (const BindingDecl *binding : decomposition->bindings())  // auto [a, b] = ...
-        if (!binding->getName().empty()) scopes_.back().push_back(binding->getNameAsString());
+        if (!binding->getName().empty()) scopes_.back().push_back({binding->getNameAsString(), ""});
       return;
     }
-    if (!var->getName().empty()) scopes_.back().push_back(var->getNameAsString());
+    if (!var->getName().empty()) scopes_.back().push_back({var->getNameAsString(), containerOf(var->getInit())});
+  }
+
+  // `it = m.find(x);` as a statement of its own: from now on `it` is a
+  // position in `m`. (An assignment from something else ends the pairing.)
+  // A class-type iterator's `=` is an operator call, a built-in one a
+  // BinaryOperator, so both forms are checked.
+  void Instrumenter::noteAssignment(const Stmt *stmt) {
+    const auto *expr = dyn_cast_or_null<Expr>(stmt);
+    if (expr == nullptr) return;
+    expr = expr->IgnoreImplicit();
+    const Expr *lhs = nullptr, *rhs = nullptr;
+    if (const auto *op = dyn_cast<BinaryOperator>(expr); op && op->getOpcode() == BO_Assign) {
+      lhs = op->getLHS();
+      rhs = op->getRHS();
+    } else if (const auto *call = dyn_cast<CXXOperatorCallExpr>(expr); call && call->getOperator() == OO_Equal && call->getNumArgs() == 2) {
+      lhs = call->getArg(0);
+      rhs = call->getArg(1);
+    }
+    const auto *ref = lhs ? dyn_cast<DeclRefExpr>(lhs->IgnoreParenImpCasts()) : nullptr;
+    if (ref == nullptr) return;
+    const std::string name = ref->getDecl()->getNameAsString();
+    for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {  // the innermost declaration of that name
+      for (auto var = scope->rbegin(); var != scope->rend(); ++var) {
+        if (var->name == name) {
+          var->container = containerOf(rhs);
+          return;
+        }
+      }
+    }
+  }
+
+  // The one visible container an expression makes an iterator from, or "".
+  // It looks for calls that return a position in the container they are
+  // called on (v.begin(), m.find(k), s.lower_bound(x), ...) or are passed
+  // (std::begin(v)), anywhere in the expression, so both `m.find(x)` and
+  // `lower_bound(v.begin(), v.end(), x)` give one container. Two different
+  // containers, or none, give "". Whether the variable really is an iterator
+  // into it is checked by the runtime (trace::IteratorOf), so `int x = *m.find(k);`
+  // is safe: it is written as an int.
+  std::string Instrumenter::containerOf(const Stmt *root) const {
+    static const std::set<std::string> methods = {"begin", "end", "cbegin", "cend", "find", "lower_bound", "upper_bound",
+                                                  "erase", "insert", "emplace", "emplace_hint"};
+    static const std::set<std::string> functions = {"begin", "end", "cbegin", "cend"};
+    const std::vector<std::string> visible = visibleNames();
+    std::set<std::string> found;
+
+    std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
+      if (node == nullptr || isa<LambdaExpr>(node)) return;
+      const Expr *object = nullptr;
+      if (const auto *call = dyn_cast<CXXMemberCallExpr>(node)) {
+        if (const CXXMethodDecl *method = call->getMethodDecl(); method && methods.count(method->getNameAsString()))
+          object = call->getImplicitObjectArgument();
+      } else if (const auto *call = dyn_cast<CallExpr>(node); call && !isa<CXXOperatorCallExpr>(node)) {
+        if (const FunctionDecl *fn = call->getDirectCallee(); fn && functions.count(fn->getNameAsString()) && call->getNumArgs() == 1)
+          object = call->getArg(0);
+      }
+      if (object != nullptr) {
+        if (const auto *ref = dyn_cast<DeclRefExpr>(object->IgnoreParenImpCasts()); ref && isa<VarDecl>(ref->getDecl())) {
+          const std::string name = ref->getDecl()->getNameAsString();
+          if (std::find(visible.begin(), visible.end(), name) != visible.end()) found.insert(name);
+        }
+      }
+      for (const Stmt *child : node->children()) walk(child);
+    };
+    walk(root);
+    return found.size() == 1 ? *found.begin() : "";
   }
 
   // What a statement declares: the variables of a DeclStmt (int a = 1, b = 2;).
@@ -65,19 +132,42 @@ namespace rewriter {
       for (const Decl *decl : decls->decls()) declare(dyn_cast<VarDecl>(decl));
   }
 
+  std::vector<std::string> Instrumenter::visibleNames() const {
+    std::vector<std::string> names;
+    for (const auto &scope : scopes_) {
+      for (const Var &var : scope) {
+        names.erase(std::remove(names.begin(), names.end(), var.name), names.end());
+        names.push_back(var.name);
+      }
+    }
+    return names;
+  }
+
   // Every visible variable, outermost first. A name declared again in an inner
   // scope hides the outer one (C++ name lookup would pick the inner one too),
   // so only the innermost is kept and the step has no duplicate keys.
+  //
+  // A variable paired with a container that is still visible (and is not the
+  // variable itself) is written with var_iter.
   std::string Instrumenter::varArgs() const {
-    std::vector<std::string> names;
+    std::vector<Var> vars;
     for (const auto &scope : scopes_) {
-      for (const std::string &name : scope) {
-        names.erase(std::remove(names.begin(), names.end(), name), names.end());
-        names.push_back(name);
+      for (const Var &var : scope) {
+        vars.erase(std::remove_if(vars.begin(), vars.end(), [&](const Var &v) { return v.name == var.name; }), vars.end());
+        vars.push_back(var);
       }
     }
+    const auto visible = [&](const std::string &name) {
+      return std::any_of(vars.begin(), vars.end(), [&](const Var &v) { return v.name == name; });
+    };
     std::string args;
-    for (const std::string &name : names) args += ", ::trace::var(\"" + name + "\", " + name + ")";
+    for (const Var &var : vars) {
+      if (!var.container.empty() && var.container != var.name && visible(var.container)) {
+        args += ", ::trace::var_iter(\"" + var.name + "\", " + var.name + ", \"" + var.container + "\", " + var.container + ")";
+      } else {
+        args += ", ::trace::var(\"" + var.name + "\", " + var.name + ")";
+      }
+    }
     return args;
   }
 
@@ -123,7 +213,7 @@ namespace rewriter {
     scopes_.clear();
     scopes_.emplace_back();
     for (const ParmVarDecl *param : fn->parameters())
-      if (!param->getName().empty()) scopes_.back().push_back(param->getNameAsString());
+      if (!param->getName().empty()) scopes_.back().push_back({param->getNameAsString(), ""});
 
     auto *body = cast<CompoundStmt>(fn->getBody());
     insert(body->getLBracLoc().getLocWithOffset(1), " ::trace::Frame trace_frame_(\"" + fn->getNameAsString() + "\");");
@@ -206,8 +296,10 @@ namespace rewriter {
     }
     // 2. Into the statement: nested blocks see the scope as it is here.
     if (!TraverseStmt(stmt)) return false;
-    // 3. Only now does what it declares become visible, to the statements after it.
+    // 3. Only now does what it declares become visible, to the statements after it,
+    //    and an assignment such as `it = m.find(x);` pairs `it` with `m` from now on.
     declare(target);
+    noteAssignment(target);
     return true;
   }
 

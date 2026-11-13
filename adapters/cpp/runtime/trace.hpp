@@ -44,6 +44,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <iterator>
 #include <ranges>
 #include <type_traits>
 #include <utility>
@@ -75,7 +76,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.6"} ;
+  inline constexpr const char* VERSION  {"0.7"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -712,6 +713,32 @@ namespace trace {
   // reference. A const T&& parameter binds only to temporaries, so this
   // deleted overload is chosen for them and the call does not compile.
   template<typename T> void var(const char* name, const T&& value) = delete;
+
+  // An iterator, together with the container it moves through. The rewriter
+  // writes var_iter("it", it, "numMap", numMap) when it can tell which
+  // container an iterator came from (m.find(x), v.begin(), ...), and the step
+  // shows {"kind": "iterator", "container": "numMap", "key": 7}. Like Value,
+  // it holds references to both live variables, so neither may be a temporary.
+  template <typename It, typename C>
+  struct IterValue {
+    const char* name;
+    const It& value;
+    const char* container_name;
+    const C& container;
+  };
+
+  template <typename It, typename C>
+  IterValue<It, C> var_iter(const char* name, const It& it, const char* container_name, const C& container) {
+    return {name, it, container_name, container};
+  }
+  template <typename It, typename C> void var_iter(const char*, const It&&, const char*, const C&) = delete;
+  template <typename It, typename C> void var_iter(const char*, const It&, const char*, const C&&) = delete;
+
+  // What record(), ret(), and ret_void() accept after the line: Values and IterValues.
+  template <typename V> inline constexpr bool is_recorded_var = false;
+  template <typename T> inline constexpr bool is_recorded_var<Value<T>> = true;
+  template <typename It, typename C> inline constexpr bool is_recorded_var<IterValue<It, C>> = true;
+  template <typename V> concept RecordedVar = is_recorded_var<V>;
   
   // Where the trace goes: the TRACE_OUT environment variable, or trace.json
   // when it is unset or empty.
@@ -856,10 +883,69 @@ namespace trace {
     }
   }
 
+  // True when It is C's own iterator type, so a position in C can be worked
+  // out from it. Reverse iterators, and iterators of another container type,
+  // are not, and are treated as ordinary locals instead.
+  template <typename It, typename C>
+  concept IteratorOf = requires { typename C::iterator; typename C::const_iterator; } &&
+                       (std::same_as<It, typename C::iterator> || std::same_as<It, typename C::const_iterator>);
+
+  // {"kind": "iterator", "container": ..., then "index", "key", or "end"}, or
+  // nullopt when the position cannot be named (an index outside the
+  // container, which means the iterator is not into it, or a key type with no
+  // serializer). An iterator does not know its container, which is why the
+  // container comes along: without it, neither its index nor whether it is
+  // end() can be found, and dereferencing end() is undefined behavior.
+  template <typename It, typename C>
+  std::optional<Json> write_iterator(const It& it, const char* container_name, const C& container, Ctx& ctx) {
+    const std::string head = std::format(R"({{"kind": "iterator", "container": {})", quote(container_name));
+    const typename C::const_iterator pos = it;
+    if (pos == container.end()) return head + R"(, "end": true})";
+
+    if constexpr (requires { typename C::mapped_type; }) {
+      // map, unordered_map, multimap: the entry's key
+      if constexpr (Serializable<typename C::key_type>) return head + R"(, "key": )" + serialize(pos->first, ctx) + "}";
+      else return std::nullopt;
+    } else if constexpr (requires { typename C::key_type; }) {
+      // set, unordered_set, multiset: the item itself
+      if constexpr (Serializable<typename C::key_type>) return head + R"(, "key": )" + serialize(*pos, ctx) + "}";
+      else return std::nullopt;
+    } else if constexpr (std::random_access_iterator<typename C::const_iterator>) {
+      // vector, deque, array, string: the distance from begin()
+      const auto offset = pos - container.begin();
+      if (offset < 0 || static_cast<std::size_t>(offset) >= container.size()) return std::nullopt;
+      return head + std::format(R"(, "index": {}}})", offset);
+    } else {
+      // list, forward_list: walk from begin() until it is found
+      std::size_t index = 0;
+      for (auto p = container.begin(); p != container.end(); ++p, ++index) {
+        if (p == pos) return head + std::format(R"(, "index": {}}})", index);
+      }
+      return std::nullopt;
+    }
+  }
+
+  // An iterator local: written as a position in its container when it is one
+  // of that container's iterators and the container itself can be shown.
+  // Otherwise it is an ordinary local. The rewriter pairs a variable with a
+  // container from how it was made (`*m.find(x)` is an int, not an iterator),
+  // so this check is what keeps such a variable from being misread.
+  template <typename It, typename C>
+  void write_local(std::string& locals, bool& first, const IterValue<It, C>& var, Ctx& ctx) {
+    if constexpr (IteratorOf<It, C> && Serializable<C>) {
+      if (const std::optional<Json> json = write_iterator(var.value, var.container_name, var.container, ctx)) {
+        locals += (first ? "" : ", ") + std::format(R"({}: {})", quote(var.name), *json);
+        first = false;
+      }
+    } else {
+      write_local(locals, first, Value<It>{var.name, var.value}, ctx);
+    }
+  }
+
   // {"a": ..., "b": ...} for one frame. Serializing is what fills ctx.heap.
   // maybe_unused: a frame with no variables never reads ctx.
-  template <typename... Ts>
-  Json write_locals([[maybe_unused]] Ctx& ctx, const Value<Ts>&... vars) {
+  template <RecordedVar... Vs>
+  Json write_locals([[maybe_unused]] Ctx& ctx, const Vs&... vars) {
     std::string locals = "{";
     [[maybe_unused]] bool first = true;  // unused when there are no variables
     (write_local(locals, first, vars, ctx), ...);
@@ -936,16 +1022,16 @@ namespace trace {
   // the variables as they are then. std::function hides the lambda's type, so
   // every frame can be stored in one vector even though each record() call
   // passes different variable types.
-  template <typename... Ts>
-  void set_frame(FrameState& frame, int line, const Value<Ts>&... vars) {
+  template <RecordedVar... Vs>
+  void set_frame(FrameState& frame, int line, const Vs&... vars) {
     frame.line = line;
     frame.locals = [vars...](Ctx& ctx) { return write_locals(ctx, vars...); };
   }
 
   // Records one pre-execution snapshot: the running frame is about to execute
   // `line`, with these variables in scope. Every frame below it is written too.
-  template<typename... Ts>
-  void record(int line, const Value<Ts>&... vars) {
+  template <RecordedVar... Vs>
+  void record(int line, const Vs&... vars) {
     FrameState& frame = top_frame("record");
     if (!step_allowed()) return;
     set_frame(frame, line, vars...);
@@ -961,20 +1047,28 @@ namespace trace {
   // R is named explicitly, never deduced. That is what lets a braced return
   // such as `return {it->second, i};` still work: a braced list cannot be
   // deduced, but it can initialize a parameter of a known type.
-  template <typename R, typename... Ts>
-  R ret(int line, R value, const Value<Ts>&... vars) {
+  //
+  // A return value with no serializer (an iterator, say) gets an ordinary
+  // step instead, with no return_value: the step is still recorded, and
+  // nothing is written that the trace cannot represent.
+  template <typename R, RecordedVar... Vs>
+  R ret(int line, R value, const Vs&... vars) {
     FrameState& frame = top_frame("ret");
     if (step_allowed()) {
       set_frame(frame, line, vars...);
-      push_step([&value](Ctx& ctx) { return serialize(value, ctx); });
+      if constexpr (Serializable<std::remove_cvref_t<R>>) {
+        push_step([&value](Ctx& ctx) { return serialize(value, ctx); });
+      } else {
+        push_step();
+      }
     }
     return value;
   }
 
   // A return step for a function that returns no value: before each `return;`
   // and at the closing brace. Its return_value is null.
-  template <typename... Ts>
-  void ret_void(int line, const Value<Ts>&... vars) {
+  template <RecordedVar... Vs>
+  void ret_void(int line, const Vs&... vars) {
     FrameState& frame = top_frame("ret_void");
     if (!step_allowed()) return;
     set_frame(frame, line, vars...);

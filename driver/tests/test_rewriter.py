@@ -235,7 +235,7 @@ public:
         self.assertEqual(lines(trace), [4, 8, 9, 9])
         self.assertNotIn("twice", trace["steps"][1]["frames"][-1]["locals"])  # a lambda has no serializer
 
-    def test_iterator_is_left_out(self):
+    def test_iterator_from_find_is_an_index(self):
         src = """class Solution {
 public:
     bool has(vector<int>& nums, int x) {
@@ -244,9 +244,65 @@ public:
     }
 };"""
         trace, code = run_source(src, "nums = [1,2], x = 2")
-        self.assertIn('::trace::var("it", it)', code)               # the rewriter lists it
-        self.assertNotIn("it", trace["steps"][-1]["frames"][-1]["locals"])  # the runtime drops it
-        self.assertTrue(trace["result"])
+        self.assertIn('::trace::var_iter("it", it, "nums", nums)', code)
+        self.assertEqual(trace["steps"][-1]["frames"][-1]["locals"]["it"], {"kind": "iterator", "container": "nums", "index": 1})
+        trace, _ = run_source(src, "nums = [1,2], x = 5")
+        self.assertEqual(trace["steps"][-1]["frames"][-1]["locals"]["it"], {"kind": "iterator", "container": "nums", "end": True})
+
+    def test_iterator_walks_a_list(self):
+        src = """class Solution {
+public:
+    int total(vector<int>& nums) {
+        list<int> lst(nums.begin(), nums.end());
+        int sum = 0;
+        for (auto it = lst.begin(); it != lst.end(); ++it) {
+            sum += *it;
+        }
+        return sum;
+    }
+};"""
+        trace, _ = run_source(src, "nums = [4,5,6]")
+        positions = [s["frames"][-1]["locals"]["it"]["index"] for s in trace["steps"] if s["frames"][-1]["line"] == 7]
+        self.assertEqual(positions, [0, 1, 2])
+        self.assertEqual(trace["result"], 15)
+
+    def test_map_find_and_reassignment(self):
+        src = """class Solution {
+public:
+    int look(vector<int>& keys, int k) {
+        map<int, int> a, b;
+        for (int x : keys) { a[x] = 1; b[x * 10] = 2; }
+        auto it = a.find(k);
+        int found = it != a.end();
+        it = b.find(k * 10);
+        return found + (it != b.end());
+    }
+};"""
+        trace, _ = run_source(src, "keys = [1,2], k = 2")
+        at = {s["frames"][-1]["line"]: s["frames"][-1]["locals"].get("it") for s in trace["steps"]}
+        self.assertEqual(at[7], {"kind": "iterator", "container": "a", "key": 2})
+        self.assertEqual(at[9], {"kind": "iterator", "container": "b", "key": 20})  # after `it = b.find(...)`
+        self.assertEqual(trace["result"], 2)
+
+    def test_lower_bound_and_lookalikes(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& v, int x) {
+        auto lo = lower_bound(v.begin(), v.end(), x);
+        int first = *v.begin();
+        auto r = v.rbegin();
+        unordered_map<int, int> seen;
+        auto w = seen.find(x);
+        return (lo - v.begin()) + first + *r + (w == seen.end());
+    }
+};"""
+        trace, code = run_source(src, "v = [1,3,5], x = 4")
+        last = trace["steps"][-1]["frames"][-1]["locals"]
+        self.assertEqual(last["lo"], {"kind": "iterator", "container": "v", "index": 2})
+        self.assertEqual(last["first"], 1)                     # paired with v by v.begin(), but an int
+        self.assertNotIn("r", last)                             # a reverse iterator: no serializer
+        self.assertEqual(last["w"], {"kind": "iterator", "container": "seen", "end": True})
+        self.assertEqual(trace["result"], 2 + 1 + 5 + 1)
 
     def test_void_function_returns(self):
         src = """class Solution {

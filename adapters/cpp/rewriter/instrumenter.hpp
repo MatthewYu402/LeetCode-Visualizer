@@ -9,7 +9,9 @@
 //
 // What it inserts (docs/adapters/cpp.md, section 4):
 //   - ::trace::Frame trace_frame_("name");    after the `{` of each instrumented function
-//   - ::trace::record(LINE, vars...);         before each statement in a block (not before loops)
+//   - ::trace::record(LINE, vars...);         before each statement in a block (not before loops).
+//     Each variable is ::trace::var("x", x), or ::trace::var_iter("it", it, "v", v)
+//     when it was made from a call on a container v (v.begin(), m.find(k), ...).
 //   - ::trace::Scope trace_scope_(LINE);      after the `{` of every other block
 //   - { ... }                                 around an unbraced body, so it has a block
 //   - return ::trace::ret<T>(LINE, expr, vars...);   for each return with a value
@@ -72,8 +74,18 @@ namespace rewriter {
     void rewriteReturn(clang::ReturnStmt *ret);
 
     // ---- scopes ----
+    // A visible variable, and the container it was made from, if any: the
+    // `nums` of `auto it = nums.begin();`. That pairing is how an iterator is
+    // written as a position in its container (var_iter).
+    struct Var {
+      std::string name;
+      std::string container;
+    };
     void declare(const clang::Stmt *stmt);
     void declare(const clang::VarDecl *var);
+    void noteAssignment(const clang::Stmt *stmt);        // it = m.find(x); pairs it with m
+    std::string containerOf(const clang::Stmt *expr) const;
+    std::vector<std::string> visibleNames() const;
     std::string varArgs() const;  // ", ::trace::var("a", a), ..." for everything visible
 
     // ---- source positions ----
@@ -89,7 +101,7 @@ namespace rewriter {
     bool active_ = false;            // inside the body of a function being instrumented
     bool returns_void_ = false;
     std::string return_type_;        // spelled for ret<T>; empty when it cannot be spelled
-    std::vector<std::vector<std::string>> scopes_;  // innermost last; names in declaration order
+    std::vector<std::vector<Var>> scopes_;  // innermost last; variables in declaration order
   };
 
 }  // namespace rewriter

@@ -8,7 +8,7 @@
 // check compares the exact text it returns.
 //
 // Expected documents use the same spacing as fixtures/two-sum.trace.json:
-//   {"version": "0.6", "language": "cpp", "problem": {...}, "steps": [...]}
+//   {"version": "0.7", "language": "cpp", "problem": {...}, "steps": [...]}
 // followed, only when they say something, by ", "result": ...", then
 // ", "result_heap": {...}", and then ", "truncated": true".
 
@@ -71,7 +71,7 @@ int main() {
   {
     tracer.begin(problem);
     check("steps is an empty array", build_document(std::nullopt),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": []})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": []})");
   }
 
   // ------------------------------------------------------------------
@@ -81,11 +81,11 @@ int main() {
     tracer.begin(problem);
     tracer.steps.push_back(step0);
     check("one step has no separator", build_document(std::nullopt),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}]})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}]})");
 
     tracer.steps.push_back(step1);
     check("several steps are joined with \", \" in order", build_document(std::nullopt),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}, {"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"k": 0}}], "heap": {}}]})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}, {"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"k": 0}}], "heap": {}}]})");
   }
 
   reset();
@@ -97,7 +97,7 @@ int main() {
     trace::record(1);
     trace::record(2, trace::var("k", k));
     check("steps from record() are pasted in unchanged", build_document(std::nullopt),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}, {"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"k": 0}}], "heap": {}}]})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}, {"step": 1, "frames": [{"id": "f1", "function": "f", "line": 2, "locals": {"k": 0}}], "heap": {}}]})");
   }
 
   // ------------------------------------------------------------------
@@ -107,14 +107,14 @@ int main() {
     tracer.begin(problem);
     tracer.steps.push_back(step0);
     check("a result follows the steps", build_document(R"({"kind": "array", "items": [0, 1]})"),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": {"kind": "array", "items": [0, 1]}})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": {"kind": "array", "items": [0, 1]}})");
 
     check("a bare primitive result", build_document("9"),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": 9})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": 9})");
 
     // null is a real return value (an empty optional), not a placeholder.
     check("a null result is still written", build_document("null"),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": null})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": null})");
 
     const std::string none = build_document(std::nullopt);
     check_true("no result: no \"result\" key at all", !contains(none, "\"result\""));
@@ -132,7 +132,7 @@ int main() {
       {"n1", R"({"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}})"},
       {"n2", R"({"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}})"}};
     check("a ref result is followed by its heap", build_document(R"({"kind": "ref", "id": "n1"})", two),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": {"kind": "ref", "id": "n1"}, "result_heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": {"kind": "ref", "id": "n1"}, "result_heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
 
     const std::string plain = build_document("9", trace::Heap{});
     check_true("an empty heap: no \"result_heap\" key at all", !contains(plain, "\"result_heap\""));
@@ -144,7 +144,7 @@ int main() {
 
     tracer.truncated = true;
     check("result_heap comes before truncated", build_document(R"({"kind": "ref", "id": "n2"})", trace::Heap{{"n2", R"({"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}})"}}),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": {"kind": "ref", "id": "n2"}, "result_heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}, "truncated": true})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "result": {"kind": "ref", "id": "n2"}, "result_heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}, "truncated": true})");
   }
 
   // ------------------------------------------------------------------
@@ -160,7 +160,7 @@ int main() {
 
     tracer.truncated = true;
     check("truncated: written as true, last", build_document(std::nullopt),
-          R"({"version": "0.6", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "truncated": true})");
+          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {}}], "heap": {}}], "truncated": true})");
   }
 
   // ------------------------------------------------------------------
@@ -172,7 +172,7 @@ int main() {
   "input": {"nums": [2,7], "s": "a\"b\\c\n café café"} })";
     tracer.begin(odd);
     check("the problem JSON is pasted in unchanged", build_document(std::nullopt),
-          R"({"version": "0.6", "language": "cpp", "problem": )" + odd + R"(, "steps": []})");
+          R"({"version": "0.7", "language": "cpp", "problem": )" + odd + R"(, "steps": []})");
   }
 
   // ------------------------------------------------------------------
