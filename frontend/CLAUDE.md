@@ -6,7 +6,7 @@ Claude writes the frontend code; the author writes the adapter runtime and rewri
 
 ## What this is
 
-The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws a recursion tree when calls nest, linked lists, trees, and graphs from the heap, and every container kind (`docs/frontend.md` §6). There is no home page or "view as" override yet.
+The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). There is no home page or "view as" override yet.
 
 The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000.
 
@@ -43,20 +43,20 @@ src/
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
-│   └── calls.ts         callTree(trace): every call, its caller, arguments, return value; callState at a step
+│   └── calls.ts         callTree(trace): every call, its caller, parameters, arguments, return value; callState at a step; callsCardKind
 ├── player/
 │   ├── playback.ts      pure reducer: index, cameFrom, playing; restart
 │   └── usePlayer.ts     reducer + Run timer (1x = 700 ms)
 ├── render/
 │   ├── registry.ts      hint -> kind -> fallback
 │   ├── Card.tsx         the header every card shares: name, kind · size, operation chip
-│   ├── ops.ts           operation(value, diff): "push 3", "dequeue 1", "erase key 3", from the diff alone
+│   ├── ops.ts           operation(value, diff, heap): "push 3", "dequeue 1", "erase key 3", from the diff alone
 │   ├── ArrayRenderer.tsx, MapRenderer.tsx (map, multimap), SequenceRenderer.tsx (stack, queue/deque tube, list, tuple, set/multiset), HeapRenderer.tsx (priority queue), FallbackRenderer.tsx
 │   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
-│   ├── HeapView.tsx     one step's linked structures: nodes, edges, pointer labels, highlights
+│   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
 │   ├── pointers.ts      the index-name rule and iterators, for pointer markers
 │   └── types.ts         Renderer, RendererProps, RenderContext
-├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, StatePanel (with CallStack), RecursionTree, Split
+├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, StatePanel (with CallStack), RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -78,7 +78,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`.
 12. **Wherever the problem's title is shown, it is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`. (The top bar shows the app's name, not the problem's.)
 13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel lists every frame, running frame first. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
-14. **Refs and objects are drawn by `HeapView`, not per local.** A `ref` local is a pointer label on its node; a `ref` inside a container shows its node's value (`itemText`). Shapes come from field names (`left`/`right`, `next`, anything else is a graph), never from the language.
+14. **Refs and objects are drawn by `LinkedCard` (`render/HeapView.tsx`), not per local.** A `ref` local is a pointer label on its node; a `ref` inside a container shows its node's value (`itemText`). Shapes come from field names (`left`/`right`, `next`, anything else is a graph), never from the language.
 15. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
 
 ## Theme tokens

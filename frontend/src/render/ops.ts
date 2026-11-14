@@ -1,6 +1,7 @@
 import { matchByCount, matchInOrder, type ValueDiff } from "../trace/diff";
-import { canonical, formatValue } from "../trace/format";
-import { hasItems, isTagged, type Value } from "../trace/types";
+import { canonical } from "../trace/format";
+import { hasItems, isTagged, type ObjectValue, type Value } from "../trace/types";
+import { itemText } from "./SequenceRenderer";
 
 /**
  * What one step did to a container, in plain data-structure words ("push 3", "pop front 1",
@@ -8,15 +9,16 @@ import { hasItems, isTagged, type Value } from "../trace/types";
  * the previous value and the current one. Never a language's method name (rule 3).
  *
  * null when there is no diff (step 0, a jump, moving back), when nothing changed, or when the
- * step made more than one change: a chip that guessed would be worse than none.
+ * step made more than one change: a chip that guessed would be worse than none. A ref names its
+ * node's value ("pop 2"), never its id, so `heap` is the step's heap.
  */
-export function operation(value: Value, diff: ValueDiff | null): string | null {
+export function operation(value: Value, diff: ValueDiff | null, heap?: Record<string, ObjectValue>): string | null {
   const prev = diff?.status === "changed" ? diff.prev : undefined;
   if (prev === undefined || !isTagged(value) || !isTagged(prev) || prev.kind !== value.kind) return null;
-  const t = (v: Value) => formatValue(v);
+  const t = (v: Value) => itemText(v, heap).text;
 
   if ((value.kind === "map" && prev.kind === "map") || (value.kind === "multimap" && prev.kind === "multimap")) {
-    return mapOp(prev.entries, value.entries, value.kind === "multimap");
+    return mapOp(prev.entries, value.entries, value.kind === "multimap", t);
   }
   if (!hasItems(value) || !hasItems(prev)) return null;
   const a = prev.items;
@@ -34,7 +36,7 @@ export function operation(value: Value, diff: ValueDiff | null): string | null {
       return null;
     case "deque":
     case "list": {
-      const end = endOp(a, b, same);
+      const end = endOp(a, b, same, t);
       if (end || value.kind === "deque") return end;
       const { status, removed } = matchInOrder(a, b);
       const added = status.flatMap((s, i) => (s === "added" ? [i] : []));
@@ -63,8 +65,7 @@ export function operation(value: Value, diff: ValueDiff | null): string | null {
 }
 
 /** A push or pop at either end of a deque or list. */
-function endOp(a: Value[], b: Value[], same: (x: Value[], y: Value[]) => boolean): string | null {
-  const t = (v: Value) => formatValue(v);
+function endOp(a: Value[], b: Value[], same: (x: Value[], y: Value[]) => boolean, t: (v: Value) => string): string | null {
   if (b.length === a.length + 1) {
     if (same(a, b.slice(0, -1))) return `push back ${t(b[b.length - 1])}`;
     if (same(a, b.slice(1))) return `push front ${t(b[0])}`;
@@ -76,8 +77,7 @@ function endOp(a: Value[], b: Value[], same: (x: Value[], y: Value[]) => boolean
   return null;
 }
 
-function mapOp(prev: [Value, Value][], curr: [Value, Value][], multi: boolean): string | null {
-  const t = (v: Value) => formatValue(v);
+function mapOp(prev: [Value, Value][], curr: [Value, Value][], multi: boolean, t: (v: Value) => string): string | null {
   if (multi) {
     const { status, removed } = matchByCount(prev, curr);
     const added = curr.filter((_, i) => status[i] === "added");

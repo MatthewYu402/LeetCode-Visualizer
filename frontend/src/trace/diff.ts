@@ -33,6 +33,8 @@ export interface StepDiff {
   locals: Record<string, ValueDiff>;
   /** Nodes and edges added, removed, or changed in the heap (trace/heap.ts). */
   heap: HeapDiff;
+  /** Frame ids on the stack now that were not on it before: calls that just began. */
+  pushed: Set<string>;
 }
 
 /**
@@ -53,7 +55,9 @@ export function diff(prev: Step, curr: Step): StepDiff {
   for (const [name, value] of Object.entries(before)) {
     if (!(name in now.locals)) locals[name] = { status: "removed", prev: value };
   }
-  return { locals, heap: heapDiff(prev, curr) };
+  const wasOn = new Set(prev.frames.map((f) => f.id));
+  const pushed = new Set(curr.frames.map((f) => f.id).filter((id) => !wasOn.has(id)));
+  return { locals, heap: heapDiff(prev, curr), pushed };
 }
 
 /** Diff one value against its previous version. Goes one level into containers. */

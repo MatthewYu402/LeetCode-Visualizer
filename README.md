@@ -36,7 +36,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command. Without `--sandbox` it runs the code directly with a time limit |
 | Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.8: a renderer for every container kind, linked lists, trees, and graphs drawn from the heap with pointer labels and highlights, a recursion tree that folds large runs, a call list that folds deep stacks, and motion throughout |
+| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.8: a renderer for every container kind, linked lists, trees, and graphs drawn from the heap with pointer tags and highlights, a recursion card (tree or stack view) that folds large runs, a call-stack card for void recursion, a call list that folds deep stacks, and motion throughout |
 | Frontend: input form and real runs | Done, redesigned. The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
 | Frontend: home page, hint renderers (grid, intervals, ...), "view as" | Planned |
 | API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
@@ -57,7 +57,7 @@ Start with the trace format. Everything else hangs off it.
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
-| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, linked structures, recursion tree, diffing, motion, playback, theme | Draft v0.4 |
+| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, linked structures, calls cards, diffing, motion, playback, theme | Draft v0.6 |
 | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
 | [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs, how a run can end, gVisor on macOS | Draft v0.2, implemented |
 | [`docs/backend.md`](docs/backend.md) | The API service: endpoints, errors and status codes, limits, settings, running it with the frontend | Draft v0.1, implemented |
@@ -518,7 +518,7 @@ Items marked *(planned)* do not exist yet.
 │       ├── trace/             types, loader, value formatting, diff, heap edges, call tree
 │       ├── player/            playback reducer and Run timer
 │       ├── render/            renderer registry, renderers, heap layout and drawing
-│       ├── components/        toolbar, code, inputs, visual, state panels, recursion tree
+│       ├── components/        toolbar, code, inputs, visual, state panels, calls cards
 │       ├── editor/            Monaco setup, theme, starter templates
 │       └── styles/            theme tokens and layout
 └── backend/                   the API service (FastAPI): python3 -m backend

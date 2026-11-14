@@ -13,13 +13,28 @@
 import { edgesFrom, edgesOf, pointerNamesOf, shapeOf, type Shape } from "../trace/heap";
 import type { ObjectValue, Trace } from "../trace/types";
 
-export const NODE_R = 20;
-const LIST_GAP_X = 84;
-const LIST_GAP_Y = 76;
-const TREE_GAP_X = 52;
-const TREE_GAP_Y = 70;
-const GRAPH_GAP = 90;
-const MARGIN = NODE_R + 34; // room for pointer labels above a node, and edge labels
+/** A tree or graph node is a circle of this radius. */
+export const NODE_R = 22;
+/** A list node is a value cell plus a narrow next cell: this wide and this tall in all. */
+export const LIST_W = 72;
+export const LIST_H = 40;
+/** The next cell's width, at the node's right end; arrows leave the dot at its centre. */
+export const NEXT_W = 22;
+/** A dashed "null" box, the size of a small cell. */
+export const NULL_W = 44;
+const LIST_GAP_X = 128;
+const LIST_GAP_Y = 104;
+const TREE_GAP_X = 60;
+const TREE_GAP_Y = 84;
+const GRAPH_GAP_X = 104;
+const GRAPH_GAP_Y = 90;
+/** Room around the nodes: pointer tags above, tags shifted to the side, curves and nulls below. */
+const MARGIN_X = 64;
+const MARGIN_TOP = 52; // a list's tags stack upwards; a tree's or graph's sit side by side
+const MARGIN_TOP_ONE_ROW = 34;
+const MARGIN_BOTTOM = 40; // a list's reversed links curve under it
+const MARGIN_BOTTOM_TREE = 12;
+const MARGIN_BOTTOM_GRAPH = 32; // a graph's tags can sit under a node
 
 export interface Point {
   x: number;
@@ -28,6 +43,8 @@ export interface Point {
 
 export interface Component {
   shape: Shape;
+  /** A list whose first node can point at null while a node follows it (a list being reversed): its null box goes on the left. */
+  leftNull?: boolean;
   /** Node ids, in the order they first appear in the trace. */
   nodes: string[];
   /** Positions for the whole trace. For a tree whose shape changes (`dynamic`), use treeLayoutAt per step instead. */
@@ -79,31 +96,58 @@ export function layoutTrace(trace: Trace): TraceLayout {
     const members = new Set(nodes);
     let pos: Map<string, Point>;
     let dynamic = false;
-    if (shape === "list") pos = listLayout(heaps, nodes, members);
+    let leftNull = false;
+    if (shape === "list") {
+      pos = listLayout(heaps, nodes, members);
+      leftNull = needsLeftNull(heaps, nodes, pos);
+    }
     else if (shape === "tree") {
       const tree = treeFromHeaps(heaps, members);
       dynamic = tree === null;
       pos = tree ? tidyTree(nodes, tree) : treeLayoutAt(heaps[heaps.length - 1], nodes);
     } else pos = graphLayout(heaps, nodes, members);
-    const { width, height } = normalize(pos);
+    const { width, height } = normalize(pos, shape, leftNull);
     nodes.forEach((id) => componentOf.set(id, components.length));
-    components.push({ shape, nodes, pos, dynamic, width, height });
+    components.push({ shape, leftNull, nodes, pos, dynamic, width, height });
   }
   return { components, componentOf, pointerNames: pointerNamesOf(trace.steps) };
 }
 
-/** Moves positions so the top-left one is at the margin; returns the size that holds them all. */
-function normalize(pos: Map<string, Point>): { width: number; height: number } {
+/**
+ * Moves positions (node centres) so the top-left node sits inside the margin; returns the size
+ * that holds them all. A list keeps room on the right for a null box, and on the left when its
+ * first node can point at null.
+ */
+export function normalize(pos: Map<string, Point>, shape: Shape = "tree", leftNull = false): { width: number; height: number } {
   if (pos.size === 0) return { width: 0, height: 0 };
   const xs = [...pos.values()].map((p) => p.x);
   const ys = [...pos.values()].map((p) => p.y);
   const minX = Math.min(...xs);
   const minY = Math.min(...ys);
+  const halfW = shape === "list" ? LIST_W / 2 : NODE_R;
+  const halfH = shape === "list" ? LIST_H / 2 : NODE_R;
+  const left = shape === "list" ? halfW + (leftNull ? NULL_W + 40 : 0) + 2 : halfW + MARGIN_X;
+  const right = shape === "list" ? halfW + NULL_W + 40 : halfW + MARGIN_X;
+  const top = shape === "list" ? MARGIN_TOP : MARGIN_TOP_ONE_ROW;
   for (const p of pos.values()) {
-    p.x += MARGIN - minX;
-    p.y += MARGIN - minY;
+    p.x += left - minX;
+    p.y += halfH + top - minY;
   }
-  return { width: Math.max(...xs) - minX + 2 * MARGIN, height: Math.max(...ys) - minY + 2 * MARGIN };
+  return { width: Math.max(...xs) - minX + left + right, height: Math.max(...ys) - minY + 2 * halfH + top + (shape === "list" ? MARGIN_BOTTOM : shape === "graph" ? MARGIN_BOTTOM_GRAPH : MARGIN_BOTTOM_TREE) };
+}
+
+/** True when, in some step, a list's leftmost node points at null while another node sits right after it in its row. */
+function needsLeftNull(heaps: Record<string, ObjectValue>[], nodes: string[], pos: Map<string, Point>): boolean {
+  const minX = Math.min(...nodes.map((id) => pos.get(id)!.x));
+  const at = new Map(nodes.map((id) => [`${pos.get(id)!.x},${pos.get(id)!.y}`, id]));
+  return heaps.some((h) =>
+    nodes.some((id) => {
+      const p = pos.get(id)!;
+      if (p.x !== minX || !(id in h) || h[id].fields.next !== null) return false;
+      const after = at.get(`${p.x + LIST_GAP_X},${p.y}`);
+      return after !== undefined && after in h;
+    }),
+  );
 }
 
 // ---- Linked lists: one row per list, in link order ----
@@ -199,81 +243,45 @@ export function treeLayoutAt(heap: Record<string, ObjectValue>, nodes: string[])
   }
   const present = nodes.filter((id) => id in heap);
   const pos = tidyTree(present, up);
-  normalize(pos);
+  normalize(pos, "tree");
   return pos;
 }
 
-// ---- Graphs: a circle when small, layers by distance when large ----
+// ---- Graphs: layers by distance from the first node ----
 
 /**
- * Nodes in depth-first order along their edges, from the first node: neighbours sit
- * next to each other on the circle, so a ring is drawn as a ring however the nodes
- * were created (a clone built breadth-first gets the same circle as its original).
+ * Breadth-first from the first node (and then from each node not reached yet), over every
+ * edge of every step with direction ignored: a node's layer is its distance from the start,
+ * and each layer is centred under the one above, in the order its nodes were reached. So a
+ * graph reads top-down from where the search begins, and Clone Graph's square is a diamond.
  */
-function circleOrder(heaps: Record<string, ObjectValue>[], nodes: string[], members: Set<string>): string[] {
-  const out: string[] = [];
-  const next = new Map(nodes.map((id) => [id, [] as string[]]));
+function graphLayout(heaps: Record<string, ObjectValue>[], nodes: string[], members: Set<string>): Map<string, Point> {
+  const near = new Map(nodes.map((id) => [id, [] as string[]]));
   for (const h of heaps) {
     for (const e of edgesOf(h)) {
-      if (!members.has(e.from) || !members.has(e.to)) continue;
-      const a = next.get(e.from)!;
+      if (!members.has(e.from) || !members.has(e.to) || e.from === e.to) continue;
+      const a = near.get(e.from)!;
       if (!a.includes(e.to)) a.push(e.to);
-      const b = next.get(e.to)!;
+      const b = near.get(e.to)!;
       if (!b.includes(e.from)) b.push(e.from);
     }
   }
+  const layers: string[][] = [];
   const seen = new Set<string>();
-  const visit = (id: string) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    out.push(id);
-    next.get(id)!.forEach(visit);
-  };
-  nodes.forEach(visit);
-  return out;
-}
-
-function graphLayout(heaps: Record<string, ObjectValue>[], nodes: string[], members: Set<string>): Map<string, Point> {
-  const pos = new Map<string, Point>();
-  if (nodes.length <= 12) {
-    const radius = nodes.length <= 1 ? 0 : Math.max(GRAPH_GAP * 0.7, (nodes.length * GRAPH_GAP) / (2 * Math.PI));
-    circleOrder(heaps, nodes, members).forEach((id, i) => {
-      const a = -Math.PI / 2 + (2 * Math.PI * i) / nodes.length;
-      pos.set(id, { x: Math.round(radius * Math.cos(a)), y: Math.round(radius * Math.sin(a)) });
-    });
-    return pos;
-  }
-  const near = new Map(nodes.map((id) => [id, new Set<string>()]));
-  for (const h of heaps) {
-    for (const e of edgesOf(h)) {
-      if (members.has(e.from) && members.has(e.to)) {
-        near.get(e.from)!.add(e.to);
-        near.get(e.to)!.add(e.from);
-      }
-    }
-  }
-  const layerOf = new Map<string, number>();
   for (const start of nodes) {
-    if (layerOf.has(start)) continue;
-    const base = Math.max(-1, ...layerOf.values()) + 1;
-    layerOf.set(start, base);
-    const queue = [start];
-    while (queue.length) {
-      const id = queue.shift()!;
-      for (const n of near.get(id)!) {
-        if (!layerOf.has(n)) {
-          layerOf.set(n, layerOf.get(id)! + 1);
-          queue.push(n);
-        }
-      }
+    if (seen.has(start)) continue;
+    let base = layers.length;
+    seen.add(start);
+    let frontier = [start];
+    while (frontier.length) {
+      (layers[base] ??= []).push(...frontier);
+      const next: string[] = [];
+      for (const id of frontier) for (const n of near.get(id)!) if (!seen.has(n)) (seen.add(n), next.push(n));
+      frontier = next;
+      base++;
     }
   }
-  const across = new Map<number, number>();
-  for (const id of nodes) {
-    const layer = layerOf.get(id)!;
-    const i = across.get(layer) ?? 0;
-    across.set(layer, i + 1);
-    pos.set(id, { x: i * GRAPH_GAP, y: layer * GRAPH_GAP });
-  }
+  const pos = new Map<string, Point>();
+  layers.forEach((layer, d) => layer.forEach((id, i) => pos.set(id, { x: (i - (layer.length - 1) / 2) * GRAPH_GAP_X, y: d * GRAPH_GAP_Y })));
   return pos;
 }

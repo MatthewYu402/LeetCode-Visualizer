@@ -56,6 +56,12 @@ describe("the operation chip names one clear change, in plain words", () => {
     expect(op(mm([[1, "a"], [3, "x"], [3, "y"]]), mm([[1, "a"]]))).toBe("erase key 3");
   });
 
+  it("a ref names its node's value, never its id", () => {
+    const heap = { n2: { kind: "object" as const, type: "TreeNode", fields: { val: 2, left: null, right: null } } };
+    const st = (ids: string[]): Value => ({ kind: "stack", items: ids.map((id) => ({ kind: "ref", id })) });
+    expect(operation(st([]), diffValue(st(["n2"]), st([])), heap)).toBe("pop 2");
+  });
+
   it("nothing for several changes at once, for arrays and tuples, or with no diff", () => {
     expect(op(arr("stack", [1]), arr("stack", [1, 2, 3]))).toBeNull();
     expect(op({ kind: "array", items: [1] }, { kind: "array", items: [2] })).toBeNull();

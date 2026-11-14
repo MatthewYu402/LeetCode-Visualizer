@@ -1,12 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useMemo, type ReactNode } from "react";
-import { HeapView, refId } from "../render/HeapView";
+import { LinkedCard, NullPointersCard, nullPointers, refId, shownComponents } from "../render/HeapView";
 import { layoutTrace } from "../render/layout";
 import { operation } from "../render/ops";
 import { selectRenderer } from "../render/registry";
-import { callTree, hasNestedCalls } from "../trace/calls";
+import { callsCardKind, callTree } from "../trace/calls";
 import type { StepDiff } from "../trace/diff";
 import { isContainer, isReturning, topFrame, type Hint, type Step, type Trace, type Value } from "../trace/types";
+import { CallStackCard } from "./CallStackCard";
 import { callLayout, RecursionTree } from "./RecursionTree";
 
 interface Props {
@@ -17,21 +18,25 @@ interface Props {
   notice?: { text: string; tone: "info" | "error" };
   /** The keys that run the code, for the empty state: ["⌘", "Enter"] or ["Ctrl", "Enter"]. */
   runKeys?: string[];
+  /** The top bar's "Call stack" switch: shows or hides the call-stack card. */
+  showCalls?: boolean;
 }
 
 /**
- * One step, drawn: the recursion tree when calls nest, the linked structures
- * (lists, trees, graphs) from the heap, then one structure per other container
- * local of the running frame. Primitives are left to the state panel.
+ * One step, drawn as cards: the linked structures (lists, trees, graphs) from the heap, one
+ * card per other container local of the running frame, and, at the bottom, the calls. Calls
+ * that return values get the recursion card for the whole run; calls that return nothing get
+ * the call-stack card while more than one frame is live and the top bar's switch is on
+ * (callsCardKind). Primitives are left to the state panel.
  *
  * The layout of linked structures and the call tree are computed once per trace
  * (frontend/CLAUDE.md rule 2); everything drawn for a step comes from that step.
  */
-export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Enter"] }: Props) {
+export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Enter"], showCalls = true }: Props) {
   const views = useMemo(() => {
     if (!trace) return null;
     const calls = callTree(trace);
-    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), nested: hasNestedCalls(calls) };
+    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls) };
   }, [trace]);
 
   if (!notice && !trace) {
@@ -68,8 +73,14 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const current = Object.entries(locals).filter(([, v]) => drawnHere(v));
   const last = step.step === trace.steps.length - 1;
   const resultId = last ? refId(trace.result) : null;
-  const hasHeap = Object.keys(step.heap).length > 0;
   const ctxBase = { locals, heap: step.heap };
+  const linked = shownComponents(step, views.layout);
+  const nulls = nullPointers(step, views.layout);
+  const params = new Set(views.calls.calls.get(frame.id)?.params ?? []);
+  const heapProps = { step, diff: diff?.heap ?? null, layout: views.layout, resultId, params };
+  const callsCard =
+    views.callsKind === "tree" ? "tree" : views.callsKind === "stack" && showCalls && step.frames.length > 1 ? "stack" : null;
+  const nothing = current.length === 0 && linked.length === 0 && nulls.length === 0 && !callsCard;
 
   return (
     <div className="canvas canvas-filled">
@@ -82,14 +93,14 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
       <div className="cards">
         {/* A card fades in and slides up the first time its structure is drawn, and fades out when it leaves scope. */}
         <AnimatePresence initial={false}>
-          {views.nested && (
-            <Card key="#calls">
-              <RecursionTree tree={views.calls} layout={views.callPositions} step={step} index={step.step} />
+          {linked.map((index, k) => (
+            <Card key={`#heap-${index}`}>
+              <LinkedCard index={index} {...heapProps} nulls={k === 0 ? nulls : []} />
             </Card>
-          )}
-          {hasHeap && (
-            <Card key="#heap">
-              <HeapView step={step} diff={diff?.heap ?? null} layout={views.layout} resultId={resultId} />
+          ))}
+          {linked.length === 0 && nulls.length > 0 && (
+            <Card key="#nulls">
+              <NullPointersCard nulls={nulls} />
             </Card>
           )}
           {current.map(([name, value]) => {
@@ -98,12 +109,22 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
             const R = selectRenderer(value, hints.get(name));
             return (
               <Card key={name} added={d?.status === "added"}>
-                <R name={name} value={value} diff={own} ctx={{ ...ctxBase, hint: hints.get(name), op: operation(value, own) }} />
+                <R name={name} value={value} diff={own} ctx={{ ...ctxBase, hint: hints.get(name), op: operation(value, own, step.heap) }} />
               </Card>
             );
           })}
+          {callsCard === "tree" && (
+            <Card key="#calls-tree">
+              <RecursionTree tree={views.calls} layout={views.callPositions} step={step} index={step.step} />
+            </Card>
+          )}
+          {callsCard === "stack" && (
+            <Card key="#calls-stack">
+              <CallStackCard tree={views.calls} step={step} pushed={diff?.pushed} />
+            </Card>
+          )}
         </AnimatePresence>
-        {current.length === 0 && !hasHeap && !views.nested && (
+        {nothing && (
           <p className="canvas-note">No containers in scope at this step. Values are in the state panel.</p>
         )}
       </div>

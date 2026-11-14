@@ -1353,25 +1353,6 @@ kbd {
   color: var(--fg-muted);
 }
 
-/* Headers inside HeapView and RecursionTree, until stage 3 gives them CardHeader. */
-.structure-label {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.structure-name {
-  font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.structure-kind {
-  color: var(--fg-muted);
-  font-size: 12px;
-}
-
 /* The state panel's table (restyled in stage 4). */
 .state-table {
   border-collapse: collapse;
@@ -1555,43 +1536,114 @@ tr.diff-removed td {
   }
 }
 
-/* ---- The recursion tree (components/RecursionTree.tsx) ---- */
-
-.recursion {
-  max-width: 100%;
-}
+/* ---- Calls: the recursion card (components/RecursionTree.tsx) and the call-stack card (CallStackCard.tsx) ---- */
 
 .recursion-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  font-size: 11px;
+  gap: 16px;
+  font-size: 12px;
   color: var(--fg-muted);
-  margin-bottom: 6px;
 }
 
 .legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
 .legend-item i {
-  width: 12px;
+  width: 14px;
   height: 10px;
-  border-radius: 3px;
+  box-sizing: border-box;
+  border-radius: 4px;
   border: 1.5px solid var(--call-stroke, var(--border));
-  background: var(--call-fill, var(--bg-inset));
+  background: var(--call-fill, transparent);
+}
+
+.legend-item.call-waiting i {
+  border-style: dashed;
+}
+
+.legend-item svg path {
+  fill: none;
+  stroke: var(--done);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The Tree / Stack toggle. */
+.segmented {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+}
+
+.segment {
+  width: 36px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background-color 200ms ease-out, color 200ms ease-out;
+}
+
+.segment[aria-pressed="true"] {
+  background: var(--bg-control-on);
+  color: var(--fg);
+}
+
+.segment:hover {
+  color: var(--fg);
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.segment svg,
+.card-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.card-icon {
+  display: flex;
+  color: var(--fg-muted);
+}
+
+.card-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* The tree scrolls inside the card, so the header and its toggle stay in view. */
+.structure.recursion {
+  min-width: 0;
 }
 
 .recursion-scroll {
   max-width: 100%;
-  max-height: 360px;
+  max-height: 420px;
   overflow: auto;
 }
 
 .recursion-svg {
   display: block;
+  margin: 0 auto;
   overflow: visible;
   font-family: var(--font-mono);
 }
@@ -1600,176 +1652,432 @@ tr.diff-removed td {
   fill: var(--call-fill, var(--bg-inset));
   stroke: var(--call-stroke, var(--border));
   stroke-width: 1.5;
-  transition: fill 300ms ease, stroke 300ms ease;
+  transition: fill 300ms ease-out, stroke 300ms ease-out;
 }
 
 .call-label {
-  fill: var(--fg);
-  font-size: 12px;
+  fill: var(--call-text, var(--fg));
+  font-size: 11.5px;
+  font-weight: 500;
   text-anchor: middle;
 }
 
 .call-value {
-  fill: var(--done);
-  font-size: 12px;
+  fill: var(--done-fg);
+  font-size: 11.5px;
   text-anchor: middle;
 }
 
 .call-edge {
   fill: none;
-  stroke: var(--border);
-  stroke-width: 1.4;
-  transition: stroke 300ms ease;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  transition: stroke 300ms ease-out;
 }
 
 .call-edge-path {
   stroke: var(--accent);
 }
 
-/* One colour per state; the legend uses the same variables. */
+/* The step a call returns: its edge carries the value back up to the caller. */
+.call-edge-return {
+  stroke: var(--done);
+  stroke-width: 2;
+}
+
+.call-return-head {
+  fill: none;
+  stroke: var(--done);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* One look per state; the legend and the stack rows use the same variables. */
 .call-current {
   --call-stroke: var(--accent);
-  --call-fill: color-mix(in srgb, var(--accent) 22%, var(--bg-inset));
+  --call-fill: color-mix(in srgb, var(--accent) 14%, var(--bg-inset));
+  --call-word: var(--accent-fg);
+}
+
+.call-current rect {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 30%, transparent));
 }
 
 .call-waiting {
-  --call-stroke: color-mix(in srgb, var(--accent) 55%, var(--border));
+  --call-stroke: color-mix(in srgb, var(--accent) 70%, var(--border));
   --call-fill: var(--bg-inset);
+  --call-text: var(--fg-soft);
 }
 
 .call-waiting rect {
-  stroke-dasharray: 4 3;
+  stroke-dasharray: 5 3;
 }
 
 .call-returning {
   --call-stroke: var(--done);
-  --call-fill: color-mix(in srgb, var(--done) 22%, var(--bg-inset));
-}
-
-.call-returning rect {
-  animation: call-pulse 900ms ease-out;
+  --call-fill: color-mix(in srgb, var(--done) 14%, var(--bg-inset));
+  --call-word: var(--done-fg);
 }
 
 .call-returned {
-  --call-stroke: var(--border);
-  --call-fill: var(--bg-subtle);
-}
-
-.call-returned .call-label {
-  fill: var(--fg-muted);
+  --call-stroke: var(--border-strong);
+  --call-fill: var(--bg-inset);
+  --call-text: var(--fg-muted);
 }
 
 .call-base {
   --call-stroke: var(--attention);
   --call-fill: color-mix(in srgb, var(--attention) 12%, var(--bg-inset));
+  --call-word: var(--attention);
 }
 
 .call-folded {
   --call-stroke: var(--border);
   --call-fill: var(--bg-subtle);
+  --call-text: var(--fg-muted);
 }
 
 .call-folded rect {
   stroke-dasharray: 2 3;
 }
 
-.call-folded .call-label {
-  fill: var(--fg-muted);
+/* Rows: the recursion card's stack view and the call-stack card. Running on top. */
+.call-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-@keyframes call-pulse {
-  from {
-    stroke-width: 4;
-  }
+.call-row {
+  min-height: 46px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--call-stroke, var(--border));
+  background: var(--call-fill, var(--bg-inset));
+  font-family: var(--font-mono);
+  font-size: 13px;
+  white-space: nowrap;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out;
+}
+
+.recursion .call-row {
+  max-width: 480px;
+}
+
+.call-row.call-waiting,
+.call-row.is-waiting {
+  border-style: dashed;
+}
+
+.call-row.is-folded {
+  justify-content: center;
+  border-style: dashed;
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.call-row-fn {
+  font-weight: 600;
+  color: var(--call-text, var(--fg));
+}
+
+.call-row-args,
+.call-row-key {
+  color: var(--fg-muted);
+}
+
+.call-row-key {
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.call-row-returns {
+  color: var(--done-fg);
+}
+
+.call-row-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+
+.call-row-state {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--call-word, var(--fg-muted));
+}
+
+/* The call-stack card's three states, and a frame that just arrived. */
+.stack-row.is-running {
+  --call-stroke: color-mix(in srgb, var(--accent) 55%, transparent);
+  --call-fill: color-mix(in srgb, var(--accent) 8%, var(--bg-inset));
+  --call-word: var(--accent-fg);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.stack-row.is-running .call-row-note {
+  color: var(--fg-soft);
+}
+
+.stack-row.is-waiting {
+  --call-stroke: var(--border-strong);
+}
+
+.stack-row.is-returning {
+  --call-stroke: color-mix(in srgb, var(--done) 55%, transparent);
+  --call-fill: color-mix(in srgb, var(--done) 10%, var(--bg-inset));
+  --call-word: var(--done-fg);
+}
+
+.stack-row.is-pushed {
+  border-color: var(--success);
+  animation: card-new 900ms ease-out;
+}
+
+.nbr-chips {
+  display: flex;
+  gap: 6px;
+}
+
+.nbr-chip {
+  min-width: 30px;
+  height: 26px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 7px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, color 300ms ease-out;
+}
+
+.nbr-chip.is-checked {
+  color: var(--fg-muted);
+  border-color: var(--border);
+  background: transparent;
+}
+
+.nbr-chip.is-checking {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-inset));
+}
+
+.nbr-chip.is-waited {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  border-style: dashed;
 }
 
 /* ---- Linked structures: lists, trees, graphs (render/HeapView.tsx) ---- */
 /* Movement and fades are framer-motion's; these rules set colours, and the one-step highlights. */
 
+.linked {
+  position: relative;
+  display: flex;
+}
+
+/* Trees and graphs are centred in their card; a tree's depth guides run the card's width. */
+.linked-tree,
+.linked-graph {
+  justify-content: center;
+  padding: 0 28px;
+}
+
+.depth-guide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.depth-line {
+  flex: 1;
+  border-top: 1px dotted var(--border-strong);
+}
+
+.depth-number {
+  width: 14px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
 .heap {
+  position: relative;
   display: block;
+  flex-shrink: 0;
   overflow: visible;
   font-family: var(--font-mono);
 }
 
-.heap .node circle {
+.heap .node-body {
   fill: var(--bg-inset);
-  stroke: var(--border);
+  stroke: var(--node-stroke, var(--border-strong));
   stroke-width: 1.5;
-  transition: fill 300ms ease, stroke 300ms ease, stroke-width 300ms ease;
+  transition: fill 300ms ease-out, stroke 300ms ease-out;
+}
+
+.heap .node-next {
+  fill: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+
+.heap .node-divider {
+  stroke: var(--node-stroke, var(--border-strong));
+  stroke-width: 1.5;
+  transition: stroke 300ms ease-out;
+}
+
+.heap .node-dot {
+  fill: var(--fg-faint);
+  transition: fill 300ms ease-out;
+}
+
+.heap .dot-plain {
+  fill: var(--edge);
+}
+
+.heap .dot-new {
+  fill: var(--success);
+}
+
+.heap .dot-result {
+  fill: var(--done);
 }
 
 .heap .node-value {
   fill: var(--fg);
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 500;
   text-anchor: middle;
   pointer-events: none;
 }
 
-/* The node the running function points at. */
-.heap .node-current circle {
-  stroke: var(--accent);
-  stroke-width: 2.5;
+.heap .node-value.is-small {
+  font-size: 12px;
+}
+
+/* The node the running call is working on. */
+.heap .node-current {
+  --node-stroke: var(--accent);
+}
+
+.heap .node-current .node-body {
+  fill: color-mix(in srgb, var(--accent) 10%, var(--bg-inset));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 35%, transparent));
+}
+
+/* A neighbour the running call is checking. */
+.heap .node-checking {
+  --node-stroke: var(--accent);
+}
+
+.heap .node-checking .node-body {
+  stroke-dasharray: 4 3;
 }
 
 /* A node a caller points at: the path the recursion took to get here. */
-.heap .node-path circle {
-  stroke: color-mix(in srgb, var(--accent) 45%, var(--border));
-  stroke-dasharray: 3 3;
+.heap .node-path {
+  --node-stroke: color-mix(in srgb, var(--accent) 45%, var(--border-strong));
 }
 
-.heap .node-result circle {
-  stroke: var(--done);
-  stroke-width: 2.5;
-  fill: color-mix(in srgb, var(--done) 18%, var(--bg-inset));
+.heap .node-result {
+  --node-stroke: var(--done);
 }
 
-.heap .node-added circle {
+.heap .node-result .node-body {
+  fill: color-mix(in srgb, var(--done) 14%, var(--bg-inset));
+}
+
+.heap .node-added .node-body {
   animation: node-flash-added 900ms ease-out;
 }
 
-.heap .node-changed circle {
+.heap .node-changed .node-body {
   animation: node-flash-changed 900ms ease-out;
 }
 
 @keyframes node-flash-added {
   from {
-    fill: color-mix(in srgb, var(--success) 45%, var(--bg-inset));
+    fill: color-mix(in srgb, var(--success) 35%, var(--bg-inset));
     stroke: var(--success);
   }
 }
 
 @keyframes node-flash-changed {
   from {
-    fill: color-mix(in srgb, var(--attention) 45%, var(--bg-inset));
+    fill: color-mix(in srgb, var(--attention) 35%, var(--bg-inset));
     stroke: var(--attention);
   }
 }
 
 .heap .edge {
   fill: none;
-  stroke: var(--fg-muted);
-  stroke-width: 1.6;
-  transition: stroke 400ms ease;
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 300ms ease-out;
 }
 
 .heap .edge-secondary {
   stroke-dasharray: 4 4;
-  opacity: 0.8;
 }
 
 /* An edge that is new, or now points somewhere else, on this step. */
 .heap .edge-new {
   stroke: var(--success);
-  stroke-width: 2.2;
+  stroke-width: 2;
+}
+
+.heap .edge-path {
+  stroke: var(--accent);
+}
+
+.heap .edge-result {
+  stroke: var(--done);
 }
 
 .heap .arrow-head {
-  fill: var(--fg-muted);
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .heap .arrow-head-new {
-  fill: var(--success);
+  stroke: var(--success);
+}
+
+.heap .arrow-head-path {
+  stroke: var(--accent);
+}
+
+.heap .arrow-head-result {
+  stroke: var(--done);
 }
 
 .heap .edge-label {
@@ -1778,46 +2086,70 @@ tr.diff-removed td {
   text-anchor: middle;
 }
 
-.heap .null-tail line {
-  stroke: var(--border);
-  stroke-width: 1.4;
+.heap .null-box {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-dasharray: 4 3;
 }
 
-.heap .null-tail text {
+.heap .null-text {
   fill: var(--fg-muted);
   font-size: 11px;
-}
-
-.heap .null-tail .null-below {
   text-anchor: middle;
 }
 
-.heap .pointer-label text {
-  fill: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
+.heap .tag-box {
+  fill: color-mix(in srgb, var(--accent) 14%, var(--bg-raised));
+  stroke: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-.heap .pointer-result text {
-  fill: var(--done);
+.heap .tag-text {
+  fill: var(--accent-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.heap .tag-tip {
+  fill: var(--accent);
+}
+
+.heap .is-result .tag-box {
+  fill: color-mix(in srgb, var(--done) 14%, var(--bg-raised));
+  stroke: color-mix(in srgb, var(--done) 45%, transparent);
+}
+
+.heap .is-result .tag-text {
+  fill: var(--done-fg);
 }
 
 .null-pointers {
-  flex-basis: 100%;
-  align-self: flex-start;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: -4px 0 4px;
+  gap: 14px;
 }
 
 .null-pointer {
-  font-family: var(--font-mono);
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.null-pointer-arrow path {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.null-chip {
+  padding: 2px 8px;
+  border-radius: 7px;
+  border: 1px dashed var(--border-strong);
   color: var(--fg-muted);
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 1px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 @media (prefers-reduced-motion: reduce) {

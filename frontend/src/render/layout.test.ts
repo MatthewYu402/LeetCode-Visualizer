@@ -77,15 +77,28 @@ describe("layout of a tree", () => {
 describe("layout of a graph", () => {
   const layout = layoutTrace(load(cloneGraphRaw));
 
-  it("the original and the clone are separate components, each on a circle", () => {
+  it("the original and the clone are separate components, each layered from its first node", () => {
     expect(layout.components.map((c) => [c.shape, c.nodes.length])).toEqual([
       ["graph", 4],
       ["graph", 4],
     ]);
-    const c = layout.components[0];
-    const center = { x: c.width / 2, y: c.height / 2 };
-    const dist = c.nodes.map((id) => Math.round(Math.hypot(c.pos.get(id)!.x - center.x, c.pos.get(id)!.y - center.y)));
-    expect(Math.max(...dist) - Math.min(...dist)).toBeLessThanOrEqual(1);
+    for (const c of layout.components) {
+      // The square 1-2-3-4 is a diamond: the first node on top, its two neighbours side by side
+      // under it and centred, the far corner at the bottom under the first.
+      const [first, ...rest] = c.nodes.map((id) => c.pos.get(id)!);
+      const ys = [...new Set(c.nodes.map((id) => c.pos.get(id)!.y))].sort((a, b) => a - b);
+      expect(ys).toHaveLength(3);
+      expect(first.y).toBe(ys[0]);
+      const middle = rest.filter((p) => p.y === ys[1]);
+      expect(middle).toHaveLength(2);
+      expect((middle[0].x + middle[1].x) / 2).toBe(first.x);
+      expect(rest.find((p) => p.y === ys[2])!.x).toBe(first.x);
+    }
+  });
+
+  it("a list being reversed keeps room on the left for its old head's null", () => {
+    const list = layoutTrace(load(reverseListRaw)).components[0];
+    expect(list.leftNull).toBe(true);
   });
 
   it("every node has a component", () => {

@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.5 (reads trace format v0.8)
+> **Status:** Draft v0.6 (reads trace format v0.8)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -23,7 +23,7 @@ POST /api/run ──► loader ──► step player ──► code panel
 | Monaco code panel with the current line highlighted | Hint renderers (grid, adjacency list, intervals, ...) |
 | Renderers for every container kind, and a fallback for unknown kinds | The "view as" override UI |
 | Linked lists, trees, and graphs drawn from `heap`, with pointer labels | Objects that are not nodes (no `val`/`next`/`left`/`neighbors` shape) drawn as more than a node |
-| A recursion tree when calls nest, and a folding call list | |
+| The calls: a recursion card (tree or stack) when calls return values, a call-stack card when they return nothing | |
 | Diff highlighting between adjacent steps, and motion (fade, glide, draw-in) | |
 | Playback: restart, step, play, pause, scrub, speed, keyboard; Cmd/Ctrl + Enter runs the code | Comparing two traces side by side |
 | A language select that changes the editor mode | Sending the language anywhere |
@@ -38,9 +38,9 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 │ TOP BAR  logo · LeetCode Visualizer │ language · Call stack ◉   ☀ Run code │
 ├──────────────────────────────┬───────────────────────────────────────────┤
 │ CODE PANEL  "Code"       C++ │ CANVAS (dot grid)                         │
-│                              │   recursion tree (when calls nest)        │
-│   Monaco, editable           │   lists, trees, graphs from the heap      │
-│   step.line highlighted      │   one structure per other container local │
+│                              │   lists, trees, graphs from the heap      │
+│   Monaco, editable           │   one structure per other container local │
+│   step.line highlighted      │   the calls, at the bottom (when nested)  │
 │   (tint + 4px bar)           │                                           │
 │   scrolled into view         │   before a run: "Run your code to see it  │
 │                              │   here." and how to run it                │
@@ -70,16 +70,17 @@ Every split is resizable by dragging the border between panels: the left / right
 | `player/usePlayer.ts` | Wraps the reducer and owns the Run timer | Step count, speed |
 | `render/registry.ts` | Chooses a renderer for a value ([Section 5](#5-renderer-registry)) | Kind and hint |
 | `render/*.tsx` | `ArrayRenderer`, `MapRenderer`, `MultimapRenderer`, `StackRenderer`, `TubeRenderer`, `ListRenderer`, `TupleRenderer`, `SetRenderer`, `HeapRenderer`, `FallbackRenderer`; `Card.tsx` (the shared header) | One value, its diff, context |
-| `render/ops.ts` | `operation(value, diff)`: the operation chip's words ("push 3", "erase key 3") | One value and its diff |
+| `render/ops.ts` | `operation(value, diff, heap)`: the operation chip's words ("push 3", "erase key 3"); a ref is named by its node's value | One value, its diff, the step's heap |
 | `trace/heap.ts` | Edges between heap objects, a node's label and shape, pointers into the heap, `heapDiff` | One or two steps |
-| `trace/calls.ts` | `callTree(trace)`: every call, its caller, arguments, and return value; where a call stands at a step | The whole trace, once |
+| `trace/calls.ts` | `callTree(trace)`: every call, its caller, parameters, arguments, and return value; where a call stands at a step; which calls card a run gets (`callsCardKind`) | The whole trace, once |
 | `render/layout.ts` | `layoutTrace(trace)`: a fixed place for every node of every linked structure ([Section 6.4](#64-linked-structures-layout)) | The whole trace, once |
-| `render/HeapView.tsx` | Draws the linked structures of one step: nodes, edges, pointer labels, highlights | One step, its heap diff, the layout |
-| `components/RecursionTree.tsx` | The recursion tree at one step, whole or focused ([Section 6.6](#66-recursion-tree)) | The call tree, one step |
+| `render/HeapView.tsx` | `LinkedCard`: one linked structure of one step as a card: nodes, edges, pointer tags, highlights; `NullPointers` for pointers that hold null | One step, its heap diff, the layout, the running call's parameters |
+| `components/RecursionTree.tsx` | The recursion card at one step: a Tree view (whole or focused) and a Stack view ([Section 6.6](#66-calls)) | The call tree, one step |
+| `components/CallStackCard.tsx` | The call-stack card at one step, for calls that return nothing: one row per live frame, with the node's neighbours ([Section 6.6](#66-calls)) | The call tree, one step, the frames just pushed |
 | `components/Toolbar.tsx` | The top bar: logo and name, language select, the call-stack switch, the theme button, Run code | Language, run state |
 | `components/PlaybackBar.tsx` | The bottom bar: Restart, previous, play/pause, next, last, the counter, the scrubber with a tick per step, speed | Player state |
 | `components/CodePanel.tsx` | Monaco with the line decoration | Source, `step.line` |
-| `components/VisualPanel.tsx` | The recursion tree, the linked structures, then one renderer per other container local, or a notice / error | One step, its diff, the per-trace layout and call tree |
+| `components/VisualPanel.tsx` | The line strip, then one card per linked structure, one per other container local, and the calls card at the bottom, or a notice / error | One step, its diff, the per-trace layout and call tree, the call-stack switch |
 | `components/StatePanel.tsx` | The call stack (folded when deep) and the snapshot as a table, plus `result` on the last step | One step, its diff |
 | `components/Split.tsx` | A draggable split between two panels | Pointer events |
 | `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables | `theme.css` |
@@ -116,7 +117,7 @@ Spec [§9](trace-format.md#9-versioning): while the major version is 0, any mino
 
 A `void` method that returned has `"result": null`, which alone would read as a returned null pointer. `returnsVoid(problem)` in `trace/types.ts` checks `problem.returns.type === "void"` ([trace-format.md §3, The return value](trace-format.md#the-return-value)), and the state panel then shows `returned, no value` with the kind `void` instead of `null`.
 
-**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. Above the table, the state panel lists every frame, running frame first, as `function · line N`, and marks a frame that is `returning`. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. A caller's pointers into the heap are drawn as dashed rings on their nodes ([Section 6.5](#65-linked-structures-drawing)), and a stack deeper than 8 frames is folded ([Section 6.6](#66-recursion-tree)).
+**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. Above the table, the state panel lists every frame, running frame first, as `function · line N`, and marks a frame that is `returning`. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. A caller's pointers into the heap are drawn as dashed rings on their nodes ([Section 6.5](#65-linked-structures-drawing)), and a stack deeper than 8 frames is folded ([Section 6.6](#66-calls)).
 
 `result_heap` (the objects a `ref` result points to) is in the `Trace` type but nothing draws it yet. It arrives with the `object` / `ref` renderers.
 
@@ -174,11 +175,11 @@ The canvas is a dot grid. At its top, a full-width strip reads "Line N runs next
 | `priority-queue` | `HeapRenderer` | The binary heap its storage array forms (slot i's children are 2i+1 and 2i+2), with the storage-order row beside it and a `top` tag on the root. Header `priority queue · max · N` (or `min`, `custom`). Circles while every value fits in three characters; otherwise every node of that heap is a rounded rectangle sized to the widest value (a pair shows as `(3, 1)`). The tree is drawn up to 31 items; past that, the storage row alone |
 | `tuple` | `TupleRenderer` | The elements inside faint parentheses, each with its position (0, 1, ...) under it |
 | `set`, `multiset` | `SetRenderer` | Members inside faint curly braces, in the trace's order, never sorted. A multiset shows each value once with a `×N` badge |
-| `object`, `ref` | `HeapView` | Not drawn per local: the heap is drawn once per step, and a local holding a `ref` becomes a pointer label on its node ([Section 6.5](#65-linked-structures-drawing)) |
+| `object`, `ref` | `LinkedCard` | Not drawn per local: each linked structure of the step's heap is one card, and a local holding a `ref` becomes a pointer tag on its node ([Section 6.5](#65-linked-structures-drawing)) |
 | an unknown kind | `FallbackRenderer` | The value as indented data in an inset box, with "There is no view for this kind yet, so it is shown as data." |
 | primitives | none | Not drawn on the canvas. They appear in the state panel |
 
-The canvas draws, top to bottom: the recursion tree when one call made another ([Section 6.6](#66-recursion-tree)), the linked structures of the step's heap, then one card per other **container local** of the running frame (a tagged kind other than `int`, `float`, `ref`, and `object`), in the order the trace lists them. A `ref` inside a container (a queue of nodes, a map from node to clone) shows its node's value, with the id on hover.
+The canvas draws, top to bottom: one card per linked structure of the step's heap, one card per other **container local** of the running frame (a tagged kind other than `int`, `float`, `ref`, and `object`) in the order the trace lists them, and, at the bottom, the calls card when one call made another ([Section 6.6](#66-calls)). A `ref` inside a container (a queue of nodes, a map from node to clone) shows its node's value, with the id on hover.
 
 Items of a queue, deque, list, and set are keyed by their value and which copy of that value they are, so popping the front fades that item out and glides the rest forward, instead of every cell changing its value. A stack's items are keyed by their position from the bottom.
 
@@ -208,42 +209,77 @@ Each component gets a shape from its fields, never from the language:
 |---|---|---|
 | tree | Its nodes have a `left` or `right` field | A tidy tree: in-order across, children a row under their parent |
 | list | Its nodes have a `next` field and no array field | One row per chain in link order: a node is placed after the node that first links to it |
-| graph | Anything else (`neighbors`, arrays of refs) | A circle of up to 12 nodes, in depth-first order along the edges so neighbours sit side by side; larger graphs in layers by distance from the first node |
+| graph | Anything else (`neighbors`, arrays of refs) | Layers by distance from the first node (breadth-first, direction ignored, over every step's edges), each layer centred under the one above in the order its nodes were reached. A graph reads top-down from where a search starts; Clone Graph's square is a diamond |
 
 A tree whose shape changes during the run (a node that moves under another parent, as in a rotation) cannot keep one place per node without overlaps, so it is marked **dynamic** and laid out from the step's own heap at each step; nodes glide to their new places.
 
+A list keeps room on its right for a `null` box, and on its left too when, at some step, its leftmost node points at null while another node follows it (a list being reversed: the old head's `next` becomes null). The layout records this as `leftNull`, so the room is there for the whole run.
+
 ### 6.5 Linked structures: drawing
-`HeapView` draws one SVG per component present at the step. A component is labelled with the names of the running frame's pointers into it (`head, prev, curr`), or by its shape when none points at it.
+Each component present at the step is one card (`LinkedCard`). Its title is the running call's pointer into it, preferring a parameter (`head`, `root`, `node`), else any pointer into it, else `result` when it holds the returned node, else its shape; the meta line says `linked list · 5 nodes`, `binary tree · 5 nodes`, or `graph · 6 nodes · 7 edges`. A tree or graph is centred in its card; a list starts at the left.
 
 | Element | Drawing |
 |---|---|
-| Node | A circle with its `val` (or the first scalar field) inside |
-| Edge | An arrow from the field's owner to its target. A field other than the shape's primary ones (`random`, `prev`) is dashed and labelled. Two edges between the same nodes bend apart |
-| Two-way graph link | A node in each other's `neighbors` is one plain line with no arrows |
-| `next = null` | A short stub ending in `null`, to the right, or under the node when a neighbour sits there |
-| Pointer label | Each `ref` local of the running frame is a label over its node, keyed by name so it slides when the pointer moves. Several pointers on one node stack |
-| Caller pointers | A node a caller's frame points at gets a dashed ring: the path the recursion took to get here |
-| Null pointers | A pointer local that is `null` is listed under the structures (`prev → null`), only for names that point at a node at some step |
-| Result | On the last step, the node `result` points at is drawn in `--done` and labelled `result` |
+| List node | A textbook node: a value cell, then a narrow `next` cell with a dot. Its `next` arrow leaves the dot |
+| Tree or graph node | A circle with its `val` (or the first scalar field) inside. Values past 3 characters are drawn smaller, past 6 cut with `…` (the full value on hover) |
+| List edge | To a node further right in the row: a straight arrow from the dot. Back to a node on the left (a list being reversed): down out of the dot, under the row, and up into that node |
+| `next = null` | A dashed `null` box to the right of the node; to the left (reached under the row) for a leading node when the layout keeps room there; else a short stub with `null` under the node |
+| Tree edge | Rim to rim, with a small arrowhead at the child |
+| Graph edge | A link only one node lists is an arrow. A link both nodes list (each in the other's `neighbors`) is one plain line with no arrowheads |
+| Other fields | A field other than the shape's primary ones (`random`, `prev`) is dashed and labelled. Two edges between the same nodes bend apart; a node pointing at itself loops above it |
+| Depth guides | A tree has a dotted line through each level's centres, across the card, with the depth (0, 1, 2, …) at its right end |
+| Pointer tag | Each `ref` local of the running frame is a tag above its node, keyed by name so it glides when the pointer moves. A list stacks a node's tags upwards. A tree puts them side by side, shifted away from the edge coming in (to the left over a left child, to the right over a right child). A graph puts them above a node with nothing linked from above, below a node with nothing linked from below, and otherwise above, shifted away from its upper links |
+| Null pointers | A pointer local that is `null` is a tag with an arrow to a dashed `null` chip under the first structure (or in a card of its own when the heap is empty), only for names that point at a node at some step |
+| Result | On the last step, the returned node and everything it reaches are drawn in `--done`, their links too, and the returned node gets a `result` tag |
 
-Highlights follow the heap diff (`heapDiff`, [Section 7](#7-diffing)): a new node and a new or redirected edge flash `--success`, a node whose scalar fields changed flashes `--attention`, and a removed node fades out.
+Which nodes are highlighted comes from the pointers alone (`focusOf`):
 
-### 6.6 Recursion tree
-`callTree(trace)` runs once when a trace is loaded. A frame id belongs to one call for the whole run (spec §6), and the frame under it on the stack is its caller, so every call, its caller, its arguments (its locals on its first step), and its return value (from its return step) can be read from the steps. Drawing step N uses only what the tree says about step N. The tree is shown only when some call was made by another call.
+- **Current** (`--accent`): the node(s) the running call is working on. These are its own working pointers (locals that are not parameters); when it has none, its parameters (maxDepth's `root`).
+- **Being checked** (a dashed `--accent` ring, graphs only): when the running call's last-declared pointer is on a node another of its pointers links to, that node is being checked and the pointer linking to it is current. So `dfs(node)` looping over `nb`, and Clone Graph's `curr` and `neighbor`, show which neighbour is under consideration. The edge between them is blue.
+- **Path**: a node a caller's frame points at gets a faint accent ring, and in a tree the edges from the root down to the current node and the callers' nodes are blue.
 
-Each box is labelled `f(args)`. Its colour says where the call stands at this step:
+Highlights follow the heap diff (`heapDiff`, [Section 7](#7-diffing)): a new node flashes `--success`, a new or redirected edge is drawn in `--success` (and so is the dot it leaves), a node whose scalar fields changed flashes `--attention`, and a removed node fades out.
 
-| State | Meaning | Colour |
+### 6.6 Calls
+`callTree(trace)` runs once when a trace is loaded. A frame id belongs to one call for the whole run (spec §6), and the frame under it on the stack is its caller, so every call, its caller, its parameters and arguments (its locals on its first step), and its return value (from its return step) can be read from the steps. Drawing step N uses only what the tree says about step N.
+
+When some call was made by another, one calls card sits at the bottom of the canvas, chosen by what the calls return (`callsCardKind`):
+
+| The nested calls | Card | Shown |
 |---|---|---|
-| running | The running frame | `--accent` |
-| waiting | On the stack, waiting for a call it made | dashed `--accent` |
-| returning | The running frame, at its return step | `--done` |
-| returned | Finished, after making calls | muted |
-| base case | Finished without making any call | `--attention` |
+| return values their callers use (`maxDepth`, `fib`) | the **recursion card** | at every step of the run |
+| all return nothing: every return step's `return_value` is `null` (a void `dfs`, flood fill, backtracking) | the **call-stack card** | while more than one frame is live, and the top bar's "Call stack" switch is on |
 
-A call's return value appears under its box (`→ 3`) from its return step on. Calls not yet begun are not drawn, so the tree grows as the run goes.
+A function that returns a null pointer every time looks like one that returns nothing; that is rare enough to accept.
 
-A run of up to 80 calls is drawn whole, every call in a fixed place. A larger run is drawn **focused on the running call**: the calls on the stack, the calls each of them has made so far, and every finished branch folded into one box (`fib(7)` with `→ 13 · 41 calls` under it). A stack deeper than 14 keeps its top 3 and bottom 10 calls and folds the middle into one box (`⋮ 40 calls`). Either way the number of boxes stays small however deep the recursion goes. The tree sits in a scroll box that scrolls to keep the running call in view.
+#### The recursion card
+Titled `calls`, with a Tree / Stack segmented toggle (a tree icon and a stack icon) at the top right and a legend under the header.
+
+The **Tree view** draws every call that has begun as a rounded box labelled `f(args)`, with what it returned inside the box under the name (`→ 3`) from its return step on. Calls not yet begun are not drawn, so the tree grows as the run goes. The colour says where the call stands:
+
+| State | Meaning | Look |
+|---|---|---|
+| running | The running frame | `--accent` border and tint |
+| waiting | On the stack, waiting for a call it made | dashed `--accent` border |
+| returning | The running frame at its return step, after making calls | `--done` border and tint |
+| base case | The running frame at its return step, having made no call | `--attention` border and tint |
+| returned | Finished | muted |
+
+On the step a call returns, the edge to its caller turns `--done` with an arrowhead at the caller's end: **return to caller**. Edges down to calls on the stack are blue; edges to finished calls are muted.
+
+A run of up to 80 calls is drawn whole, every call in a fixed place. A larger run is drawn **focused on the running call**: the calls on the stack, the calls each of them has made so far, and every finished branch folded into one box (`fib(7)` with `→ 13 · 41 calls` inside). A stack deeper than 14 keeps its top 3 and bottom 10 calls and folds the middle into one box (`⋮ 40 calls`). Either way the number of boxes stays small however deep the recursion goes. The tree scrolls inside the card, which scrolls to keep the running call in view.
+
+The **Stack view** lists the calls on the stack, running on top, each as a row: the function, its arguments with their names (`root = 3`), `returns 0` on its return step, and its state at the right. No arrows. Deeper than 8, it shows the top 5, a `⋮ N more calls` row, and the bottom 2.
+
+#### The call-stack card
+Titled `calls` with the stack icon and `call stack · N`. One row per live frame, running on top: the call (`dfs(2)`: its arguments that are not containers, since containers have cards of their own), then what the call is working through, a short note, and its state (running, waiting, returning).
+
+- **Neighbours.** A call is about the node its first pointer parameter holds. Its neighbours are that node's primary links in field order (a graph's neighbour list, a tree's children, a list's `next`), drawn as chips. While the call runs, the neighbour one of its own pointers is on is being checked (blue), and the ones before it are checked (muted); the note says `checking 4`. While it waits, the neighbour the call above it is about is waited on (dashed); the note says `waiting on dfs(4)`. At its return step every chip is muted.
+- **No node.** A call about no node (backtracking over an array) shows its own working values instead (`i = 1`).
+
+A frame that just began (in the step diff's `pushed`) arrives with a `--success` border and its callers glide down; a returning frame is `--done` for its return step and then fades off the top. Deeper than 8, the card shows the top 5, a `⋮ N more calls` row, and the bottom 2.
+
+The structure card above follows along through the pointers ([Section 6.5](#65-linked-structures-drawing)): the running call's node is current, the neighbour being checked has a dashed ring, and the edge between them is blue.
 
 The state panel's call list folds the same way: a stack deeper than 8 frames shows the 6 frames at the top (the running frame first), then `… N more calls` (which unfolds on click), then the bottom frame.
 
@@ -393,8 +429,12 @@ Planned for later versions, not designed here:
 
 > **Q10. Why lay out linked structures from the whole trace, when every step is a snapshot?** A layout computed per step would move every node whenever a link changed: reversing a list would redraw it backwards at each step, and the user would lose track of which node is which. Fixed places make the change visible as the one thing that moved. The layout is still pure (a function of the trace, computed once), it never replays steps to build state, and every node, edge, and label drawn at step N comes from step N. A tree whose shape changes is the one case laid out per step, because fixed places would overlap.
 
-> **Q11. Why a recursion tree instead of only a call stack?** A stack shows the calls in progress, but recursion is understood by its branching: which calls a call made, what each returned, and where the base cases are. The tree shows all of that and still contains the stack, as the highlighted path from the root to the running call. The state panel keeps the plain call list for the locals of each frame.
+> **Q11. Why a recursion tree instead of only a call stack?** A stack shows the calls in progress, but recursion that returns values is understood by its branching: which calls a call made, what each returned, and where the base cases are. The tree shows all of that and still contains the stack, as the highlighted path from the root to the running call; the card's Stack view is there for when only the stack matters. The state panel keeps the plain call list for the locals of each frame.
 
 > **Q12. How does a deep or wide recursion stay readable?** By folding, not shrinking. Up to 80 calls fit whole. Beyond that only the path to the running call is drawn in full; a finished branch is one box with its result and its size, and the middle of a very deep path is one `⋮` box. The number of boxes grows with the depth shown, not the size of the run, so `fib(25)` draws about as many boxes as `fib(10)`.
 
 > **Q13. Why framer-motion instead of CSS transitions?** CSS can fade a box in, but it cannot fade out an element React has already removed, glide an item to a new place in a list, or draw an SVG path in. framer-motion's `AnimatePresence` and `layout` do those three, and it was already approved. CSS still does the flashes.
+
+> **Q14. Why two calls cards, chosen by return value?** A call that returns a value hands its answer up to its caller, and the tree is where that hand-off shows: each box holds its result, and the return-to-caller arrow shows it moving up. A call that returns nothing (a void DFS, a flood fill, backtracking) does its work on data structures instead; its tree would be a column of boxes with nothing inside them. What matters there is where each call is in its own loop (which neighbour it is checking, which call it is waiting on), so the call-stack card shows that, next to the structure it is walking. The trace already says which is which: a void call's return step has `return_value: null`.
+
+> **Q15. Why does "being checked" use the last-declared pointer?** The frontend sees only pointers, never the loop that set them. In the searches it is meant for, the pointer that walks the neighbours is declared inside the loop, after the pointer to the node being expanded (`for (Node* nb : node->neighbors)`, or `curr` then `neighbor`), so it is the last one. When that pointer's node is linked from another pointer's node, the pair reads as "expanding this node, looking at that neighbour". When it is not, nothing is marked as checked, which is wrong only by saying less. A hint from the adapter could replace the guess later.

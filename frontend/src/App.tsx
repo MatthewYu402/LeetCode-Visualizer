@@ -106,7 +106,7 @@ export function App() {
                 label="Resize visual panel"
                 first={
                   <section className="panel panel-canvas" aria-label="Visual">
-                    <VisualPanel trace={trace} step={step} diff={stepDiff} notice={notice} runKeys={RUN_KEYS} />
+                    <VisualPanel trace={trace} step={step} diff={stepDiff} notice={notice} runKeys={RUN_KEYS} showCalls={showCalls} />
                   </section>
                 }
                 second={
