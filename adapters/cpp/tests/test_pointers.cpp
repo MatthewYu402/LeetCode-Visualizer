@@ -318,7 +318,7 @@ int main() {
     check("the returned node keeps the id it had in the steps", result, R"({"kind": "ref", "id": "n2"})");
     check_true("the result heap holds only what the result reaches", result_heap.size() == 1 && result_heap.contains("n2"));
     check("the document carries result and result_heap", trace::build_document(result, result_heap),
-          R"({"version": "0.7", "language": "cpp", "problem": {"method": "f", "params": [], "returns": {"type": "ListNode"}, "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"head": {"kind": "ref", "id": "n1"}}}], "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}}], "result": {"kind": "ref", "id": "n2"}, "result_heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
+          R"({"version": "0.8", "language": "cpp", "problem": {"method": "f", "params": [], "returns": {"type": "ListNode"}, "input": {}}, "steps": [{"step": 0, "frames": [{"id": "f1", "function": "f", "line": 1, "locals": {"head": {"kind": "ref", "id": "n1"}}}], "heap": {"n1": {"kind": "object", "type": "ListNode", "fields": {"val": 1, "next": {"kind": "ref", "id": "n2"}}}, "n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}}], "result": {"kind": "ref", "id": "n2"}, "result_heap": {"n2": {"kind": "object", "type": "ListNode", "fields": {"val": 2, "next": null}}}})");
 
     ListNode *nothing = nullptr;
     trace::Heap empty_heap;
