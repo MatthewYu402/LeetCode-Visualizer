@@ -1,29 +1,52 @@
-/* Theme tokens: GitHub dark. Every colour in the app comes from here, including the
-   Monaco theme, which reads these variables at startup (src/editor/monaco.ts).
-   Keep values hex or rgb(a): Monaco needs them converted to hex. */
+/* Theme tokens: the dark theme of the redesign (claude/redesign-decisions.md). Every colour in
+   the app comes from here, including the Monaco theme, which reads these variables at startup
+   (src/editor/monaco.ts). Keep values hex or rgb(a): Monaco needs them converted to hex. */
 :root {
-  --bg: #0d1117;
-  --bg-subtle: #161b22;
-  --bg-inset: #010409;
-  --border: #30363d;
-  --fg: #e6edf3;
-  --fg-muted: #7d8590;
-  --accent: #2f81f7;
-  --success: #3fb950;
-  --attention: #d29922;
-  --danger: #f85149;
-  --done: #a371f7;
-  --line-highlight: rgba(56, 139, 253, 0.15);
+  /* Surfaces, from the page down to the inside of a control. */
+  --bg: #0b0e14;            /* page and canvas */
+  --bg-subtle: #0f131b;     /* panels and bars */
+  --bg-raised: #121722;     /* cards on the canvas, tables */
+  --bg-inset: #0d1118;      /* editor, inputs, cells */
+  --bg-control: #161c28;    /* secondary buttons */
+  --bg-control-on: #1f2838; /* a pressed segment, the play button */
+  --grid-dot: #252c3a;      /* the canvas's dot grid */
 
-  /* Editor syntax colours (GitHub dark), used only by the Monaco theme. */
-  --syntax-keyword: #ff7b72;
-  --syntax-string: #a5d6ff;
-  --syntax-number: #79c0ff;
-  --syntax-comment: #8b949e;
-  --syntax-type: #ffa657;
+  /* Lines. */
+  --border: #1f2633;        /* cards and tables */
+  --border-strong: #262e3d; /* controls and cells */
+  --border-subtle: #1a2030; /* between panels */
+  --edge: #4a556b;          /* arrows and tree edges */
 
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* Text. */
+  --fg: #e4e8f0;
+  --fg-soft: #c6cedd;
+  --fg-muted: #8a93a6;
+  --fg-faint: #5a6479;      /* placeholders, punctuation */
+
+  /* Meaning. Slightly desaturated so the page stays calm. */
+  --accent: #7aa5f5;        /* current, focus, primary */
+  --accent-strong: #5f86cc; /* primary while busy */
+  --accent-fg: #9dbdf8;     /* accent text on dark */
+  --on-accent: #0b0e14;     /* text on an accent fill */
+  --success: #5cc08a;       /* diff: added; a true condition */
+  --success-fg: #8fd8ad;
+  --attention: #d9ab5c;     /* diff: changed or moved */
+  --danger: #e07a7a;        /* errors; a false condition */
+  --danger-fg: #eeb0b0;
+  --done: #a995e8;          /* result, returning */
+  --done-fg: #cfc3f5;
+  --line-highlight: rgba(122, 165, 245, 0.1);
+
+  /* Editor syntax colours, used only by the Monaco theme. */
+  --syntax-keyword: #b4a0ec;
+  --syntax-string: #9ccfa8;
+  --syntax-number: #e6b673;
+  --syntax-comment: #5f6b80;
+  --syntax-type: #7fc8c0;
+
+  /* Geist and Geist Mono are bundled (@fontsource-variable, imported in main.tsx). */
+  --font-ui: "Geist Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   color-scheme: dark;
 }

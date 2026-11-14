@@ -13,6 +13,7 @@ export interface PlayerState {
 export type PlayerAction =
   | { type: "reset"; count: number }
   | { type: "first" }
+  | { type: "restart" }
   | { type: "prev" }
   | { type: "next" }
   | { type: "last" }
@@ -38,6 +39,10 @@ export function playerReducer(s: PlayerState, a: PlayerAction): PlayerState {
       return initialPlayer(a.count);
     case "first":
       return goTo(s, 0, false);
+    case "restart":
+      // Back to step 0 of the same trace, playing. The code does not run again. A jump: no diff.
+      if (s.count === 0) return s;
+      return { ...s, index: 0, cameFrom: null, playing: s.count > 1 };
     case "prev":
       return goTo(s, s.index - 1, false);
     case "next":

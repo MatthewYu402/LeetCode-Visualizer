@@ -30,13 +30,13 @@ function inputs(over: Partial<Inputs> = {}): Inputs {
     run: { status: "idle" },
     chooseMethod: () => {},
     setValue: () => {},
-    fillFromExample: async () => null,
+    fillFromExample: async () => ({ ok: true, filled: [] }),
     start: () => {},
     ...over,
   };
 }
 
-const html = (i: Inputs) => renderToStaticMarkup(<InputsPanel inputs={i} />);
+const html = (i: Inputs, example?: Parameters<typeof InputsPanel>[0]["example"]) => renderToStaticMarkup(<InputsPanel inputs={i} example={example} />);
 
 describe("InputsPanel", () => {
   it("one labeled field per parameter, with its type and value", () => {
@@ -54,10 +54,37 @@ describe("InputsPanel", () => {
     expect(out).toContain("helper(a)");
   });
 
-  it("Run is disabled, with the reason, until the fields are filled", () => {
+  it("says why Run code is disabled, but has no Run button of its own (it is in the top bar)", () => {
     const out = html(inputs({ blocked: "Fill in target." }));
-    expect(out).toMatch(/<button type="submit"[^>]*disabled=""/);
     expect(out).toContain("Fill in target.");
+    expect(out).not.toContain('type="submit"');
+    expect(out).not.toContain("Run code");
+  });
+
+  it("no reason while a run is going: the top bar's button shows it", () => {
+    expect(html(inputs({ blocked: "Running…", run: { status: "running" } }))).not.toContain("Running…");
+  });
+
+  it("a finished run adds nothing to the panel", () => {
+    const done: RunState = { status: "done", result: { trace: { version: "0.8", language: "x", problem: { method: "f", params: [], input: {} }, steps: [] }, output: "hi", warnings: ["a note"] } };
+    const out = html(inputs({ run: done }));
+    expect(out).not.toContain("steps");
+    expect(out).not.toContain("a note");
+  });
+
+  it("the starter's example is ghost text: in the fields of its method, and in the example box", () => {
+    const example = { method: "twoSum", values: { nums: "[2,7,11,15]", target: "9" }, text: "Input: nums = [2,7,11,15], target = 9\nOutput: [0,1]" };
+    const out = html(inputs({ values: { nums: "", target: "" } }), example);
+    expect(out).toContain('placeholder="[2,7,11,15]"');
+    expect(out).toContain('placeholder="9"');
+    expect(out).toContain("Output: [0,1]");
+    // Another method keeps the type's own placeholder.
+    const other = html(inputs({ method: helper, signature: { methods: [helper], method: "helper" }, values: { a: "" } }), example);
+    expect(other).not.toContain('placeholder="[2,7,11,15]"');
+  });
+
+  it("Fill fields stays under the example box, disabled while it is empty", () => {
+    expect(html(inputs())).toMatch(/<button type="button"[^>]*disabled=""[^>]*>Fill fields<\/button>/);
   });
 
   it("a failed run shows its stage and the message", () => {

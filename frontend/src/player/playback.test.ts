@@ -17,6 +17,13 @@ describe("playback", () => {
     expect(s).toMatchObject({ index: 0, cameFrom: null, playing: true });
   });
 
+  it("Restart goes back to step 0 of the same trace and plays, with no diff", () => {
+    const s = run(nine, { type: "next" }, { type: "next" }, { type: "next" }, { type: "restart" });
+    expect(s).toMatchObject({ count: 9, index: 0, cameFrom: null, playing: true });
+    expect(run(initialPlayer(0), { type: "restart" })).toEqual(initialPlayer(0));
+    expect(run(initialPlayer(1), { type: "restart" })).toMatchObject({ index: 0, playing: false });
+  });
+
   it("Pause stops where it is and Run continues from there", () => {
     let s = run(nine, { type: "toggle" }, { type: "tick" }, { type: "tick" }, { type: "toggle" });
     expect(s).toMatchObject({ index: 2, playing: false });

@@ -11,6 +11,8 @@ export type RunState =
   | { status: "done"; result: RunResult }
   | { status: "failed"; error: ApiError };
 
+export type FillResult = { ok: true; filled: string[] } | { ok: false; error: string };
+
 export interface Inputs {
   /** null until the first signature arrives. */
   signature: Signature | null;
@@ -23,8 +25,8 @@ export interface Inputs {
   run: RunState;
   chooseMethod: (name: string) => void;
   setValue: (name: string, value: string) => void;
-  /** Fills the fields from a pasted LeetCode example. Resolves to an error message, or null. */
-  fillFromExample: (text: string) => Promise<string | null>;
+  /** Fills the fields from a pasted LeetCode example. Resolves to the names it filled, or an error message. */
+  fillFromExample: (text: string) => Promise<FillResult>;
   start: () => void;
 }
 
@@ -67,15 +69,15 @@ export function useInputs(source: string, enabled: boolean): Inputs {
   const setValue = useCallback((name: string, value: string) => setValues((v) => ({ ...v, [name]: value })), []);
 
   const fillFromExample = useCallback(
-    async (text: string) => {
+    async (text: string): Promise<FillResult> => {
       const answer = await signature(source, text);
-      if (!answer.ok) return answer.error.message;
+      if (!answer.ok) return { ok: false, error: answer.error.message };
       setSig(answer.value);
       const target = fieldsFor(chooseMethod(answer.value, chosen));
       const filled = valuesFromExample(target, answer.value.fields ?? {});
-      if (Object.keys(filled).length === 0) return "None of the example's names match this method's parameters.";
+      if (Object.keys(filled).length === 0) return { ok: false, error: "None of the example's names match this method's parameters." };
       setValues((v) => ({ ...v, ...filled }));
-      return null;
+      return { ok: true, filled: target.map((f) => f.name).filter((n) => n in filled) };
     },
     [source, chosen],
   );

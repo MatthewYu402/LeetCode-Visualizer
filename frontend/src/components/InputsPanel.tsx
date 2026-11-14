@@ -1,21 +1,33 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Inputs } from "../api/useInputs";
 
+interface Props {
+  inputs: Inputs;
+  /** Placeholder (ghost) text by field name, for the method named here: the starter's example. */
+  example?: { method: string; values: Record<string, string>; text: string };
+}
+
+type Note = { tone: "ok" | "info" | "error"; text: string } | null;
+
 /**
- * The input form: one field per parameter of the chosen method, a box to paste
- * a LeetCode example into the fields, and Run. Functional only, no visual
- * design yet (docs/frontend.md).
+ * The inputs: one field per parameter of the chosen method, and a box for a LeetCode example
+ * as LeetCode writes it. Pasting into the box fills the fields at once; "Fill fields" is for
+ * edits typed by hand. Run code is in the top bar; this panel says why it is disabled, and
+ * shows a failed run's error under the inputs that caused it.
  */
-export function InputsPanel({ inputs }: { inputs: Inputs }) {
-  const [example, setExample] = useState("");
-  const [fillMessage, setFillMessage] = useState<string | null>(null);
+export function InputsPanel({ inputs, example }: Props) {
+  const [text, setText] = useState("");
+  const [note, setNote] = useState<Note>(null);
+  const pasted = useRef(false);
   const { signature, method, fields, values, blocked, run } = inputs;
   const methods = signature?.methods ?? [];
+  const ghost = example && method?.name === example.method ? example.values : {};
 
-  const fill = async () => {
-    setFillMessage(null);
-    const problem = await inputs.fillFromExample(example);
-    setFillMessage(problem ?? "Filled.");
+  const fill = async (from: string, how: "paste" | "button") => {
+    if (!from.trim()) return;
+    const answer = await inputs.fillFromExample(from);
+    if (!answer.ok) setNote({ tone: "error", text: answer.error });
+    else setNote({ tone: "ok", text: `${how === "paste" ? "Pasted, so " : ""}${names(answer.filled)} ${answer.filled.length === 1 ? "was" : "were"} filled` });
   };
 
   return (
@@ -27,6 +39,11 @@ export function InputsPanel({ inputs }: { inputs: Inputs }) {
         inputs.start();
       }}
     >
+      <header className="panel-header">
+        <h2 className="panel-heading">Inputs</h2>
+        {method && <span className="panel-meta">{method.name}</span>}
+      </header>
+
       {inputs.signatureError && signature && (
         <p className="notice notice-error" role="alert">
           {inputs.signatureError.message}
@@ -34,9 +51,11 @@ export function InputsPanel({ inputs }: { inputs: Inputs }) {
       )}
 
       {methods.length > 1 && (
-        <label className="inputs-row">
-          <span className="inputs-label">Method</span>
-          <select value={method?.name ?? ""} onChange={(e) => inputs.chooseMethod(e.target.value)} aria-label="Method">
+        <label className="field">
+          <span className="field-label">
+            <span className="field-name field-name-plain">Method</span>
+          </span>
+          <select className="field-input" value={method?.name ?? ""} onChange={(e) => inputs.chooseMethod(e.target.value)} aria-label="Method">
             {methods.map((m) => (
               <option key={m.name} value={m.name} disabled={!m.readable} title={m.readable ? undefined : m.note}>
                 {m.name}({m.params.map((p) => p.name).join(", ")})
@@ -47,79 +66,95 @@ export function InputsPanel({ inputs }: { inputs: Inputs }) {
       )}
       {method && !method.readable && <p className="notice notice-error">{method.note}</p>}
 
-      {fields.map((f) => (
-        <label key={f.name} className="inputs-row">
-          <span className="inputs-label">
-            <span className="inputs-name">{f.name}</span>{" "}
-            <span className="inputs-type">{f.optional ? "optional" : f.type}</span>
-          </span>
-          <input
-            className="inputs-value"
-            value={values[f.name] ?? ""}
-            placeholder={f.placeholder}
-            spellCheck={false}
-            autoComplete="off"
-            aria-label={`${f.name} (${f.optional ? "optional" : f.type})`}
-            onChange={(e) => inputs.setValue(f.name, e.target.value)}
-          />
-        </label>
-      ))}
+      <div className="fields">
+        {fields.map((f) => (
+          <label key={f.name} className="field">
+            <span className="field-label">
+              <span className="field-name">{f.name}</span>
+              <span className="field-type">{f.optional ? "optional" : f.type}</span>
+            </span>
+            <input
+              className="field-input"
+              value={values[f.name] ?? ""}
+              placeholder={ghost[f.name] ?? f.placeholder}
+              spellCheck={false}
+              autoComplete="off"
+              aria-label={`${f.name} (${f.optional ? "optional" : f.type})`}
+              onChange={(e) => inputs.setValue(f.name, e.target.value)}
+            />
+          </label>
+        ))}
+      </div>
 
-      <details className="inputs-example">
-        <summary>Paste a LeetCode example</summary>
+      <div className="divider-label">
+        <span>or paste a LeetCode example</span>
+      </div>
+
+      <div className="example">
         <textarea
-          value={example}
-          onChange={(e) => setExample(e.target.value)}
-          placeholder={"Input: nums = [2,7,11,15], target = 9\nOutput: [0,1]"}
+          className="field-input example-box"
+          value={text}
+          onPaste={() => {
+            pasted.current = true;
+          }}
+          onChange={(e) => {
+            const next = e.target.value;
+            setText(next);
+            if (pasted.current) {
+              pasted.current = false;
+              void fill(next, "paste");
+            } else {
+              setNote(next.trim() ? { tone: "info", text: "Edited by hand. Fill fields to update them." } : null);
+            }
+          }}
+          placeholder={example?.text ?? "Input: nums = [2,7,11,15], target = 9\nOutput: [0,1]"}
           rows={3}
           spellCheck={false}
           aria-label="LeetCode example"
         />
-        <button type="button" className="btn" onClick={() => void fill()} disabled={!example.trim()}>
-          Fill fields
-        </button>
-        {fillMessage && <span className="inputs-status">{fillMessage}</span>}
-      </details>
-
-      <div className="inputs-row">
-        <button type="submit" className="btn btn-primary" disabled={blocked !== null} title={blocked ?? "Trace this Solution on these inputs"}>
-          Run code
-        </button>
-        <span className="inputs-status" aria-live="polite">
-          {run.status === "running" ? "Running in the sandbox…" : blocked && blocked !== "Running…" ? blocked : ""}
-        </span>
+        <div className="example-actions">
+          <button type="button" className="control" onClick={() => void fill(text, "button")} disabled={!text.trim()}>
+            Fill fields
+          </button>
+          {note && (
+            <span className={`example-note tone-${note.tone}`} role={note.tone === "error" ? "alert" : undefined}>
+              {note.tone === "ok" && (
+                <svg className="icon-stroke" aria-hidden="true" width="12" height="12" viewBox="0 0 12 12">
+                  <path d="M2 6.5 4.8 9 10 3" />
+                </svg>
+              )}
+              {note.text}
+            </span>
+          )}
+        </div>
       </div>
 
-      <RunOutcome run={run} />
+      <div className="inputs-foot">
+        {blocked && run.status !== "running" && <p className="inputs-status">{blocked}</p>}
+        <RunError run={run} />
+      </div>
     </form>
   );
 }
 
-function RunOutcome({ run }: { run: Inputs["run"] }) {
-  if (run.status === "failed") {
-    return (
-      <div className="notice notice-error" role="alert">
-        <strong>{STAGE[run.error.stage] ?? run.error.stage}</strong>
-        <pre className="inputs-pre">{run.error.message}</pre>
-      </div>
-    );
-  }
-  if (run.status !== "done") return null;
-  const { trace, output, warnings } = run.result;
+/** "nums", "nums and target", "a, b and c". */
+function names(list: string[]): string {
+  if (list.length <= 1) return list.join("");
+  return `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+}
+
+function RunError({ run }: { run: Inputs["run"] }) {
+  if (run.status !== "failed") return null;
   return (
-    <div className="notice">
-      <p>
-        {trace.steps.length} steps{trace.truncated ? ", stopped at the step limit" : ""}.
-      </p>
-      {warnings.map((w) => (
-        <p key={w}>Note: {w}</p>
-      ))}
-      {output.trim() && (
-        <>
-          <p>The program printed:</p>
-          <pre className="inputs-pre">{output}</pre>
-        </>
-      )}
+    <div className="error-card" role="alert">
+      <div className="error-title">
+        <svg className="icon-stroke" aria-hidden="true" width="14" height="14" viewBox="0 0 14 14">
+          <circle cx="7" cy="7" r="6" />
+          <path d="M7 4v3.6M7 10h0" />
+        </svg>
+        {STAGE[run.error.stage] ?? run.error.stage}
+      </div>
+      <pre className="error-text">{run.error.message}</pre>
     </div>
   );
 }

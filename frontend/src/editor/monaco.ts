@@ -10,9 +10,9 @@ import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 loader.config({ monaco });
 
-export const THEME = "github-dark";
+export const THEME = "visualizer-dark";
 const TRANSPARENT = "#00000000";
-export const MONO_FONT = "ui-monospace, SFMono-Regular, Menlo, monospace";
+export const MONO_FONT = "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 let defined = false;
 
@@ -21,7 +21,7 @@ export function cssVarHex(name: string): string {
   return toHex(getComputedStyle(document.documentElement).getPropertyValue(name));
 }
 
-/** Define the GitHub dark theme from the :root CSS variables. Safe to call more than once. */
+/** Define the editor theme from the :root CSS variables. Safe to call more than once. */
 export function defineTheme(m: typeof monaco): void {
   if (defined) return;
   defined = true;
@@ -41,19 +41,23 @@ export function defineTheme(m: typeof monaco): void {
       { token: "type.identifier", foreground: bare("--syntax-type") },
     ],
     colors: {
-      "editor.background": v("--bg"),
+      "editor.background": v("--bg-inset"),
       "editor.foreground": v("--fg"),
-      "editorLineNumber.foreground": v("--fg-muted"),
-      "editorLineNumber.activeForeground": v("--fg"),
+      "editorLineNumber.foreground": v("--edge"),
+      "editorLineNumber.activeForeground": v("--fg-soft"),
       "editorCursor.foreground": v("--accent"),
       // Monaco's own cursor-line highlight is switched off: the only highlighted line is the trace's.
       "editor.lineHighlightBackground": TRANSPARENT,
       "editor.lineHighlightBorder": TRANSPARENT,
       "editor.selectionBackground": `${v("--accent")}55`,
-      "editorIndentGuide.background1": v("--border"),
+      "editorIndentGuide.background1": v("--border-subtle"),
       "editorWidget.background": v("--bg-subtle"),
-      "editorWidget.border": v("--border"),
-      "scrollbarSlider.background": `${v("--border")}aa`,
+      "editorWidget.border": v("--border-strong"),
+      "scrollbarSlider.background": `${v("--border-strong")}aa`,
+      // Brackets stay punctuation-coloured: no rainbow pairs.
+      ...Object.fromEntries([1, 2, 3, 4, 5, 6].map((n) => [`editorBracketHighlight.foreground${n}`, v("--fg-muted")])),
+      "editorBracketMatch.background": TRANSPARENT,
+      "editorBracketMatch.border": v("--border-strong"),
     },
   });
 }

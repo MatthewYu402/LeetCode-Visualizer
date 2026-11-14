@@ -20,8 +20,9 @@ interface Props {
 export function StatePanel({ trace, step, index, diff }: Props) {
   if (!trace || !step) {
     return (
-      <div className="panel-body state">
-        <p className="notice">No trace loaded.</p>
+      <div className="panel-body state state-empty">
+        <h2 className="state-empty-title">No trace yet</h2>
+        <p className="state-empty-text">The step, the line running and the locals appear here once the code has run.</p>
       </div>
     );
   }

@@ -11,8 +11,10 @@ interface Props {
   trace: Trace | null;
   step: Step | null;
   diff: StepDiff | null;
-  /** Shown instead of the structures: a loader error, or the no-trace notice. */
+  /** Shown instead of the structures: a loader error, or why this language has no trace. */
   notice?: { text: string; tone: "info" | "error" };
+  /** The keys that run the code, for the empty state: ["⌘", "Enter"] or ["Ctrl", "Enter"]. */
+  runKeys?: string[];
 }
 
 /**
@@ -23,12 +25,26 @@ interface Props {
  * The layout of linked structures and the call tree are computed once per trace
  * (frontend/CLAUDE.md rule 2); everything drawn for a step comes from that step.
  */
-export function VisualPanel({ trace, step, diff, notice }: Props) {
+export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Enter"] }: Props) {
   const views = useMemo(() => {
     if (!trace) return null;
     const calls = callTree(trace);
     return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), nested: hasNestedCalls(calls) };
   }, [trace]);
+
+  if (!notice && !trace) {
+    return (
+      <div className="canvas canvas-empty">
+        <p className="empty-title">Run your code to see it here.</p>
+        <p className="empty-hint">
+          Use <span className="empty-strong">Run code</span> at the top right, or press
+          {runKeys.map((k) => (
+            <kbd key={k}>{k}</kbd>
+          ))}
+        </p>
+      </div>
+    );
+  }
 
   if (notice || !trace || !step || !views) {
     return (
