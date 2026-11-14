@@ -1,13 +1,13 @@
 # Frontend
-> **Status:** Draft v0.4 (reads trace format v0.8)
-> **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace the page opens on), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
+> **Status:** Draft v0.5 (reads trace format v0.8)
+> **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
 
-This document covers a single **sandbox page**. It opens on the Two Sum fixture, and with the API service running it traces the user's own Solution on their inputs ([Section 10.1](#101-inputs-and-runs)). It describes what exists in `frontend/` and the decisions behind it. Later pages are listed in [Section 12](#12-out-of-scope) and are only proposals.
+This document covers a single **sandbox page**. It opens on the bare Two Sum Solution with no trace, and with the API service running it traces the user's own Solution on their inputs ([Section 10.1](#101-inputs-and-runs)). It describes what exists in `frontend/` and the decisions behind it. Later pages are listed in [Section 12](#12-out-of-scope) and are only proposals.
 
 ```
-fixtures/two-sum.trace.json, or POST /api/run ──► loader ──► step player ──► code panel
+POST /api/run ──► loader ──► step player ──► code panel
                                                                        └───► diff ──► renderer registry ──► renderers
 ```
 
@@ -18,39 +18,41 @@ fixtures/two-sum.trace.json, or POST /api/run ──► loader ──► step pl
 | In | Out |
 |---|---|
 | One sandbox page at `/` | The home page |
-| Replaying `fixtures/two-sum.trace.json`, then the trace of each run | Visual design of the inputs panel |
+| Replaying the trace of each run | A light theme |
 | An inputs panel: one field per parameter, Run code through the API | Design problems (LRU Cache, Min Stack) |
 | Monaco code panel with the current line highlighted | Hint renderers (grid, adjacency list, intervals, ...) |
 | Renderers for every container kind, and a fallback for unknown kinds | The "view as" override UI |
 | Linked lists, trees, and graphs drawn from `heap`, with pointer labels | Objects that are not nodes (no `val`/`next`/`left`/`neighbors` shape) drawn as more than a node |
 | A recursion tree when calls nest, and a folding call list | |
 | Diff highlighting between adjacent steps, and motion (fade, glide, draw-in) | |
-| Playback: step, run, pause, scrub, speed, keyboard | Comparing two traces side by side |
+| Playback: restart, step, play, pause, scrub, speed, keyboard; Cmd/Ctrl + Enter runs the code | Comparing two traces side by side |
 | A language select that changes the editor mode | Sending the language anywhere |
 
 The first goal was to prove the shape of the frontend (loader, player, registry, diff) against a real trace before there was a backend; the inputs panel now feeds it real runs. Every piece is written against the contract, not against Two Sum, so a new fixture replays without code changes.
 
 ## 2. Page layout
-One screen, dark theme, no page scroll on a 1440×900 window. Panels are separated by thin borders (`--border`).
+One screen, dark theme, no page scroll on a 1440×900 window. Panels are separated by thin lines (`--border-subtle`). The design was agreed as mockups first (Geist and Geist Mono, a blue-tinted near-black, calm desaturated colours, rounded cards).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ TOOLBAR   language · title · first prev run/pause next last · Step 5/8   │
-│           scrubber · speed · which trace is showing                      │
+│ TOP BAR  logo · LeetCode Visualizer │ language · Call stack ◉   ☀ Run code │
 ├──────────────────────────────┬───────────────────────────────────────────┤
-│ CODE PANEL   (~40%)          │ VISUAL PANEL                              │
+│ CODE PANEL  "Code"       C++ │ CANVAS (dot grid)                         │
 │                              │   recursion tree (when calls nest)        │
 │   Monaco, editable           │   lists, trees, graphs from the heap      │
 │   step.line highlighted      │   one structure per other container local │
-│   (background + gutter)      │   array: boxes, indices, pointer markers  │
-│   scrolled into view         │   map: table · stack, queue, set: boxes   │
+│   (tint + 4px bar)           │                                           │
+│   scrolled into view         │   before a run: "Run your code to see it  │
+│                              │   here." and how to run it                │
 ├──────────────────────────────┼───────────────────────────────────────────┤
 │ INPUTS PANEL                 │ STATE PANEL                               │
-│   method (when several)      │   Step N of M · line L   [truncated]      │
+│   method (when several)      │   Step N of M   [truncated]               │
 │   one field per parameter    │   name · kind · value  (one row / local)  │
-│   paste a LeetCode example   │   result or "did not return" (last step)  │
-│   Run code · status · output │                                           │
-└──────────────────────────────┴───────────────────────────────────────────┘
+│   or paste a LeetCode example│   result or "did not return" (last step)  │
+│   Fill fields · why Run waits│   before a run: "No trace yet"            │
+├──────────────────────────────┴───────────────────────────────────────────┤
+│ PLAYBACK  Restart │ ◀ ▶ ▶ ⏭  Step 5 / 9  ──────●────────────  0.5× 1× 2× │
+└──────────────────────────────────────────────────────────────────────────┘
           ◄── drag ──►                        ▲ drag ▼
 ```
 
@@ -73,27 +75,25 @@ Every split is resizable by dragging the border between panels: the left / right
 | `render/layout.ts` | `layoutTrace(trace)`: a fixed place for every node of every linked structure ([Section 6.4](#64-linked-structures-layout)) | The whole trace, once |
 | `render/HeapView.tsx` | Draws the linked structures of one step: nodes, edges, pointer labels, highlights | One step, its heap diff, the layout |
 | `components/RecursionTree.tsx` | The recursion tree at one step, whole or focused ([Section 6.6](#66-recursion-tree)) | The call tree, one step |
-| `components/Toolbar.tsx` | Language select, playback buttons, counter, scrubber, speed | Player state |
+| `components/Toolbar.tsx` | The top bar: logo and name, language select, the call-stack switch, the theme button, Run code | Language, run state |
+| `components/PlaybackBar.tsx` | The bottom bar: Restart, previous, play/pause, next, last, the counter, the scrubber with a tick per step, speed | Player state |
 | `components/CodePanel.tsx` | Monaco with the line decoration | Source, `step.line` |
 | `components/VisualPanel.tsx` | The recursion tree, the linked structures, then one renderer per other container local, or a notice / error | One step, its diff, the per-trace layout and call tree |
 | `components/StatePanel.tsx` | The call stack (folded when deep) and the snapshot as a table, plus `result` on the last step | One step, its diff |
 | `components/Split.tsx` | A draggable split between two panels | Pointer events |
 | `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables | `theme.css` |
-| `editor/languages.ts` | Editor languages and the Java / Python starter templates | Nothing |
-| `fixtures.ts` | The example the page opens with: source and trace per editor language | `fixtures/` |
+| `editor/languages.ts` | Editor languages, the bare Two Sum starter in each, and Two Sum's example as placeholder text | Nothing |
 | `api/client.ts` | `signature()` and `run()`: the two API calls, answers as unions, the trace through the loader | The API |
 | `api/form.ts` | Fields for a method, placeholders, kept values, filling from an example, the run request | A signature |
 | `api/useInputs.ts` | The form's state: the signature re-read 400 ms after an edit, the method, the values, the run | Source |
-| `components/InputsPanel.tsx` | The form: method picker, one field per parameter, paste an example, Run code, the outcome | The form's state |
+| `components/InputsPanel.tsx` | The form: method picker, one field per parameter, an example box that fills the fields on paste, Fill fields, why Run code waits, a failed run's error | The form's state |
 
-The only module that knows which language is selected is `App.tsx`, and it uses that only to pick the editor mode, to ask `fixtures.ts` for the opening trace, and to enable the inputs (only C++ runs so far) ([Section 10](#10-language-select)).
+The only module that knows which language is selected is `App.tsx`, and it uses that only to pick the editor mode and the starter template, and to enable the inputs (only C++ runs so far) ([Section 10](#10-language-select)).
 
 ## 4. Loading traces
 
-#### Fixtures come straight from the repo
-`fixtures.ts` imports `fixtures/two-sum.trace.json` and `fixtures/two_sum_trace.cpp` with Vite's `?raw` suffix, so both arrive as text and nothing is copied into `frontend/`. `vite.config.ts` adds the repository root to `server.fs.allow` so the dev server may read outside `frontend/`.
-
-The trace is imported as text, not as a JSON module, so it goes through the same `JSON.parse` call in the loader that a response from the API will. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
+#### Traces come from runs; tests read the fixtures
+The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
 The loader accepts exactly `"0.8"` and rejects everything else with an error shown in the visual panel:
@@ -282,17 +282,19 @@ The player holds `{ index, cameFrom, playing }`. All transitions are a pure redu
 
 | Input | Effect |
 |---|---|
-| ⏮ First / Home | Pause, go to step 0 |
+| Restart | Go to step 0 of the same trace and play. The code does not run again |
+| Home | Pause, go to step 0 |
 | ◀ Previous / ← | Pause, go back one step (stays at 0) |
-| ▶ Run / Space | Start advancing from the **current** step. At the last step, restart from step 0 |
-| ⏸ Pause / Space | Stop where it is. Run again continues from there |
+| ▶ Play / Space | Start advancing from the **current** step. At the last step, restart from step 0 |
+| ⏸ Pause / Space | Stop where it is. Play again continues from there |
 | ▶ Next / → | Pause, go forward one step (stays at the last) |
 | ⏭ Last / End | Pause, go to the last step |
 | Scrubber | Pause, go to the chosen step |
 | Speed | 0.5×, 1×, 2×. 1× is 700 ms per step. Takes effect on the next tick |
 
-- Run advances one step per tick and **stops by itself at the last step**.
-- The counter reads `Step 5 / 8`: the zero-based index of the current step over the index of the last step, so Two Sum runs from `Step 0 / 8` to `Step 8 / 8`, matching the `step` field.
+- Play advances one step per tick and **stops by itself at the last step**.
+- The counter reads `Step 5 / 9`: steps counted from 1 over the number of steps, so a nine-step trace runs from `Step 1 / 9` to `Step 9 / 9`. The trace's `step` field counts from 0; the page adds one for people.
+- Cmd + Enter (Ctrl + Enter off the Mac) runs the code from anywhere, the editor included.
 - Keyboard shortcuts are ignored while focus is in the editor or in a form control, so typing a space in the code never toggles Run.
 - Every button has an `aria-label` and a tooltip (`title`) naming its shortcut.
 
@@ -309,52 +311,51 @@ The select (C++, Java, Python) is a **UI input**. It changes the Monaco language
 
 | Selected | Editor | Visual panel |
 |---|---|---|
-| C++ | The Two Sum source from `fixtures/` | The Two Sum trace |
-| Java / Python | A short starter `Solution` template | "No trace for this language yet: only C++ can run so far." The inputs are disabled |
+| C++ | The bare Two Sum `Solution` | "Run your code to see it here.", until a run |
+| Java / Python | The bare Two Sum `Solution` in that language | "Only C++ can run so far." The inputs are disabled |
 
-Switching back to C++ restores the fixture source and trace. The editor is editable. Editing does not change the trace until Run code is pressed again; until then the highlighted line still comes from `step.line`, so it may point at a different line of text. The toolbar says which trace is showing: the Two Sum example, or the last run.
-
-`fixtures.ts` is the only place a language maps to a trace.
+Switching language replaces the source with that language's starter. The editor is editable. Editing does not change the trace until Run code is pressed again; until then the highlighted line still comes from `step.line`, so it may point at a different line of text.
 
 ### 10.1 Inputs and runs
 
 The inputs panel turns the pasted Solution into a form ([`backend.md`](backend.md) §2.2):
 
 1. **The signature.** 400 ms after the source stops changing, `POST /api/signature` returns the public methods, each parameter's name and neutral type, and the method to preselect. A request still in flight when the source changes again is cancelled. If the new source cannot be read, the last good fields stay, with the error above them, so typing does not make the form flicker.
-2. **The fields.** One per parameter of the chosen method, labeled with its name and neutral type (`nums array<int>`), with LeetCode's notation for that type as the placeholder (`[1,2,3]`, `[3,9,20,null,null,15,7]`). An extra such as `pos` is an optional field. A method picker appears only when the Solution has several public methods. A value typed earlier is kept when the signature changes but the field still exists.
-3. **Paste a LeetCode example.** The whole example block from the problem page (`Input: ... Output: ...`) fills the fields: by name, or in order when none of the names match (Clone Graph's `adjList` for the parameter `node`), as the driver does.
-4. **Run code.** Disabled, with the reason, until every required field has a value. It sends the source, the method, and the fields to `POST /api/run`. A trace that comes back goes through the same loader as the fixture and replaces it in the player, which restarts at step 0. A failure shows its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. The program's output and the driver's notes are shown under the button.
-
-The panel is functional only. Its visual design comes later.
+2. **The fields.** One per parameter of the chosen method, labeled with its name and neutral type (`nums array<int>`), with LeetCode's notation for that type as the placeholder (`[1,2,3]`, `[3,9,20,null,null,15,7]`). For the starter's own method, `twoSum`, the placeholders are Two Sum's example (`[2,7,11,15]`, `9`), ghost text that goes as the user types. An extra such as `pos` is an optional field. A method picker appears only when the Solution has several public methods. A value typed earlier is kept when the signature changes but the field still exists.
+3. **Paste a LeetCode example.** Pasting the whole example block from the problem page (`Input: ... Output: ...`) into the box under the fields fills them at once: by name, or in order when none of the names match (Clone Graph's `adjList` for the parameter `node`), as the driver does. A note says which fields were filled. "Fill fields" under the box does the same for an example edited by hand.
+4. **Run code** is in the top bar (and Cmd/Ctrl + Enter). Disabled until every required field has a value; the inputs panel says why ("Fill in target."). It sends the source, the method, and the fields to `POST /api/run`, and shows a spinner meanwhile. A trace that comes back goes through the loader and replaces the last one in the player, which restarts at step 0. A failure shows a red card in the inputs panel with its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. A successful run adds nothing to the inputs panel: the canvas shows it.
 
 ## 11. Theme tokens
-GitHub dark. Every colour is a CSS variable on `:root` in `src/styles/theme.css`, and components use only the variables.
+A blue-tinted dark theme with calm, slightly desaturated colours. Every colour is a CSS variable on `:root` in `src/styles/theme.css`, and components use only the variables.
 
 | Token | Value | Used for |
 |---|---|---|
-| `--bg` | `#0d1117` | Canvas, editor background |
-| `--bg-subtle` | `#161b22` | Panels, toolbar |
-| `--bg-inset` | `#010409` | Boxes, table cells, inputs |
-| `--border` | `#30363d` | Panel borders, box borders |
-| `--fg` | `#e6edf3` | Text |
-| `--fg-muted` | `#7d8590` | Labels, indices, line numbers |
-| `--accent` | `#2f81f7` | Pointer markers, focus, the gutter marker |
-| `--success` | `#3fb950` | Diff: added |
-| `--attention` | `#d29922` | Diff: changed |
-| `--danger` | `#f85149` | Errors |
-| `--done` | `#a371f7` | The result row |
-| `--line-highlight` | `rgba(56, 139, 253, 0.15)` | The current line |
+| `--bg` | `#0b0e14` | Page and canvas |
+| `--bg-subtle` | `#0f131b` | Panels and bars |
+| `--bg-raised` | `#121722` | Cards, tables, secondary controls |
+| `--bg-inset` | `#0d1118` | Editor, inputs, cells |
+| `--bg-control`, `--bg-control-on` | `#161c28`, `#1f2838` | Secondary buttons; a pressed segment and the play button |
+| `--grid-dot` | `#252c3a` | The canvas's dot grid |
+| `--border`, `--border-strong`, `--border-subtle` | `#1f2633`, `#262e3d`, `#1a2030` | Cards and tables; controls and cells; between panels |
+| `--edge` | `#4a556b` | Arrows and edges, editor line numbers |
+| `--fg`, `--fg-soft`, `--fg-muted`, `--fg-faint` | `#e4e8f0`, `#c6cedd`, `#8a93a6`, `#5a6479` | Text, secondary text, labels, placeholders |
+| `--accent`, `--accent-strong`, `--accent-fg`, `--on-accent` | `#7aa5f5`, `#5f86cc`, `#9dbdf8`, `#0b0e14` | Current, focus, primary; primary while busy; accent text; text on accent |
+| `--success`, `--success-fg` | `#5cc08a`, `#8fd8ad` | Diff: added; a true condition |
+| `--attention` | `#d9ab5c` | Diff: changed or moved |
+| `--danger`, `--danger-fg` | `#e07a7a`, `#eeb0b0` | Errors; a false condition |
+| `--done`, `--done-fg` | `#a995e8`, `#cfc3f5` | Result, returning |
+| `--line-highlight` | `rgba(122, 165, 245, 0.1)` | The current line |
 
-Syntax colours for the editor are five extra variables in the same file (`--syntax-keyword`, `--syntax-string`, `--syntax-number`, `--syntax-comment`, `--syntax-type`), set to GitHub dark's values.
+Syntax colours for the editor are five extra variables in the same file (`--syntax-keyword`, `--syntax-string`, `--syntax-number`, `--syntax-comment`, `--syntax-type`), kept soft so the line highlight stays the loudest thing. Bracket pairs are not coloured.
 
 The Monaco theme (`monaco.editor.defineTheme`, base `vs-dark`) is built at startup by reading these variables with `getComputedStyle`, so the editor and the page cannot drift apart. Monaco accepts only hex colours, so `rgba(...)` values are converted to `#rrggbbaa` first.
 
-Fonts: the system UI stack for text, `ui-monospace, SFMono-Regular, Menlo, monospace` for code and values.
+Fonts: Geist for text and Geist Mono for code and values, bundled from npm (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`, SIL Open Font License) and imported in `main.tsx`, so no font is fetched from a CDN. The editor re-measures its glyphs once the fonts have loaded.
 
 ## 12. Out of scope
 Planned for later versions, not designed here:
 - The home page, and any routing.
-- The visual design of the inputs panel.
+- A light theme. The top bar's button is there, disabled, until it is designed.
 - Design problems (LRU Cache, Min Stack), whose example is a sequence of calls.
 - Several examples at once (one run and one trace each).
 - Hint renderers (grid, adjacency list, intervals, ...). The registry slot exists and is empty.

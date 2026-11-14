@@ -3,9 +3,8 @@ import { describe, expect, it } from "vitest";
 import twoSum from "../../../fixtures/two-sum.trace.json?raw";
 import { diff, diffValue } from "../trace/diff";
 import { loadTrace } from "../trace/loader";
-import { problemTitle, topFrame, type Trace, type Value } from "../trace/types";
+import { topFrame, type Trace, type Value } from "../trace/types";
 import maxDepthRaw from "../../../fixtures/max-depth.trace.json?raw";
-import { initialPlayer } from "../player/playback";
 import { StatePanel } from "./StatePanel";
 import { Toolbar } from "./Toolbar";
 import { VisualPanel } from "./VisualPanel";
@@ -182,32 +181,41 @@ describe("iterators", () => {
   });
 });
 
-describe("title", () => {
-  const toolbar = (title: string | null) =>
+describe("top bar", () => {
+  const bar = (over: Partial<Parameters<typeof Toolbar>[0]> = {}) =>
     renderToStaticMarkup(
       <Toolbar
         language="cpp"
         onLanguage={() => {}}
-        player={initialPlayer(10)}
-        dispatch={() => {}}
-        speed={1}
-        onSpeed={() => {}}
-        title={title}
-        notice="Showing the Two Sum example."
+        showCalls
+        onShowCalls={() => {}}
+        onRun={() => {}}
+        running={false}
+        blocked={null}
+        runShortcut="Ctrl Enter"
+        {...over}
       />,
     );
 
-  it("shows problem.method when problem.name is absent (the Two Sum fixture)", () => {
-    expect(trace.problem.name).toBeUndefined();
-    expect(toolbar(problemTitle(trace.problem))).toContain(">twoSum</h1>");
+  it("has the name, the language, the call-stack switch, and Run code", () => {
+    const html = bar();
+    expect(html).toContain("LeetCode Visualizer");
+    expect(html).toContain('<option value="cpp" selected="">C++</option>');
+    expect(html).toMatch(/role="switch" aria-checked="true"/);
+    expect(html).toContain("Run code");
+    expect(html).toContain("(Ctrl Enter)");
   });
 
-  it("shows problem.name when present", () => {
-    expect(toolbar(problemTitle({ ...trace.problem, name: "Two Sum" }))).toContain(">Two Sum</h1>");
+  it("Run code is disabled with the reason as its tooltip, and shows a spinner while running", () => {
+    expect(bar({ blocked: "Fill in target." })).toMatch(/disabled="" title="Fill in target\."/);
+    const running = bar({ running: true, blocked: "Running…" });
+    expect(running).toContain("Running…");
+    expect(running).toContain('class="spinner"');
+    expect(running).not.toMatch(/<button[^>]*class="run-button[^"]*"[^>]*disabled=""/);
   });
 
-  it("shows no title without a trace", () => {
-    expect(toolbar(null)).not.toContain("<h1");
+  it("the call-stack switch says when it is off", () => {
+    expect(bar({ showCalls: false })).toMatch(/role="switch" aria-checked="false"/);
   });
 });
 

@@ -19,7 +19,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 ## Status
 
-> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind, including pointers (`ref` and `object`), record steps, and write a trace file: a hand-instrumented Two Sum reproduces the golden trace. The frontend's sandbox page replays the Two Sum fixture. Update this table as pieces land.
+> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind, including pointers (`ref` and `object`), record steps, and write a trace file: a hand-instrumented Two Sum reproduces the golden trace. The frontend's sandbox page traces the user's Solution through the API and replays it. Update this table as pieces land.
 
 | Area | Status |
 |---|---|
@@ -37,7 +37,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.8: a renderer for every container kind, linked lists, trees, and graphs drawn from the heap with pointer labels and highlights, a recursion tree that folds large runs, a call list that folds deep stacks, and motion throughout |
-| Frontend: input form and real runs | Done, functional only (no visual design yet). One field per parameter of the chosen method, read from the pasted Solution; a pasted LeetCode example can fill them; Run code sends them to the API and replays the trace that comes back |
+| Frontend: input form and real runs | Done, redesigned. The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
 | Frontend: home page, hint renderers (grid, intervals, ...), "view as" | Planned |
 | API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
 
