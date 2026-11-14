@@ -147,11 +147,11 @@ Docker applies its limits to the host processes of a container. Under Docker's o
 
 | Limit | Docker's runtime | gVisor |
 |---|---|---|
-| `--memory 256m`, 512 MB touched | The program is killed (status 137). The container keeps running, with `OOMKilled` set | The whole sandbox ends (container exit 137, `OOMKilled` set) |
+| `--memory 256m`, 512 MB touched | The program is killed (status 137). The container keeps running, with `OOMKilled` set | On macOS (Colima, arm64) the whole sandbox ends (container exit 137, `OOMKilled` set). On the Linux CI runner (x86_64) only the program ends: `docker exec` returns 128 and the container keeps running |
 | `--pids-limit 64`, 200 forks | Forks fail with "Cannot fork". The container keeps running | The whole sandbox ends: gVisor's own threads count against the limit |
 | `--ulimit nproc=64` with `--pids-limit 1024`, 200 forks | (not used: it would count the user's processes on the whole host) | Forks fail. The container keeps running |
 
-So the pipeline uses `--ulimit nproc` for the process limit under gVisor, and keeps `--pids-limit` only as a ceiling on gVisor's threads. For memory, the sandbox ending is acceptable: the run had to stop anyway. After every run the pipeline asks Docker whether the container is still running. If not, the error says the sandbox was stopped, and names the memory limit when Docker reports `OOMKilled`, so the user sees why instead of "status 128".
+So the pipeline uses `--ulimit nproc` for the process limit under gVisor, and keeps `--pids-limit` only as a ceiling on gVisor's threads. For memory, the sandbox ending is acceptable: the run had to stop anyway. After every run the pipeline asks Docker whether the container is still running. If not, the error says the sandbox was stopped, and names the memory limit when Docker reports `OOMKilled`, so the user sees why instead of "status 128". If the container is still running and the program's `docker exec` returned exactly 128 (not 128 plus a signal number, which is how `sh` reports a signal), the shell was ended from outside, and the error names the memory limit the same way.
 
 ## 7. What is not here yet
 

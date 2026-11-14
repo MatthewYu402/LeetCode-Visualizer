@@ -70,6 +70,7 @@ class Ran:
     returncode: int     # 0 when it exited normally with 0
     signal: str         # "SIGSEGV", ... when a signal ended it, else ""
     output: str         # stdout and stderr ("" in a container: collect() reads it)
+    stopped: bool = False  # in a container: ended from outside its shell (gVisor's memory limit)
 
 
 def _signal_name(number):
@@ -449,6 +450,11 @@ s=$?; if [ $s -ne 0 ]; then cat stage.err >&2; [ $s -eq 137 ] && exit 21; exit 2
             self._still_running()  # 126 and up: killed, or the container itself is gone (gVisor's limits)
         if code > 128:
             return Ran(code, _signal_name(code - 128), "")
+        if code == 128:
+            # Not 128 + a signal number: the shell itself was ended while the
+            # container kept running. That is how gVisor's memory limit ends an
+            # exec'd program, since the pooled container outlives the run.
+            return Ran(code, "", "", stopped=True)
         return Ran(code, "", "")
 
     def _still_running(self):

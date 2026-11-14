@@ -180,6 +180,9 @@ def _stages(runner, work, program, source, source_name, timeout, compile_timeout
                             f"({stopped.detail}).", EXIT_RUN) from None
     trace_bytes, collected = runner.collect(TRACE_CAP)
     output = ran.output if collected is None else collected
+    if ran.stopped:
+        raise PipelineError("run", "The sandbox stopped the program before it wrote a trace, most likely for using more "
+                            f"than the memory limit ({limits.memory})." + _printed(output), EXIT_RUN)
     if ran.signal:
         why = ""
         if ran.signal == "SIGKILL" and sandbox not in (None, "none"):
