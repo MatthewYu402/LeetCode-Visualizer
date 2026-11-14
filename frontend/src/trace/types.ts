@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.7).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.8).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -118,7 +118,14 @@ export interface Frame {
   locals: Record<string, Value>;
   /** Present only in a return step, on the top frame. null for a function with no return value. */
   return_value?: Value;
+  /** Present only on the top frame, never in a return step: what its line evaluated after the step was taken, in order. Never empty. */
+  outcomes?: Outcome[];
 }
+
+/** One thing a line evaluated (spec §6, Outcomes). `code` and `target` are the user's text, shown as they are and never parsed. */
+export type Outcome =
+  | { kind: "condition"; code: string; value: boolean }
+  | { kind: "store"; code: string; target: string; value: Value };
 
 export interface Step {
   step: number;

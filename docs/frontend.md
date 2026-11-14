@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.4 (reads trace format v0.7)
+> **Status:** Draft v0.4 (reads trace format v0.8)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (the trace the page opens on), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -96,10 +96,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The trace is imported as text, not as a JSON module, so it goes through the same `JSON.parse` call in the loader that a response from the API will. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.7"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.8"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.7 only.
+Unsupported trace version "0.2". This frontend reads version 0.8 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.

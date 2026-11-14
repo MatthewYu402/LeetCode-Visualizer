@@ -142,7 +142,7 @@ describe("a deep recursion stays small", () => {
     steps.push({ step: steps.length, frames: [...frames], heap: {} });
   }
   // the helpers belong to the f above them: rebuild so each g is called from the f at its level
-  const trace: Trace = { version: "0.7", language: "x", problem: { method: "f", params: [], input: {} }, steps };
+  const trace: Trace = { version: "0.8", language: "x", problem: { method: "f", params: [], input: {} }, steps };
   const tree = callTree(trace);
   const lastStep = steps[steps.length - 1];
 

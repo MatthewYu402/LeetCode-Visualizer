@@ -19,9 +19,9 @@ Every file is always:
       iterators: an iterator's container names a local of its frame, and its
         position fits it (an index inside an array, list, deque, or string; a
         key present in a map, multimap, set, or multiset)
-      frames: only the top frame has return_value; frame ids are unique in a
-        step; an id keeps one function name for the whole run, and never comes
-        back after its call returned
+      frames: only the top frame has return_value or outcomes, and never
+        both; frame ids are unique in a step; an id keeps one function name
+        for the whole run, and never comes back after its call returned
 
 Options add checks:
   --equals FIXTURE    the parsed trace must equal the parsed fixture. The
@@ -216,7 +216,7 @@ def check_iterators(doc):
 
 
 def check_frames(doc):
-    """Frame rules from trace-format.md section 6, Frames and Return steps."""
+    """Frame rules from trace-format.md section 6: Frames, Return steps, and Outcomes."""
     function_of = {}   # frame id -> function name, for the whole run
     returned = set()   # ids whose call has ended: they must never appear again
     previous = []
@@ -229,6 +229,10 @@ def check_frames(doc):
         for depth, f in enumerate(frames):
             if "return_value" in f and depth != len(frames) - 1:
                 raise CheckError(f'{where}[{depth}]: "return_value" on a frame that is not the top one')
+            if "outcomes" in f and depth != len(frames) - 1:
+                raise CheckError(f'{where}[{depth}]: "outcomes" on a frame that is not the top one')
+            if "outcomes" in f and "return_value" in f:
+                raise CheckError(f'{where}[{depth}]: "outcomes" in a return step')
             if f["id"] in returned:
                 raise CheckError(f'{where}[{depth}]: frame "{f["id"]}" appears again after its call returned')
             known = function_of.setdefault(f["id"], f["function"])

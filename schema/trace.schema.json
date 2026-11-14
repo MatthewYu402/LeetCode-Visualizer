@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.7).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.8).",
   "type": "object",
   "required": [
     "version",
@@ -569,8 +569,73 @@
         "return_value": {
           "description": "Present only in a return step, on the top frame: the value this call returns. null for a function with no return value. Never a placeholder.",
           "$ref": "#/$defs/value"
+        },
+        "outcomes": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Present only on the top frame, never in a return step: what this frame's line evaluated after the step was taken, in order. Never empty.",
+          "items": {
+            "$ref": "#/$defs/outcome"
+          }
         }
       }
+    },
+    "outcome": {
+      "description": "One thing a line evaluated: a condition's result, or the value a store left in its target.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "code",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "condition"
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The condition as written in the user's source."
+            },
+            "value": {
+              "type": "boolean",
+              "description": "Which way the program went."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "code",
+            "target",
+            "value"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "store"
+            },
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The declaration, assignment, or increment as written in the user's source."
+            },
+            "target": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The stored-to expression as written: a name, an element, or a field."
+            },
+            "value": {
+              "$ref": "#/$defs/value",
+              "description": "The value the target holds after the store."
+            }
+          }
+        }
+      ]
     },
     "step": {
       "type": "object",

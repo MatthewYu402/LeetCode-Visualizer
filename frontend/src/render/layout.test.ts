@@ -64,7 +64,7 @@ describe("layout of a tree", () => {
     const step = (i: number, heap: Record<string, ObjectValue>): Step => ({ step: i, frames: [{ id: "f1", function: "invertTree", line: 1, locals: {} }], heap });
     const before = { n1: node(1, "n2", "n3"), n2: node(2, null, null), n3: node(3, null, null) };
     const after = { n1: node(1, "n3", "n2"), n2: node(2, null, null), n3: node(3, null, null) };
-    const t: Trace = { version: "0.7", language: "x", problem: { method: "invertTree", params: [], input: {} }, steps: [step(0, before), step(1, after)] };
+    const t: Trace = { version: "0.8", language: "x", problem: { method: "invertTree", params: [], input: {} }, steps: [step(0, before), step(1, after)] };
     const l = layoutTrace(t);
     expect(l.components[0].dynamic).toBe(true);
     const p0 = treeLayoutAt(before, l.components[0].nodes);

@@ -23,8 +23,8 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 | Area | Status |
 |---|---|
-| Trace format specification | Draft v0.7 |
-| JSON Schema + golden fixtures | v0.7, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking) |
+| Trace format specification | Draft v0.8 |
+| JSON Schema + golden fixtures | v0.8, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking) |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object`, and so do those objects held by value |
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
@@ -36,7 +36,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command. Without `--sandbox` it runs the code directly with a time limit |
 | Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.7: a renderer for every container kind, linked lists, trees, and graphs drawn from the heap with pointer labels and highlights, a recursion tree that folds large runs, a call list that folds deep stacks, and motion throughout |
+| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.8: a renderer for every container kind, linked lists, trees, and graphs drawn from the heap with pointer labels and highlights, a recursion tree that folds large runs, a call list that folds deep stacks, and motion throughout |
 | Frontend: input form and real runs | Done, functional only (no visual design yet). One field per parameter of the chosen method, read from the pasted Solution; a pasted LeetCode example can fill them; Run code sends them to the API and replays the trace that comes back |
 | Frontend: home page, hint renderers (grid, intervals, ...), "view as" | Planned |
 | API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
@@ -49,11 +49,11 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.7 |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.8 |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.7 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.7 |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.8 |
+| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.8 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
@@ -346,6 +346,12 @@ For linked structures (trees, linked lists, graphs) the trace uses Python Tutor'
 
 The frontend recognizes a tree by shape (an object with `val`, `left`, and `right`), or from a hint in the problem metadata such as "this parameter is a `TreeNode`". See [value model](docs/trace-format.md#5-the-value-model) and [steps](docs/trace-format.md#6-steps).
 
+A step is taken before its line runs, so the top frame can also carry `outcomes`: what its line evaluated once it ran, such as a condition that was false or the value a store left. The frontend shows them next to the line instead of guessing. See [outcomes](docs/trace-format.md#outcomes).
+
+```json
+"outcomes": [{"kind": "condition", "code": "numMap.count(complement)", "value": false}]
+```
+
 ---
 
 ## Language-agnostic design
@@ -423,7 +429,7 @@ Gaps in the trace format that the tracing work exposed. They are planned for a m
 2. **Member variables.** Fields on the `Solution` instance (memo tables, visited sets) have nowhere to go yet.
 3. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
 
-Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6. Iterators, which had no kind and were left out, are `iterator` values naming a local container since v0.7.
+Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6. Iterators, which had no kind and were left out, are `iterator` values naming a local container since v0.7. What a line evaluated, a condition's result or the value a store left, is the top frame's `outcomes` since v0.8.
 
 ---
 
@@ -537,7 +543,7 @@ Tentative. The architecture does not depend on these choices.
 
 ## Roadmap
 
-- [x] Trace format specification and JSON Schema (v0.7)
+- [x] Trace format specification and JSON Schema (v0.8)
 - [x] Tracing strategy docs (native, DAP)
 - [x] C++ serializers for every value kind, including pointers and by-value objects as `ref` and `object`
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum

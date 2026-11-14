@@ -67,7 +67,7 @@ Reads the Solution's public methods. Nothing is compiled or run, so this is answ
 `method` is optional (the driver then chooses as it does for the CLI). `timeout` is optional, in seconds, and at most 10. An empty field is left out, so an optional extra can stay blank.
 
 ```json
-{"trace": {"version": "0.7", "problem": {"method": "twoSum", ...}, "steps": [...], "result": {...}},
+{"trace": {"version": "0.8", "problem": {"method": "twoSum", ...}, "steps": [...], "result": {...}},
  "output": "what the program printed",
  "warnings": []}
 ```

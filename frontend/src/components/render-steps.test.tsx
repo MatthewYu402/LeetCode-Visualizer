@@ -211,7 +211,7 @@ describe("title", () => {
   });
 });
 
-describe("every v0.7 kind renders without crashing", () => {
+describe("every v0.8 kind renders without crashing", () => {
   const values: Record<string, Value> = {
     arr: { kind: "array", items: [1, { kind: "int", value: "9007199254740993" }] },
     lst: { kind: "list", items: [1, 2] },

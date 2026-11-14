@@ -26,7 +26,7 @@ describe("tagged numbers", () => {
 
   it("survives the loader", () => {
     const t = {
-      version: "0.7", language: "x", problem: { method: "f", params: [], input: {} },
+      version: "0.8", language: "x", problem: { method: "f", params: [], input: {} },
       steps: [{ step: 0, heap: {}, frames: [{ id: "f1", function: "f", line: 1, locals: { a: { kind: "int", value: "18446744073709551615" }, b: { kind: "float", value: "-Infinity" } } }] }],
       result: null,
     };
@@ -46,7 +46,7 @@ describe("formatValue", () => {
     expect(formatValue({ kind: "iterator", container: "numMap", end: true })).toBe("→ numMap.end()");
   });
 
-  it("formats every v0.7 kind compactly", () => {
+  it("formats every v0.8 kind compactly", () => {
     expect(formatValue({ kind: "multiset", items: [1, 1, 3] })).toBe("{1, 1, 3}");
     expect(formatValue({ kind: "multimap", entries: [[1, "a"], [1, "b"]] })).toBe('{1: "a", 1: "b"}');
     expect(formatValue({ kind: "array", items: [2, 7, 11, 15] })).toBe("[2, 7, 11, 15]");

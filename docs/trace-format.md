@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.7
+> **Status:** Draft v0.8
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.7",
+  "version": "0.8",
   "language": "cpp",
   "problem": { ... },
   "steps": [ ... ],
@@ -336,6 +336,7 @@ A step is one snapshot of program state: the call stack, and the objects every f
 | `line` | A line in the **user's original source**. In the top frame it is the line **about to execute** (a pre-execution snapshot). In every other frame it is the line whose call is in progress |
 | `locals` | Variables in scope in this call, name to value. Includes parameters |
 | `return_value` | Optional. Present only in a [return step](#return-steps), and only on the top frame: the value this call is returning. `null` for a function that returns no value |
+| `outcomes` | Optional. Present only on the top frame, never in a return step: what this frame's line [evaluated](#outcomes) after the step was taken, in order |
 
 ```json
 {
@@ -374,6 +375,36 @@ Every step is taken before its line runs, so a value being returned would never 
 
 A call that ends by an exception has no return step. Exceptions are rare in LeetCode solutions and the format does not model them yet.
 
+### Outcomes
+A step is taken before its line runs, so it shows what a line is about to do, never what the line did. The next step shows the new locals, but not why the program went where it went: a condition that was false leaves no trace of itself, and a store into `numMap[nums[i]]` changes a map without saying which entry the line wrote. The top frame's `outcomes` records what its line evaluated, so the frontend can show `if (numMap.count(complement))  →  false` without guessing.
+
+```json
+{"id": "f1", "function": "twoSum", "line": 7,
+ "locals": {"numMap": {"kind": "map", "entries": []}, "i": 0, "complement": 7},
+ "outcomes": [{"kind": "condition", "code": "numMap.count(complement)", "value": false}]}
+```
+
+Each outcome has a `kind`, the `code` it describes as written in the user's source, and a `value`:
+
+| `kind` | Recorded for | `value` | Other fields |
+|---|---|---|---|
+| `condition` | The condition of an `if`, `while`, `do`-`while`, or `for`, and the condition of `?:` | `true` or `false`: which way the program went | None |
+| `store` | A declaration with an initializer, an assignment, a compound assignment (`+=`, ...), and `++` / `--` | The value the target holds after the store | `target`: the stored-to expression as written (`complement`, `numMap[nums[i]]`, `node->next`) |
+
+```json
+"outcomes": [
+  {"kind": "store", "code": "int complement = target - nums[i]", "target": "complement", "value": 7}
+]
+```
+
+Rules:
+- **An outcome belongs to the most recent step, and that step's top frame is the frame that evaluated it.** The runtime adds it to the step it last recorded, once the line has run and before the next step is recorded. So step N stays drawable from step N alone. A callee's steps come between a call and its result, and every call ends with a step in its caller ([Return steps](#return-steps)), so an outcome evaluated after a call, as in `int left = maxDepth(root->left);` or `if (dfs(x))`, goes on that step.
+- **In order of evaluation.** A `for` line evaluates its initializer and its condition on the first pass, then its increment and its condition on later ones, so it can carry two outcomes. A line with two statements carries both.
+- **`code` and `target` are the user's text, verbatim.** They come from the source, like `function`, and are shown as they are. The frontend never parses them.
+- **A `value` is a value** ([Section 5](#5-the-value-model)), and a `ref` in one names an object in the step's heap, like a `ref` in `locals`.
+- **Present only when it says something**, like `return_value`: a step whose line evaluated nothing that is recorded has no `outcomes`, never an empty list. A return step has none: its `return_value` already says what the line produced.
+- **What is not recorded yet:** the results of calls (`numMap.count(x) → 1`), the parts of a condition that `&&` and `||` evaluated, and conditions of `switch`. The frontend shows such a line without a result.
+
 ### Snapshots, not events
 Each step is the **full state**, not a description of what happened.
 
@@ -399,7 +430,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.7",
+  "version": "0.8",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -497,6 +528,9 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.8**:
+  - Adds the optional `outcomes` on the top frame: the conditions and stores its line evaluated after the step was taken.
+  - Every valid v0.7 trace is still valid once its `version` is changed.
 - **v0.7**:
   - Adds the `iterator` kind: a container's local name and an `index`, a `key`, or `end`. Only directly in a frame's `locals`.
   - Every valid v0.6 trace is still valid once its `version` is changed.
@@ -594,3 +628,7 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q20. Why does an iterator name a local instead of pointing at the container's value directly?** Containers have no ids: a `vector` is written inline in `locals`, not in the heap, so there is nothing else to point at. Giving every container an id would be the larger change of container aliasing (an open question). A local's name is enough for the common cases (`auto it = m.find(x)`, `for (auto it = v.begin(); ...)`), and it costs nothing in the format.
 
 > **Q21. Why `key` for maps and sets instead of an index?** Map and set order is unspecified ([Section 8](#8-rules-for-adapter-authors)), and the frontend draws entries in whatever order the trace gives. An index into that order would mean nothing to a reader. A key identifies the entry whatever the order.
+
+> **Q22. Why record outcomes in the trace instead of working them out in the frontend?** A store could almost be inferred: compare the next step's locals. But a condition cannot. `while (i < j)` that was true and `if (x)` that was false both move to some next line, and only the source's structure says which branch that was, which the frontend would have to parse in every language. A store into a container, `numMap[nums[i]] = i`, changes the map without saying which key the line wrote, and a store a later line overwrote before the next step is lost. The adapter sees the value as it is computed, so it records the fact instead of the frontend guessing it.
+
+> **Q23. Why put an outcome on the step whose line produced it, instead of on the next step?** So a step can be drawn on its own (Key Insight 8). With the outcome on step N+1, drawing step N would need step N+1, and the last step before a truncation would have nothing to say. Writing it on step N costs the runtime one thing: the step it last recorded stays open until the next one begins.

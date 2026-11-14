@@ -1,5 +1,5 @@
 {
-  "version": "0.7",
+  "version": "0.8",
   "language": "cpp",
   "problem": {"method": "reverseList", "params": [{"name": "head", "type": "ListNode"}], "returns": {"type": "ListNode"}, "input": {"head": [1, 2, 3, 4, 5]}},
   "steps": [

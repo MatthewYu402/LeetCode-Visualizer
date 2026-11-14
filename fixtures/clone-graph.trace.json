@@ -1,5 +1,5 @@
 {
-  "version": "0.7",
+  "version": "0.8",
   "language": "cpp",
   "problem": {"method": "cloneGraph", "params": [{"name": "node", "type": "Node"}], "returns": {"type": "Node"}, "input": {"node": [[2, 4], [1, 3], [2, 4], [1, 3]]}},
   "steps": [

@@ -45,6 +45,7 @@ Each frame:
 | `line` | The first argument of the frame's latest `record` or `ret`. In the top frame, the line about to run; in a caller, the line whose call is in progress |
 | `locals` | One entry per `var(...)` argument of the frame's latest `record` or `ret`, read **now** |
 | `return_value` | Only in a return step, on the top frame: the value `ret` was given |
+| `outcomes` | *Planned* (spec v0.8, [Outcomes](../trace-format.md#outcomes)): what the top frame's line evaluated, added to the step after the line ran. Not written yet, which the spec allows: the field is optional |
 
 Two Sum calls no function of its own, so every one of its steps has one frame. A recursive solution has one frame per call level.
 
@@ -392,7 +393,7 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.7"`) |
+| `version` | Always | The `VERSION` constant (`"0.8"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `steps` | Always | `tracer.steps`, joined with `", "` |

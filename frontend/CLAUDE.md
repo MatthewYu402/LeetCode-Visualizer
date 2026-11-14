@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.7).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.8).
 
 Claude writes the frontend code; the author writes the adapter runtime and rewriter.
 
@@ -40,7 +40,7 @@ src/
 │   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.7")
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.8")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
