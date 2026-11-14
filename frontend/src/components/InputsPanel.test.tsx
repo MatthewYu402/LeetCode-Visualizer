@@ -66,7 +66,7 @@ describe("InputsPanel", () => {
   });
 
   it("a finished run adds nothing to the panel", () => {
-    const done: RunState = { status: "done", result: { trace: { version: "0.8", language: "x", problem: { method: "f", params: [], input: {} }, steps: [] }, output: "hi", warnings: ["a note"] } };
+    const done: RunState = { status: "done", result: { trace: { version: "0.8", language: "x", problem: { method: "f", params: [], input: {} }, steps: [] }, output: "hi", warnings: ["a note"] }, source: "" };
     const out = html(inputs({ run: done }));
     expect(out).not.toContain("steps");
     expect(out).not.toContain("a note");

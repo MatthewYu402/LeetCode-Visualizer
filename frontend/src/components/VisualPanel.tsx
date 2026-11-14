@@ -66,10 +66,11 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const hints = new Map<string, Hint>();
   for (const p of trace.problem.params) if (p.hint) hints.set(p.name, p.hint);
 
-  // The running frame's containers. Refs and objects are drawn by HeapView, as nodes and pointer labels.
+  // The running frame's containers. Refs and objects are drawn by LinkedCard, as nodes and pointer tags.
   const frame = topFrame(step);
   const { locals } = frame;
-  const drawnHere = (v: Value) => isContainer(v) && v.kind !== "ref" && v.kind !== "object";
+  // An iterator is a pointer marker on its container (rule 7), not a card of its own.
+  const drawnHere = (v: Value) => isContainer(v) && v.kind !== "ref" && v.kind !== "object" && v.kind !== "iterator";
   const current = Object.entries(locals).filter(([, v]) => drawnHere(v));
   const last = step.step === trace.steps.length - 1;
   const resultId = last ? refId(trace.result) : null;

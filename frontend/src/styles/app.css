@@ -1353,33 +1353,56 @@ kbd {
   color: var(--fg-muted);
 }
 
-/* The state panel's table (restyled in stage 4). */
-.state-table {
-  border-collapse: collapse;
-  font-family: var(--font-mono);
-  font-size: 13px;
+/* ---- State panel (components/StatePanel.tsx) ---- */
+
+.panel-body.state {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 24px 20px;
 }
 
-.state-table th {
-  color: var(--fg-muted);
-  font-weight: 500;
-  font-family: var(--font-ui);
-  font-size: 12px;
+.state-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-/* ---- State panel ---- */
-
-.state-header {
+.state-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-family: var(--font-mono);
-  font-size: 13px;
+  gap: 12px;
+}
+
+.state-step {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.state-step-of {
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+
+.state-progress {
+  width: 120px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.state-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 300ms ease-out;
 }
 
 .badge {
-  font-family: var(--font-ui);
   font-size: 11px;
   padding: 1px 8px;
   border-radius: 999px;
@@ -1390,94 +1413,200 @@ kbd {
   color: var(--attention);
 }
 
-/* Call stack: running frame first. */
-.call-stack {
-  list-style: none;
-  margin: 0 0 8px;
-  padding: 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.call-stack .frame {
+/* The running line: "Line i", the statement, an arrow, and what it produced. */
+.state-line {
+  min-height: 30px;
   display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.line-pill {
+  flex-shrink: 0;
+  padding: 2px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-control);
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.state-code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  color: var(--fg-soft);
+  animation: fade-up 240ms ease-out both;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.state-arrow {
+  flex-shrink: 0;
+}
+
+.state-arrow path {
+  fill: none;
+  stroke: var(--fg-faint);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.outcome-chip {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--chip-border, var(--border-strong));
+  background: var(--chip-bg, var(--bg-inset));
+  color: var(--chip-fg, var(--fg));
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  animation: fade-up 240ms ease-out both;
+}
+
+.outcome-chip.is-true {
+  --chip-border: color-mix(in srgb, var(--success) 50%, transparent);
+  --chip-bg: color-mix(in srgb, var(--success) 12%, var(--bg-inset));
+  --chip-fg: var(--success-fg);
+}
+
+.outcome-chip.is-false {
+  --chip-border: color-mix(in srgb, var(--danger) 40%, transparent);
+  --chip-bg: color-mix(in srgb, var(--danger) 8%, var(--bg-inset));
+  --chip-fg: color-mix(in srgb, var(--danger-fg) 80%, var(--fg-muted));
+}
+
+.outcome-chip.is-return {
+  --chip-border: color-mix(in srgb, var(--done) 50%, transparent);
+  --chip-bg: color-mix(in srgb, var(--done) 12%, var(--bg-inset));
+  --chip-fg: var(--done-fg);
+}
+
+.outcome-name {
+  color: var(--fg-muted);
+}
+
+/* Locals: a full-width rounded table. */
+.state-locals {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  padding: 2px 8px;
-  border-left: 2px solid var(--border);
+  min-width: 0;
+}
+
+.state-locals-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--fg-muted);
 }
 
-.call-stack .frame-top {
-  border-left-color: var(--accent);
-  color: var(--fg);
+.state-locals-fn {
+  font-family: var(--font-mono);
+  color: var(--fg-faint);
 }
 
-.call-stack .frame-folded {
-  border-style: dashed;
-}
-
-.frame-unfold {
-  background: none;
-  border: none;
-  color: var(--fg-muted);
-  font: inherit;
-  cursor: pointer;
-  padding: 0;
-}
-
-.frame-unfold:hover {
-  color: var(--fg);
-}
-
-.frame-returning {
-  color: var(--done);
-}
-
-.state-return td {
-  border-top: 1px dashed var(--done);
-  color: var(--done);
+.state-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  overflow: hidden;
 }
 
 .state-table {
   width: 100%;
+  border-collapse: collapse;
   table-layout: fixed;
+  font-size: 13px;
 }
 
 .state-table th {
-  text-align: left;
-  padding: 4px 8px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
 }
 
 .state-table th:nth-child(1) {
-  width: 22%;
+  width: 26%;
 }
 
 .state-table th:nth-child(2) {
-  width: 14%;
+  width: 18%;
 }
 
 .state-table td {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background-color 200ms, opacity 200ms;
+  transition: background-color 300ms ease-out, opacity 300ms ease-out;
+}
+
+.state-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.state-name {
+  font-family: var(--font-mono);
+  font-weight: 500;
 }
 
 .state-kind {
   color: var(--fg-muted);
+  font-size: 12px;
 }
 
-.state-result td {
-  border-top: 2px solid var(--done);
-  color: var(--done);
+.state-value {
+  font-family: var(--font-mono);
+}
+
+.state-note {
+  margin-left: 10px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* What the running frame returns, and the run's result: purple. */
+.state-table tr.return-row td,
+.state-table tr.result-row td {
+  background: color-mix(in srgb, var(--done) 8%, var(--bg-raised));
+  color: var(--done-fg);
+}
+
+.state-table tr.return-row td:first-child,
+.state-table tr.result-row td:first-child {
+  box-shadow: inset 3px 0 0 var(--done);
+}
+
+.state-table tr.return-row .state-kind,
+.state-table tr.result-row .state-kind {
+  color: color-mix(in srgb, var(--done-fg) 60%, var(--fg-muted));
 }
 
 /* No result: the method never returned. Muted, not an error colour: it is not a wrong answer. */
-.state-result .result-missing td {
-  border-top-color: var(--border);
+.state-table tr.result-missing td {
   color: var(--fg-muted);
   font-style: italic;
 }
@@ -1512,16 +1641,16 @@ kbd {
   box-shadow: inset 3px 0 0 var(--attention);
 }
 
-/* Removed this step: faded, dashed, for one step only. (Table rows fade below.) */
+/* Removed this step: faded, dashed, for one step only. (Table rows fade instead, below.) */
 .diff-removed:not(tr) {
   opacity: 0.45;
   border-style: dashed;
   background: transparent;
 }
 
+/* A local that went out of scope this step: faded, with "out of scope" beside its last value. */
 tr.diff-removed td {
-  opacity: 0.4;
-  text-decoration: line-through;
+  opacity: 0.45;
 }
 
 @keyframes flash-added {

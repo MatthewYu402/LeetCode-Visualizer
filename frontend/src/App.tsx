@@ -111,7 +111,7 @@ export function App() {
                 }
                 second={
                   <section className="panel" aria-label="State">
-                    <StatePanel trace={trace} step={step} index={state.index} diff={stepDiff} />
+                    <StatePanel trace={trace} step={step} index={state.index} diff={stepDiff} source={inputs.run.status === "done" ? inputs.run.source : undefined} />
                   </section>
                 }
               />

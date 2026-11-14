@@ -7,8 +7,17 @@ const FLOAT_TEXT = { NaN: "NaN", Infinity: "∞", "-Infinity": "-∞" } as const
  *
  * Tagged ints are shown by their string. They are never converted to a JS number,
  * so no digit is lost (spec §5, numbers JSON cannot carry exactly).
+ *
+ * `node` names what a ref points at (its node's value, from the step's heap); without it, or
+ * when it has no name for an id, a ref shows its id: `→ n1`.
  */
-export function formatValue(v: Value): string {
+export function formatValue(v: Value, node?: (id: string) => string | undefined): string {
+  return formatIn(v, node);
+}
+
+/** formatValue's body. Inside it, `formatValue` is the one-argument version for nested values, carrying `node` along. */
+function formatIn(v: Value, node: ((id: string) => string | undefined) | undefined): string {
+  const formatValue = (x: Value) => formatIn(x, node);
   if (v === null) return "null";
   if (typeof v === "string") return JSON.stringify(v);
   if (typeof v === "number" || typeof v === "boolean") return String(v);
@@ -38,7 +47,7 @@ export function formatValue(v: Value): string {
         .map(([k, f]) => `${k}: ${formatValue(f)}`)
         .join(", ")}}`;
     case "ref":
-      return `→ ${v.id}`;
+      return `→ ${node?.(v.id) ?? v.id}`;
     case "iterator":
       // Where it points, in the container's own terms: nums[2], numMap[7], numMap.end().
       if (v.index !== undefined) return `→ ${v.container}[${v.index}]`;

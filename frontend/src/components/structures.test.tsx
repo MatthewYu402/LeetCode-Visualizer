@@ -12,7 +12,6 @@ import { loadTrace } from "../trace/loader";
 import { topFrame, type Frame, type Step, type Trace } from "../trace/types";
 import { CallStackCard, callRows } from "./CallStackCard";
 import { callLayout, FULL_LIMIT, focusedTree, KEEP_BOTTOM, RecursionTree } from "./RecursionTree";
-import { CallStack, STACK_SHOWN } from "./StatePanel";
 import { VisualPanel } from "./VisualPanel";
 
 function load(raw: string): Trace {
@@ -146,11 +145,6 @@ describe("a deep recursion stays small", () => {
     expect(nodes.filter((n) => n.state === "waiting").length).toBeLessThanOrEqual(KEEP_BOTTOM + 3);
   });
 
-  it("the state panel's call list folds too", () => {
-    const html = renderToStaticMarkup(<CallStack frames={lastStep.frames} />);
-    expect((html.match(/class="frame[ "]/g) ?? []).length).toBe(STACK_SHOWN + 2);
-    expect(html).toContain(`… ${lastStep.frames.length - STACK_SHOWN - 1} more calls`);
-  });
 });
 
 describe("linked structures, drawn as the mockups agreed", () => {

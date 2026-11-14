@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.6 (reads trace format v0.8)
+> **Status:** Draft v0.7 (reads trace format v0.8)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -47,7 +47,8 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 ├──────────────────────────────┼───────────────────────────────────────────┤
 │ INPUTS PANEL                 │ STATE PANEL                               │
 │   method (when several)      │   Step N of M   [truncated]               │
-│   one field per parameter    │   name · kind · value  (one row / local)  │
+│   one field per parameter    │   Line i  statement  →  true / x = 4      │
+│                              │   name · kind · value  (one row / local)  │
 │   or paste a LeetCode example│   result or "did not return" (last step)  │
 │   Fill fields · why Run waits│   before a run: "No trace yet"            │
 ├──────────────────────────────┴───────────────────────────────────────────┤
@@ -81,7 +82,7 @@ Every split is resizable by dragging the border between panels: the left / right
 | `components/PlaybackBar.tsx` | The bottom bar: Restart, previous, play/pause, next, last, the counter, the scrubber with a tick per step, speed | Player state |
 | `components/CodePanel.tsx` | Monaco with the line decoration | Source, `step.line` |
 | `components/VisualPanel.tsx` | The line strip, then one card per linked structure, one per other container local, and the calls card at the bottom, or a notice / error | One step, its diff, the per-trace layout and call tree, the call-stack switch |
-| `components/StatePanel.tsx` | The call stack (folded when deep) and the snapshot as a table, plus `result` on the last step | One step, its diff |
+| `components/StatePanel.tsx` | "Step N of M" with a progress bar, the running line (its statement and what it produced), and the running frame's locals as a table, plus `result` on the last step ([Section 9](#9-state-panel)) | One step, its diff, the code the run was made from |
 | `components/Split.tsx` | A draggable split between two panels | Pointer events |
 | `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables | `theme.css` |
 | `editor/languages.ts` | Editor languages, the bare Two Sum starter in each, and Two Sum's example as placeholder text | Nothing |
@@ -117,7 +118,7 @@ Spec [§9](trace-format.md#9-versioning): while the major version is 0, any mino
 
 A `void` method that returned has `"result": null`, which alone would read as a returned null pointer. `returnsVoid(problem)` in `trace/types.ts` checks `problem.returns.type === "void"` ([trace-format.md §3, The return value](trace-format.md#the-return-value)), and the state panel then shows `returned, no value` with the kind `void` instead of `null`.
 
-**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. Above the table, the state panel lists every frame, running frame first, as `function · line N`, and marks a frame that is `returning`. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. A caller's pointers into the heap are drawn as dashed rings on their nodes ([Section 6.5](#65-linked-structures-drawing)), and a stack deeper than 8 frames is folded ([Section 6.6](#66-calls)).
+**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel names the running function over the table (`Locals in maxDepth`) and lists no other frames: the calls are drawn on the canvas. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. A caller's pointers into the heap are drawn as dashed rings on their nodes ([Section 6.5](#65-linked-structures-drawing)), and the canvas's calls card shows the stack ([Section 6.6](#66-calls)).
 
 `result_heap` (the objects a `ref` result points to) is in the `Trace` type but nothing draws it yet. It arrives with the `object` / `ref` renderers.
 
@@ -281,8 +282,6 @@ A frame that just began (in the step diff's `pushed`) arrives with a `--success`
 
 The structure card above follows along through the pointers ([Section 6.5](#65-linked-structures-drawing)): the running call's node is current, the neighbour being checked has a dashed ring, and the edge between them is blue.
 
-The state panel's call list folds the same way: a stack deeper than 8 frames shows the 6 frames at the top (the running frame first), then `… N more calls` (which unfolds on click), then the bottom frame.
-
 ### 6.7 Motion
 Motion uses `framer-motion`. Nothing appears or disappears instantly: nodes, boxes, and labels fade and scale in and out, edges draw themselves in, pointer labels and items glide to their new places, and flashes fade over about 900 ms. Motion only describes the step before; drawing with no diff (step 0, a jump, moving back) shows the step without flashes. `MotionConfig reducedMotion="user"` turns movement off for anyone whose system asks for reduced motion.
 
@@ -346,10 +345,13 @@ The player holds `{ index, cameFrom, playing }`. All transitions are a pure redu
 > **Key insight 2: the player only moves an index.** It never computes state. Drawing step N reads `steps[N]`, and the diff reads `steps[N-1]` and `steps[N]`, nothing earlier. There is no replay path to get wrong.
 
 ## 9. State panel
-- Header: `Step N of M · line L`, using the same N and M as the toolbar counter, plus a `truncated` badge when the trace sets `"truncated": true`.
-- One row per local: name, kind, compact value. The kind of a bare number is `int` when it is an integer and `float` otherwise. Strings, booleans, and `null` show `string`, `bool`, and `null`.
-- Rows use the diff colours. A removed local is shown faded with its old value for one step.
-- On the last step, `result` is shown under the locals in the same row format.
+- **Header:** `Step N of M`, counted from 1 like the playback bar, with a thin progress bar, plus a `truncated` badge when the trace sets `"truncated": true`.
+- **The running line:** a muted `Line i` pill, the statement on that line as written (trimmed, cut with `…` when long), an arrow, and a chip for what the line produced. The statement comes from the code the run was made from, kept with the run's result, so editing the code afterwards does not put other text beside the trace's line numbers.
+- **Chips** come from the top frame's `outcomes` (trace format v0.8, spec §6) in order: a condition is a green `true` or a muted red `false` (the condition's code on hover); a store is `name = value`. In a return step the chip is purple: `returns [0, 1]`, or just `returns` for a function that returns nothing (every return step of it has `return_value: null`, `voidFunctions`). A line with nothing recorded shows the pill and the statement only, so traces from adapters that do not record outcomes yet still read well.
+- **Locals:** `Locals in twoSum`, then a full-width rounded table: Name, Kind, Value. The kind of a bare number is `int` when it is an integer and `float` otherwise; strings, booleans, and `null` show `string`, `bool`, and `null`. A `ref` shows its node's value (`→ 7`), with the id on hover, so the table never shows heap ids.
+- **Rows** use the diff colours: an added local has a green bar and tint, a changed one amber. A local that went out of scope is shown faded with its last value and `out of scope` beside it, for one step.
+- **Returns and result:** a return step adds a purple `returns` row. On the last step, `result` is a purple row under the locals; a void method shows `returned, no value`; a run that did not finish says why, muted (never as a wrong answer).
+- The state panel lists no calls: the canvas draws them ([Section 6.6](#66-calls)).
 
 ## 10. Language select
 The select (C++, Java, Python) is a **UI input**. It changes the Monaco language mode, and later it will be sent with the run request. No renderer, diff, or state code reads it, and nothing reads `trace.language` (CLAUDE.md invariant 2).
@@ -429,7 +431,7 @@ Planned for later versions, not designed here:
 
 > **Q10. Why lay out linked structures from the whole trace, when every step is a snapshot?** A layout computed per step would move every node whenever a link changed: reversing a list would redraw it backwards at each step, and the user would lose track of which node is which. Fixed places make the change visible as the one thing that moved. The layout is still pure (a function of the trace, computed once), it never replays steps to build state, and every node, edge, and label drawn at step N comes from step N. A tree whose shape changes is the one case laid out per step, because fixed places would overlap.
 
-> **Q11. Why a recursion tree instead of only a call stack?** A stack shows the calls in progress, but recursion that returns values is understood by its branching: which calls a call made, what each returned, and where the base cases are. The tree shows all of that and still contains the stack, as the highlighted path from the root to the running call; the card's Stack view is there for when only the stack matters. The state panel keeps the plain call list for the locals of each frame.
+> **Q11. Why a recursion tree instead of only a call stack?** A stack shows the calls in progress, but recursion that returns values is understood by its branching: which calls a call made, what each returned, and where the base cases are. The tree shows all of that and still contains the stack, as the highlighted path from the root to the running call; the card's Stack view is there for when only the stack matters. The state panel shows the running frame's locals only.
 
 > **Q12. How does a deep or wide recursion stay readable?** By folding, not shrinking. Up to 80 calls fit whole. Beyond that only the path to the running call is drawn in full; a finished branch is one box with its result and its size, and the middle of a very deep path is one `⋮` box. The number of boxes grows with the depth shown, not the size of the run, so `fib(25)` draws about as many boxes as `fib(10)`.
 

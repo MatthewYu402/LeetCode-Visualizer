@@ -8,7 +8,8 @@ export const SIGNATURE_DELAY_MS = 400;
 export type RunState =
   | { status: "idle" }
   | { status: "running" }
-  | { status: "done"; result: RunResult }
+  /** `source` is the code as it was sent: the trace's line numbers refer to it, whatever the editor holds now. */
+  | { status: "done"; result: RunResult; source: string }
   | { status: "failed"; error: ApiError };
 
 export type FillResult = { ok: true; filled: string[] } | { ok: false; error: string };
@@ -100,7 +101,7 @@ export function useInputs(source: string, enabled: boolean): Inputs {
     setRunState({ status: "running" });
     void run(runRequest(source, method, fields, shown), { signal: abort.signal }).then((answer) => {
       if (abort.signal.aborted) return;
-      setRunState(answer.ok ? { status: "done", result: answer.value } : { status: "failed", error: answer.error });
+      setRunState(answer.ok ? { status: "done", result: answer.value, source } : { status: "failed", error: answer.error });
     });
   }, [method, blocked, source, fields, shown]);
 

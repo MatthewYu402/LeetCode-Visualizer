@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import twoSum from "../../../fixtures/two-sum.trace.json?raw";
 import { diff, diffValue } from "../trace/diff";
 import { loadTrace } from "../trace/loader";
-import { topFrame, type Trace, type Value } from "../trace/types";
+import { topFrame, type Frame, type Trace, type Value } from "../trace/types";
 import maxDepthRaw from "../../../fixtures/max-depth.trace.json?raw";
 import { StatePanel } from "./StatePanel";
 import { Toolbar } from "./Toolbar";
@@ -30,7 +30,7 @@ describe("Two Sum renders every step in isolation", () => {
   });
 
   it("a step drawn with no diff is the same picture as with one, minus colour", () => {
-    const strip = (html: string) => html.replace(/ ?diff-[a-z-]+/g, "").replace(/<[^>]*removed-[^>]*>.*?<\/(tr|div)>/g, "");
+    const strip = (html: string) => html.replace(/ ?diff-[a-z-]+/g, "").replace(/ class=""/g, "").replace(/<[^>]*removed-[^>]*>.*?<\/(tr|div)>/g, "");
     const plain = renderStep(trace, 6, false);
     expect(strip(renderStep(trace, 6, true))).toBe(strip(plain));
   });
@@ -41,7 +41,14 @@ describe("Two Sum renders every step in isolation", () => {
     expect(html).toMatch(/<div class="kv-row diff-added" role="row"><span role="cell">2<\/span><svg[^]*?<\/svg><span role="cell">0<\/span><\/div>/);
     expect(html).toContain("insert 2"); // the operation chip on numMap's card
     expect(html).toContain("translate(58px, 0px)"); // i = 1 → one cell and one gap to the right
-    expect(html).toContain("Step 5 of 9 · line 8");
+    expect(html).toContain('Step 6 <span class="state-step-of">of 10</span>'); // 1-based, as in the playback bar
+    expect(html).toContain('<span class="line-pill">Line 8</span>');
+  });
+
+  it("an iterator is a marker on its container, never a card of its own", () => {
+    const html = renderToStaticMarkup(<VisualPanel trace={trace} step={trace.steps[9]} diff={null} />);
+    expect(html).not.toContain('aria-label="it:');
+    expect(html).not.toContain("There is no view for this kind yet");
   });
 
   it("shows the result only on the last step", () => {
@@ -117,17 +124,17 @@ describe("the call stack (Maximum Depth fixture)", () => {
   const t = md.trace;
   const deepest = t.steps.reduce((best, s, i) => (s.frames.length > t.steps[best].frames.length ? i : best), 0);
 
-  it("lists every frame, running frame first", () => {
-    const html = renderStep(t, deepest, false);
-    expect(html.match(/<li class="frame[^"]*">/g)).toHaveLength(t.steps[deepest].frames.length);
-    expect(html).toMatch(/<ol class="call-stack"[^>]*><li class="frame frame-top">/);
+  it("the state panel lists no calls (the canvas draws them), and names the running function", () => {
+    const html = renderToStaticMarkup(<StatePanel trace={t} step={t.steps[deepest]} index={deepest} diff={null} />);
+    expect(html).not.toContain("call-stack");
+    expect(html).toContain('Locals in <span class="state-locals-fn">maxDepth</span>');
   });
 
   it("a return step shows what the running frame returns", () => {
     const i = t.steps.findIndex((s) => "return_value" in topFrame(s));
     const html = renderStep(t, i, false);
     expect(html).toContain("return-row");
-    expect(html).toContain("returning");
+    expect(html).toContain('class="outcome-chip is-return"');
   });
 
   it("after a return, the caller is diffed against its own earlier self", () => {
@@ -282,5 +289,53 @@ describe("multiset and multimap with repeated members", () => {
   it("a reordered multiset or multimap draws with no diff colour", () => {
     const d = diffValue({ kind: "multiset", items: [1, 1, 2] }, { kind: "multiset", items: [2, 1, 1] });
     expect(d.status).toBe("same");
+  });
+});
+
+describe("the state panel's running line", () => {
+  const source = ["class Solution {", "  int f(int n) {", "    int x = n * 2;", "    if (x > 3) {", "      return x;", "    }", "  }", "};"].join("\n");
+  const at = (line: number, locals: Record<string, Value>, extra: Partial<Frame> = {}): Trace => ({
+    ...trace,
+    steps: [{ step: 0, frames: [{ id: "f1", function: "f", line, locals, ...extra }], heap: {} }],
+  });
+  const panel = (t: Trace) => renderToStaticMarkup(<StatePanel trace={t} step={t.steps[0]} index={0} diff={null} source={source} />);
+
+  it("shows the statement on the running line, from the code the run was made from", () => {
+    const html = panel(at(3, { n: 2 }));
+    expect(html).toContain('<code class="state-code" title="int x = n * 2;">int x = n * 2;</code>');
+    expect(html).not.toContain("outcome-chip"); // nothing recorded, so no arrow and no chip
+  });
+
+  it("a condition is a green true or a muted red false; a store is name = value", () => {
+    expect(panel(at(4, { n: 2, x: 4 }, { outcomes: [{ kind: "condition", code: "x > 3", value: true }] }))).toContain('class="outcome-chip is-true" title="x &gt; 3 is true">true<');
+    expect(panel(at(4, { n: 1, x: 2 }, { outcomes: [{ kind: "condition", code: "x > 3", value: false }] }))).toContain('class="outcome-chip is-false"');
+    const store = panel(at(3, { n: 2, x: 4 }, { outcomes: [{ kind: "store", code: "int x = n * 2", target: "x", value: 4 }] }));
+    expect(store).toMatch(/class="outcome-chip is-store"[^>]*><span class="outcome-name">x = <\/span>4</);
+  });
+
+  it("a return step's chip is purple and says what it returns", () => {
+    expect(panel(at(5, { n: 2, x: 4 }, { return_value: 4 }))).toContain('class="outcome-chip is-return" title="returns 4">returns 4<');
+  });
+
+  it("a void function's return says returns, with no value, not null", () => {
+    const t: Trace = { ...at(7, { n: 2 }, { return_value: null }), problem: { ...trace.problem, method: "f", returns: { type: "void" } } };
+    const html = panel(t);
+    expect(html).toContain('>returns</span>');
+    expect(html).not.toContain("returns null");
+    expect(html).toContain("no value");
+  });
+
+  it("a ref is shown by its node's value, never its heap id (the id is on hover)", () => {
+    const t: Trace = {
+      ...trace,
+      steps: [{ step: 0, frames: [{ id: "f1", function: "f", line: 1, locals: { head: { kind: "ref", id: "n1" } } }], heap: { n1: { kind: "object", type: "ListNode", fields: { val: 7, next: null } } } }],
+    };
+    const html = renderToStaticMarkup(<StatePanel trace={t} step={t.steps[0]} index={0} diff={null} />);
+    expect(html).toContain('<td class="state-value" title="→ n1">→ 7</td>');
+  });
+
+  it("a local that just went out of scope is faded, with out of scope beside its last value", () => {
+    const html = renderStep(trace, 5, true);
+    expect(html).toMatch(/<tr class="diff-removed"><td class="state-name">complement<\/td>.*?<span class="state-note">out of scope<\/span>/);
   });
 });

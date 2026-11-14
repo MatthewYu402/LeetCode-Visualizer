@@ -56,7 +56,7 @@ src/
 │   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
 │   ├── pointers.ts      the index-name rule and iterators, for pointer markers
 │   └── types.ts         Renderer, RendererProps, RenderContext
-├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, StatePanel (with CallStack), RecursionTree (the recursion card), CallStackCard, Split
+├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, StatePanel, RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -77,7 +77,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`. Only tests import them: the page opens with no trace.
 11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`.
 12. **Wherever the problem's title is shown, it is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`. (The top bar shows the app's name, not the problem's.)
-13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel lists every frame, running frame first. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
+13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel shows the running frame's line, its outcomes, and its locals; the calls are drawn on the canvas, not listed in the state panel. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
 14. **Refs and objects are drawn by `LinkedCard` (`render/HeapView.tsx`), not per local.** A `ref` local is a pointer label on its node; a `ref` inside a container shows its node's value (`itemText`). Shapes come from field names (`left`/`right`, `next`, anything else is a graph), never from the language.
 15. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
 

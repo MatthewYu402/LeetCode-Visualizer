@@ -138,3 +138,21 @@ export function callsCardKind(tree: CallTree): "tree" | "stack" | null {
   const returned = nested.filter((c) => c.returnStep !== undefined);
   return returned.length > 0 && returned.every((c) => c.returnedNull) ? "stack" : "tree";
 }
+
+/**
+ * The functions that return nothing: every one of their return steps has return_value null,
+ * and, for the traced method, problem.returns says void when it says anything. A function that
+ * returns a null pointer every time looks the same; that is rare enough to accept. Pure; a
+ * function of the whole trace, computed once.
+ */
+export function voidFunctions(trace: Trace): Set<string> {
+  const seen = new Map<string, boolean>();
+  for (const step of trace.steps) {
+    const f = step.frames[step.frames.length - 1];
+    if (!isReturning(f)) continue;
+    seen.set(f.function, (seen.get(f.function) ?? true) && f.return_value === null);
+  }
+  const declared = trace.problem.returns?.type;
+  if (declared !== undefined) seen.set(trace.problem.method, declared === "void");
+  return new Set([...seen].filter(([, v]) => v).map(([fn]) => fn));
+}
