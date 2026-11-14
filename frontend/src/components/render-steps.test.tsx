@@ -31,29 +31,31 @@ describe("Two Sum renders every step in isolation", () => {
 
   it("a step drawn with no diff is the same picture as with one, minus colour", () => {
     const strip = (html: string) => html.replace(/ ?diff-[a-z-]+/g, "").replace(/ class=""/g, "").replace(/<[^>]*removed-[^>]*>.*?<\/(tr|div)>/g, "");
-    const plain = renderStep(trace, 6, false);
-    expect(strip(renderStep(trace, 6, true))).toBe(strip(plain));
+    const plain = renderStep(trace, 8, false);
+    expect(strip(renderStep(trace, 8, true))).toBe(strip(plain));
   });
 
-  it("step 1 highlights line 8; step 5 shows numMap [2, 0] added and i's pointer under index 1", () => {
-    expect(trace.steps.map((s) => topFrame(s).line)).toEqual([5, 8, 9, 11, 16, 8, 9, 11, 12, 12]);
-    const html = renderStep(trace, 5, true);
-    expect(html).toMatch(/<div class="kv-row diff-added" role="row"><span role="cell">2<\/span><svg[^]*?<\/svg><span role="cell">0<\/span><\/div>/);
-    expect(html).toContain("insert 2"); // the operation chip on numMap's card
-    expect(html).toContain("translate(58px, 0px)"); // i = 1 → one cell and one gap to the right
-    expect(html).toContain('Step 6 <span class="state-step-of">of 10</span>'); // 1-based, as in the playback bar
-    expect(html).toContain('<span class="line-pill">Line 8</span>');
+  it("the loop header has a step each time it is checked; step 6 shows numMap [2, 0] added, step 7 i's pointer under index 1", () => {
+    expect(trace.steps.map((s) => topFrame(s).line)).toEqual([5, 7, 8, 9, 11, 16, 7, 8, 9, 11, 12, 12]);
+    const header = renderStep(trace, 6, true);
+    expect(header).toMatch(/<div class="kv-row diff-added" role="row"><span role="cell">2<\/span><svg[^]*?<\/svg><span role="cell">0<\/span><\/div>/);
+    expect(header).toContain("insert 2"); // the operation chip on numMap's card
+    expect(header).toContain('Step 7 <span class="state-step-of">of 12</span>'); // 1-based, as in the playback bar
+    expect(header).toContain('<span class="line-pill">Line 7</span>');
+    // The header's outcomes: the increment, then the condition.
+    expect(header).toMatch(/<span class="outcome-name">i = <\/span>1<\/span><span class="outcome-chip is-true"[^>]*>true</);
+    expect(renderStep(trace, 7, true)).toContain("translate(58px, 0px)"); // i = 1 → one cell and one gap to the right
   });
 
   it("an iterator is a marker on its container, never a card of its own", () => {
-    const html = renderToStaticMarkup(<VisualPanel trace={trace} step={trace.steps[9]} diff={null} />);
+    const html = renderToStaticMarkup(<VisualPanel trace={trace} step={trace.steps[11]} diff={null} />);
     expect(html).not.toContain('aria-label="it:');
     expect(html).not.toContain("There is no view for this kind yet");
   });
 
   it("shows the result only on the last step", () => {
-    expect(renderStep(trace, 9, false)).toContain("[0, 1]");
-    expect(renderStep(trace, 8, false)).not.toContain("result");
+    expect(renderStep(trace, 11, false)).toContain("[0, 1]");
+    expect(renderStep(trace, 10, false)).not.toContain("result");
   });
 
   it("shows the truncated badge when the trace says so", () => {
@@ -67,7 +69,7 @@ describe("a run that did not finish", () => {
   void _dropped;
 
   it("truncated, no result: the last step says it stopped at the step limit", () => {
-    const html = renderStep({ ...noResult, truncated: true }, 9, false);
+    const html = renderStep({ ...noResult, truncated: true }, 11, false);
     expect(html).toContain("did not return: stopped at the step limit");
     expect(html).toContain("not a wrong answer");
     // The last step is still the method's return step, so [0, 1] appears as its
@@ -77,17 +79,17 @@ describe("a run that did not finish", () => {
   });
 
   it("no result and no truncated: the run ended early, and missing truncated means no badge", () => {
-    const html = renderStep(noResult, 9, false);
+    const html = renderStep(noResult, 11, false);
     expect(html).toContain("did not return: the run ended early");
     expect(html).not.toContain("badge");
   });
 
   it("only the last step shows the missing result", () => {
-    expect(renderStep({ ...noResult, truncated: true }, 8, false)).not.toContain("did not return");
+    expect(renderStep({ ...noResult, truncated: true }, 10, false)).not.toContain("did not return");
   });
 
   it("a null result is shown as null, not as missing", () => {
-    const html = renderStep({ ...trace, result: null }, 9, false);
+    const html = renderStep({ ...trace, result: null }, 11, false);
     expect(html).toContain("result-row");
     expect(html).not.toContain("did not return");
   });
@@ -97,14 +99,14 @@ describe("a void method", () => {
   const voidTrace = { ...trace, problem: { ...trace.problem, returns: { type: "void" } }, result: null };
 
   it("a null result with returns void says the method returned no value", () => {
-    const html = renderStep(voidTrace, 9, false);
+    const html = renderStep(voidTrace, 11, false);
     expect(html).toContain("returned, no value");
     expect(html).toContain("result-void");
     expect(html).not.toContain("did not return");
   });
 
   it("a null result from a method that returns a value is still shown as null", () => {
-    const html = renderStep({ ...trace, problem: { ...trace.problem, returns: { type: "ListNode" } }, result: null }, 9, false);
+    const html = renderStep({ ...trace, problem: { ...trace.problem, returns: { type: "ListNode" } }, result: null }, 11, false);
     expect(html).not.toContain("returned, no value");
     expect(html).toContain("result-row");
   });
@@ -112,7 +114,7 @@ describe("a void method", () => {
   it("a void method that did not return is reported as unfinished, not as void", () => {
     const { result: _gone, ...unfinished } = voidTrace;
     void _gone;
-    const html = renderStep({ ...unfinished, truncated: true }, 9, false);
+    const html = renderStep({ ...unfinished, truncated: true }, 11, false);
     expect(html).toContain("did not return: stopped at the step limit");
     expect(html).not.toContain("returned, no value");
   });
@@ -184,8 +186,8 @@ describe("iterators", () => {
     expect(html).toContain("→ a.end()");
   });
 
-  it("Two Sum's step 8 shows it pointing at key 2 of numMap", () => {
-    expect(renderStep(trace, 8, false)).toContain("→ numMap[2]");
+  it("Two Sum's step 10 shows it pointing at key 2 of numMap", () => {
+    expect(renderStep(trace, 10, false)).toContain("→ numMap[2]");
   });
 });
 
@@ -335,7 +337,7 @@ describe("the state panel's running line", () => {
   });
 
   it("a local that just went out of scope is faded, with out of scope beside its last value", () => {
-    const html = renderStep(trace, 5, true);
+    const html = renderStep(trace, 6, true);
     expect(html).toMatch(/<tr class="diff-removed"><td class="state-name">complement<\/td>.*?<span class="state-note">out of scope<\/span>/);
   });
 });

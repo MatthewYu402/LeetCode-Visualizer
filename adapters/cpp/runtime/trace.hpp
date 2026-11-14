@@ -10,7 +10,8 @@
 //  6. Serializers, grouped by kind. 6i holds Fields<T> and the two object
 //     serializers: one for pointers, one for objects held by value
 //  7. The recorder: Tracer and its frame stack, Value, var, the document writer,
-//     then the steps: record, ret, ret_void, and the Frame and Scope guards
+//     then the steps: record, ret, ret_void, the outcomes a line produced (cond,
+//     store, stored, track, flush), and the Frame and Scope guards
 //     (uses everything above)
 //
 // trace.hpp knows no node types. ListNode and TreeNode, and their Fields tables,
@@ -685,12 +686,37 @@ namespace trace {
     const char* function;     // the function's name in the user's source
     int line = 0;             // the line this frame is on (see trace-format.md, Frames)
     std::function<Json(Ctx&)> locals;
+    // The last step this frame recorded itself (as the top frame): where the
+    // outcomes of its current line go. npos until its first step.
+    std::size_t last_step = static_cast<std::size_t>(-1);
+  };
+
+  // What a step is built from, kept so outcomes can be added to it after it
+  // was recorded (trace-format.md, Outcomes). The step's text in tracer.steps
+  // is rebuilt from this whenever an outcome is added.
+  struct StepSource {
+    Json frames_open;           // the "frames" array up to the top frame's closing "}"
+    Heap heap;                  // its heap: an outcome's value may add objects to it
+    int line = 0;               // the top frame's line
+    bool returning = false;     // a return step takes no outcomes
+    std::vector<Json> outcomes; // in the order they were evaluated
+  };
+
+  // A store whose value is read when its statement has finished (track, flush).
+  struct PendingStore {
+    std::size_t depth;          // tracer.frames.size() when it was tracked: whose store it is
+    int line;
+    const char* code;
+    const char* target;
+    std::function<Json(Ctx&)> value;
   };
 
   // State for the whole run. One global instance
   struct Tracer {
     IdTable id_table;        // lives for the whole run, so ids stay stable across steps 
     std::vector<Json> steps; // finished step JSON; steps.size() is the next step index
+    std::vector<StepSource> sources; // what each step was built from, same indices as steps
+    std::vector<PendingStore> pending; // stores tracked in the statement now running
     static constexpr std::size_t max_steps = 2000;
     bool truncated = false;
     std::string version {VERSION};
@@ -999,6 +1025,23 @@ namespace trace {
     return true;
   }
 
+  // The text of step `index`, from its source: the frames (the top one closed
+  // after its outcomes, if any), then the heap.
+  inline Json render_step(std::size_t index) {
+    const StepSource& source = tracer.sources[index];
+    std::string frames = source.frames_open;
+    if (!source.outcomes.empty()) {
+      frames += R"(, "outcomes": [)";
+      for (std::size_t i = 0; i < source.outcomes.size(); ++i) {
+        if (i > 0) frames += ", ";
+        frames += source.outcomes[i];
+      }
+      frames += "]";
+    }
+    frames += "}]";
+    return std::format(R"({{"step": {}, "frames": {}, "heap": {}}})", index, frames, write_heap(source.heap));
+  }
+
   // Builds one step from the whole call stack and stores it.
   //
   // Every frame's locals are serialized now, from the live variables, into one
@@ -1012,11 +1055,13 @@ namespace trace {
     Heap heap{};
     Ctx ctx { .id_table = tracer.id_table, .heap = heap };
 
+    // Every frame but the top one is closed here. The top frame stays open, so
+    // "outcomes" can be added to it later (render_step closes it).
     std::string frames = "[";
     for (std::size_t i = 0; i < tracer.frames.size(); ++i) {
       const FrameState& frame = tracer.frames[i];
       if (i > 0) {
-        frames += ", ";
+        frames += "}, ";
       }
       const Json locals = frame.locals ? frame.locals(ctx) : Json("{}");
       frames += std::format(R"({{"id": {}, "function": {}, "line": {}, "locals": {})",
@@ -1025,12 +1070,12 @@ namespace trace {
       if (return_value && i + 1 == tracer.frames.size()) {
         frames += R"(, "return_value": )" + return_value(ctx);
       }
-      frames += "}";
     }
-    frames += "]";
 
-    tracer.steps.push_back(std::format(R"({{"step": {}, "frames": {}, "heap": {}}})",
-      tracer.steps.size(), frames, write_heap(heap)));
+    FrameState& top = tracer.frames.back();
+    top.last_step = tracer.steps.size();
+    tracer.sources.push_back(StepSource{std::move(frames), std::move(heap), top.line, return_value != nullptr, {}});
+    tracer.steps.push_back(render_step(tracer.steps.size()));
   }
 
   // Sets what the running frame is doing: the line, and the variables in scope.
@@ -1091,6 +1136,95 @@ namespace trace {
     if (!step_allowed()) return;
     set_frame(frame, line, vars...);
     push_step([](Ctx&) { return Json("null"); });
+  }
+
+  // ---- Outcomes: what a line evaluated (trace-format.md, Outcomes) ----
+  //
+  // A step is taken before its line runs. Once the line has run, these add what
+  // it produced to that step: a condition's value, or the value a store left in
+  // its target. The rewriter places them:
+  //
+  //   if (::trace::cond(11, "it != numMap.end()", it != numMap.end())) {
+  //   int complement = target - nums[i]; ::trace::store(8, "int complement = target - nums[i]", "complement", complement);
+  //   ::trace::track(16, "numMap[nums[i]] = i", "numMap[nums[i]]", numMap[nums[i]]) = i; ::trace::flush();
+  //   for (int i = ::trace::stored<int>(7, "int i = 0", "i", 0); ...)
+  //
+  // An outcome goes on the evaluating frame's own last step (FrameState::last_step),
+  // and only when that step is on the outcome's line and is not a return step.
+  // So a store after a call, `int left = maxDepth(root->left);`, goes on the
+  // caller's step for that line, not on a step of the callee. Anything else
+  // (a line with no step of its own) is dropped, never put on another line's step.
+  //
+  // A value is serialized into that step's heap, so a ref in it names an object
+  // there: one the step already had keeps its snapshot, a new one is added.
+  inline void add_outcome(int line, const std::function<Json(Ctx&)>& outcome) {
+    if (tracer.frames.empty()) return;
+    const std::size_t index = tracer.frames.back().last_step;
+    if (index >= tracer.sources.size() || index >= tracer.steps.size()) return;
+    StepSource& source = tracer.sources[index];
+    if (source.returning || source.line != line) return;
+    Ctx ctx { .id_table = tracer.id_table, .heap = source.heap };
+    source.outcomes.push_back(outcome(ctx));
+    tracer.steps[index] = render_step(index);
+  }
+
+  inline Json store_outcome(const char* code, const char* target, const Json& value) {
+    return std::format(R"({{"kind": "store", "code": {}, "target": {}, "value": {}}})", quote(code), quote(target), value);
+  }
+
+  // The condition of an if, while, for, do-while, or ?:. Records which way it
+  // went and hands the same answer back, so `if (x)` becomes `if (cond(..., x))`.
+  template <typename C>
+  bool cond(int line, const char* code, C&& condition) {
+    const bool value = static_cast<bool>(condition);
+    add_outcome(line, [&](Ctx&) {
+      return std::format(R"({{"kind": "condition", "code": {}, "value": {}}})", quote(code), value);
+    });
+    return value;
+  }
+
+  // A store whose target can be read again right after it: a declared variable,
+  // after its declaration. A value with no serializer records nothing.
+  template <typename T>
+  void store(int line, const char* code, const char* target, const T& value) {
+    if constexpr (Serializable<std::remove_cvref_t<T>>) {
+      add_outcome(line, [&](Ctx& ctx) { return store_outcome(code, target, serialize(value, ctx)); });
+    }
+  }
+
+  // A store into a variable declared in a for loop's header: the initializer
+  // goes through this, which records it and hands it back.
+  template <typename T>
+  T stored(int line, const char* code, const char* target, T value) {
+    store(line, code, target, value);
+    return value;
+  }
+
+  // The target of an assignment, a compound assignment, or ++/--: hands the
+  // target back unchanged and remembers where it is, so flush() can read the
+  // value it holds once the statement has run. Works the same for `x = 1`,
+  // `count[c]++`, and `node->next = prev`, without evaluating the target twice.
+  template <typename T>
+  T& track(int line, const char* code, const char* target, T& ref) {
+    if constexpr (Serializable<std::remove_cvref_t<T>>) {
+      tracer.pending.push_back(PendingStore{tracer.frames.size(), line, code, target, [&ref](Ctx& ctx) { return serialize(ref, ctx); }});
+    }
+    return ref;
+  }
+
+  // After a statement with a tracked target: records the stores of the running
+  // frame, in order, and forgets them. Entries left by deeper frames (a call
+  // that ended by an exception) are dropped: their targets may be gone.
+  inline void flush() {
+    const std::size_t depth = tracer.frames.size();
+    std::vector<PendingStore> mine;
+    for (PendingStore& p : tracer.pending) {
+      if (p.depth == depth) mine.push_back(std::move(p));
+    }
+    std::erase_if(tracer.pending, [depth](const PendingStore& p) { return p.depth >= depth; });
+    for (const PendingStore& p : mine) {
+      add_outcome(p.line, [&](Ctx& ctx) { return store_outcome(p.code, p.target, p.value(ctx)); });
+    }
   }
 
   // Pushes a frame for one call, and pops it when the call ends.

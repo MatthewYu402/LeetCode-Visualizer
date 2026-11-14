@@ -9,7 +9,7 @@ describe("loadTrace", () => {
   it("accepts version 0.8 (the Two Sum fixture)", () => {
     const r = loadTrace(twoSum);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.trace.steps).toHaveLength(10);
+    if (r.ok) expect(r.trace.steps).toHaveLength(12);
   });
 
   it.each(["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.9", "1.0", "1.7"])("rejects version %s with an error", (v) => {

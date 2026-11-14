@@ -2,7 +2,7 @@
 
 Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.8).
 
-Claude writes the frontend code; the author writes the adapter runtime and rewriter.
+Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and rewriter: see the root `CLAUDE.md`).
 
 ## What this is
 

@@ -7,21 +7,23 @@ import type { Trace } from "./types";
 const trace = JSON.parse(twoSum) as Trace;
 
 describe("diff on Two Sum", () => {
-  it("step 4 → 5: numMap key 2 added, i changed, complement removed", () => {
-    const d = diff(trace.steps[4], trace.steps[5]);
+  it("step 5 → 6 (the loop header): numMap key 2 added, complement removed; i changes on the next step", () => {
+    const d = diff(trace.steps[5], trace.steps[6]);
     expect(d.locals.numMap.status).toBe("changed");
     expect(d.locals.numMap.keys?.get(canonical(2))).toBe("added");
     expect(d.locals.numMap.removedKeys).toEqual([]);
-    expect(d.locals.i).toEqual({ status: "changed", prev: 0 });
+    expect(d.locals.i.status).toBe("same"); // the header's step is before ++i runs
+    expect(diff(trace.steps[6], trace.steps[7]).locals.i).toEqual({ status: "changed", prev: 0 });
     expect(d.locals.complement).toEqual({ status: "removed", prev: 7 });
     expect(d.locals.nums.status).toBe("same");
     expect(d.locals.target.status).toBe("same");
   });
 
-  it("step 0 → 1: numMap and i added", () => {
+  it("step 0 → 1: numMap added; i is added on the step after the header", () => {
     const d = diff(trace.steps[0], trace.steps[1]);
     expect(d.locals.numMap.status).toBe("added");
-    expect(d.locals.i.status).toBe("added");
+    expect(d.locals.i).toBeUndefined();
+    expect(diff(trace.steps[1], trace.steps[2]).locals.i.status).toBe("added");
   });
 });
 

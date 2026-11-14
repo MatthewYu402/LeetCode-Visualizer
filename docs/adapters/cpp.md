@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.5
+> **Status:** Draft v0.6
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -45,7 +45,7 @@ Each frame:
 | `line` | The first argument of the frame's latest `record` or `ret`. In the top frame, the line about to run; in a caller, the line whose call is in progress |
 | `locals` | One entry per `var(...)` argument of the frame's latest `record` or `ret`, read **now** |
 | `return_value` | Only in a return step, on the top frame: the value `ret` was given |
-| `outcomes` | *Planned* (spec v0.8, [Outcomes](../trace-format.md#outcomes)): what the top frame's line evaluated, added to the step after the line ran. Not written yet, which the spec allows: the field is optional |
+| `outcomes` | What the top frame's line evaluated (spec v0.8, [Outcomes](../trace-format.md#outcomes)): added to the step once the line has run, by `cond`, `store`, `stored`, and `track`/`flush` (§4.7) |
 
 Two Sum calls no function of its own, so every one of its steps has one frame. A recursive solution has one frame per call level.
 
@@ -228,10 +228,14 @@ int maxDepth(TreeNode *root) {
 | `record(line, vars...)` | Records one step: the running frame is about to execute `line`, with these variables in scope |
 | `ret<T>(line, value, vars...)` | Records the return step, then returns `value`. `ret_void(line, vars...)` is the same for a function with no return value |
 | `Scope scope(line)` | An RAII guard at the start of each loop body and each block that declares a variable (§4.5) |
+| `cond(line, "code", condition)` | Records a condition's value as an outcome and returns it (§4.7) |
+| `store(line, "code", "target", value)` | Records a store's value as an outcome: after a declaration, `value` is the variable |
+| `stored<T>(line, "code", "target", value)` | Records a for loop initializer's value and returns it, so `int i = stored<int>(..., 0)` |
+| `track(line, "code", "target", target)` / `flush()` | Returns the target of an assignment or `++`/`--` unchanged and remembers it; `flush()` after the statement records the value it holds then |
 
 The rules the rewriter follows, and the hand-written fixtures follow today:
 
-- A `record` before each statement. A loop header gets no `record` of its own: its body's statements do.
+- A `record` before each statement, and one for a loop's header each time it is checked: a `for` before the loop (its first pass) and at the start of its increment (each later pass), a `while` or `do`-`while` in its condition, a range-`for` at the start of each iteration (§4.7).
 - A `return` statement gets its `record` like any statement, then `return ::trace::ret<T>(line, value, ...)`. The first step shows the frame about to evaluate the expression, which matters when the expression calls a function. The second shows the value.
 - A `void` function gets `ret_void` before each `return;` and at its closing brace.
 - `T` in `ret<T>` is the function's declared return type.
@@ -296,6 +300,23 @@ A `Scope` goes at the start of each loop body (its header may declare a variable
 A function cannot learn the name of the variable passed to it. A macro (`V(x)` with `#x`) could, but the rewriter already knows every name from the AST, so it writes the names as string literals itself. This avoids two macro problems: macros ignore namespaces, and a short name like `V` collides with user code (graph solutions often name the vertex count `V`). The rewriter emits fully qualified names (`::trace::record`), so nothing in the user's code can shadow them.
 
 The line number is passed explicitly rather than taken from `std::source_location`, because only the rewriter knows the line in the user's original source. `source_location` would report the line in the rewritten file.
+
+### 4.7 Outcomes: what a line evaluated
+
+A step is taken before its line runs. Once the line has run, the runtime adds what it evaluated to that step's top frame, as `outcomes` (spec v0.8). The rewriter places the calls, at statement level:
+
+```cpp
+if (::trace::cond(11, "it != numMap.end()", (it != numMap.end()))) {
+int complement = target - nums[i]; ::trace::store(8, "int complement = target - nums[i]", "complement", complement);
+::trace::track(16, "numMap[nums[i]] = i", "numMap[nums[i]]", numMap[nums[i]]) = i; ::trace::flush();
+for (int i = ::trace::stored<int>(7, "int i = 0", "i", 0); ::trace::cond(7, "...", (...)); (::trace::record(7, ...), ++::trace::track(7, "++i", "i", i), ::trace::flush()))
+```
+
+- **Where an outcome goes.** Each `FrameState` remembers `last_step`, the last step it recorded as the top frame. An outcome goes there, and only when that step is on the outcome's line and is not a return step. A store after a call, `int left = maxDepth(root->left);`, therefore lands on the caller's step for line 7, recorded before the call, not on a step of the callee. Anything with no step on its line is dropped.
+- **How a step is amended.** A step's text is kept with what it was built from (`StepSource`: the frames text with the top frame left open, its heap, its line, its outcomes), and `render_step` rebuilds the text when an outcome is added. A value is serialized into that step's heap: an object the step already had keeps its snapshot, and a new one (`head = new ListNode(4)`) is added, so every `ref` in an outcome resolves. Steps with no outcomes are byte for byte what they were before outcomes existed.
+- **Why `track` and `flush` for assignments.** The value to record is what the target holds after the statement. Evaluating the target a second time could repeat its side effects (`a[i++] = x`), and a postfix `count[c]++` returns the old value. `track` returns the target itself, unchanged, and keeps a reference to it; `flush()`, after the statement, reads it. Only the running frame's tracked stores are flushed, so a callee's statement never records its caller's.
+- **What is not recorded.** Stores inside larger expressions (`x = y = 0` records `x` only; `a[i++] = x` records `a[i++]`, not `i`); a value with no serializer (an iterator: the `Serializable` concept drops it, as for locals); `vector<bool>`'s elements, which are proxies, not references; conditions of `switch`, `if constexpr`, and constant `?:`; and the parts of `&&` and `||`.
+- **Loop headers.** For a loop's condition to have a step to go on, each check of a loop's header is a step on the header's line. A `for` loop's later steps are taken at the start of the increment, before it runs, so the step still shows `i = 0` while its outcomes say `i = 1` and `i < n: true`, like every other step: the state before the line, and what the line did.
 
 ## 5. Normalization: C++ types to kinds
 
@@ -449,7 +470,14 @@ The file is parsed with the driver's prelude, the same flags the program is comp
 | Where | Inserted |
 |---|---|
 | After the `{` of each instrumented function | `::trace::Frame trace_frame_("name");` |
-| Before each statement in a block, except loops, `{ }`, and `;` | `::trace::record(LINE, ::trace::var("a", a), ...);` |
+| Before each statement in a block, except `while`, `do`, range-`for`, `{ }`, and `;` | `::trace::record(LINE, ::trace::var("a", a), ...);` |
+| A `for` loop's increment (or, with none, in its place) | `(::trace::record(LINE, vars...), INC, ::trace::flush())`: the header's step for each later pass |
+| Around a `while` or `do`-`while` condition | `::trace::record(LINE, vars...), ::trace::cond(LINE, "c", (c))`: a step and an outcome for each check |
+| After the `{` of a range-`for` body | `::trace::record(LINE, vars...); ::trace::store(LINE, "int x : v", "x", x);` |
+| Around the condition of an `if`, a `for`, or a `?:` | `::trace::cond(LINE, "c", (c))` |
+| After a declaration with an initializer | `::trace::store(LINE, "int a = 1", "a", a);` per variable |
+| Around the target of an assignment, compound assignment, or `++`/`--` statement | `::trace::track(LINE, "x += 2", "x", x)`, then `::trace::flush();` after the statement |
+| Around a `for` loop's initializer | `::trace::stored<T>(LINE, "int i = 0", "i", 0)`, with `T` as written, or deduced for `auto` |
 | After the `{` of every other block | `::trace::Scope trace_scope_(LINE);`, with the line of the `if`, `for`, or `while` that owns it |
 | Around an unbraced body (`if (x) y++;`, an `else if`) | `{ ` and ` }`, so it has a block for the above |
 | `return expr;` | `return ::trace::ret<T>(LINE, expr, vars...);`, with `T` the declared return type |
@@ -506,6 +534,7 @@ The test programs are built into `adapters/cpp/build/<compiler>/`, and the trace
 - `tests/test_frames.cpp` checks the call stack: one frame, a call (two frames, a return step, one frame again), frame ids never reused, callers read live after a callee changes their vector, one heap shared by every frame, `ret` with a braced value and with a pointer, `ret_void`, recursion three levels deep and its unwinding, `Scope` restoring a frame after a block, a frame popped by an exception, the step cap inside `ret`, and (at compile time) that `var` rejects a temporary.
 - `tests/test_document.cpp` checks the exact text of `build_document`: no steps, one step and several joined with `", "`, steps written by `record` itself, a result (including a `null` one), no `result` key at all when there is none, `result_heap` after a `ref` result and absent when the heap is empty or there is no result, no `truncated` key unless it is `true`, a problem pasted in unchanged (odd spacing, escapes, UTF-8), and that building the document twice gives the same text and changes nothing.
 - `tests/test_iterators.cpp` checks `var_iter`: an index into a `vector` (and `end`, a `const_iterator`, an empty vector), a key into a `map`, `set`, and `multimap`, a pointer key as a `ref` with its object in the heap, an index into a `list`, `forward_list`, `deque`, and `string`, the fallbacks (an `int` stays an `int`; a reverse iterator or another container's iterator is left out), a loop step by step, and that `ret` gives no `return_value` for an iterator.
+- `tests/test_outcomes.cpp` checks outcomes: a condition's value and its return, two outcomes on one line in order, a declaration's store, a tracked target read after its statement (including a postfix `++`), a `for` header's first and later passes, a store after a call landing on the caller's step, outcomes dropped with no step on their line or on a return step, a `ref` value whose new object is added to the step's heap, an iterator recording nothing, and a callee's leftover tracked store not recorded by its caller.
 - `tests/test_write_file.cpp` checks `output_path` and `write_file`: a successful write, a failed open, a failed write, and a failed rename. After every failure the old file must be unchanged and the `.tmp` file gone. Its files go in a private folder in the system's temp directory, which it removes at the end. It is POSIX only (`setenv`, `setrlimit`).
 
 `make e2e` is the end-to-end check. It runs every hand-instrumented fixture, and three test programs, with `TRACE_OUT` set, then checks what they wrote with [`tools/check_trace.py`](../../tools/check_trace.py):
@@ -522,7 +551,7 @@ Every trace is also checked for dangling refs: each `ref` must name an object in
 - **Equality is after parsing**, not byte for byte, so spacing can change. Types must still match, and `set` items and `map` entries compare in any order, because their order is unspecified ([`trace-format.md` §10](../trace-format.md#10-validation-and-testing)).
 - **The old trace is deleted before each run**, so a program that writes nothing cannot pass on a stale file.
 - **Each run has a 20-second limit** (`E2E_TIMEOUT`). If the cap stops ending the run, `loop_forever` spins until the limit kills it, and the target fails with exit code 142 instead of hanging. The limit uses `perl`'s `alarm`, because coreutils `timeout` is not on macOS by default.
-- `driver/tests/test_rewriter.py` checks the rewriter (§8): every golden fixture, rewritten from its plain `_trace.cpp`, equals its golden trace; every original line survives on its own line; and unbraced bodies, `else if` chains, loop-variable scope, shadowing, recursion through a private helper, lambdas, iterators (from `find`, walking a `list`, reassigned, `lower_bound`, and lookalikes that are not iterators), `void` returns, `switch`, structured bindings, `if` with an initializer, `do`/`while`, and compile errors at the user's line. `make -C adapters/cpp/rewriter test` builds the tool and runs them.
+- `driver/tests/test_rewriter.py` checks the rewriter (§8): every golden fixture, rewritten from its plain `_trace.cpp`, equals its golden trace; every original line survives on its own line; and unbraced bodies, `else if` chains, loop-variable scope, shadowing, recursion through a private helper, lambdas, iterators (from `find`, walking a `list`, reassigned, `lower_bound`, and lookalikes that are not iterators), `void` returns, `switch`, structured bindings, `if` with an initializer, `do`/`while`, and compile errors at the user's line; and outcomes: conditions, stores, and every kind of loop header, a store after a call on the caller's step, targets read after their statement (`freq[c]++`, `t += "b"`, and `vector<bool>` left out), `for` initializers with `auto` and with no condition, quotes in the recorded code, and `if constexpr` and constant `?:` left alone. `make -C adapters/cpp/rewriter test` builds the tool and runs them.
 - **The files in `tests/programs/` are not `tests/test_*.cpp`**, so `make test` never builds them. Each is a whole program that writes a trace, and `loop_forever.cpp` is meant to end the process.
 
 CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make both header e2e` on Ubuntu 24.04 with GCC 14 and Clang 18, which both use libstdc++, and `make test header e2e` on macOS with Apple Clang and libc++. On macOS `g++` is Apple Clang too, so `make both` there would build with the same compiler twice.
@@ -571,3 +600,7 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 **Q14. Why does the rewriter list every variable and let the runtime drop the unsupported ones?** The rewriter sees types, but whether `trace.hpp` has a serializer for a type is decided by template rules when the program is compiled, after the rewriter has finished. A list of unsupported types inside the rewriter would always lag behind `trace.hpp`. With the `Serializable` concept, the runtime is the only place that knows, and adding a serializer (an iterator kind, say) makes those variables appear with no change to the rewriter.
 
 **Q15. Why are the inserted calls on the same line as the code, instead of on lines of their own?** Readability of the generated file matters less than its line numbers. Keeping every original line on its own line means the output can be read against the original line by line, and the compiler's errors and warnings point at the lines the user wrote.
+
+**Q16. Why does a loop's header get a step each time it is checked?** Its condition is what decides whether the body runs again, and without a step the condition's outcome has nowhere to go: the trace would show a jump from the body's last line back to its first, or out of the loop, with nothing saying why. A step per check costs one step per iteration (Two Sum goes from 10 to 12, Subsets from 42 to 57), against the 2,000-step cap, and shows the loop the way it runs.
+
+**Q17. Why statement-level stores only?** A store inside an expression (`a[i++] = x`, `x = y = 0`) would need its value captured mid-expression without changing evaluation order, which every operator would need its own wrapper for. Statement-level stores (declarations, assignment statements, a `for` loop's initializer and increment) cover what LeetCode solutions write, and each is recorded by wrapping the target alone, which leaves the expression as written.

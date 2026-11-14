@@ -6,6 +6,7 @@
 #include "clang/Lex/Lexer.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <set>
 
 namespace rewriter {
@@ -44,6 +45,37 @@ namespace rewriter {
   // before the `}` of the block around it.
   void Instrumenter::insert(SourceLocation loc, const std::string &text) {
     rewriter_.InsertText(loc, text, /*InsertAfter=*/true, /*indentNewLines=*/false);
+  }
+
+  // The user's text for a range, as written in the original file (the
+  // rewriter's edits are not in it). "" when any of it comes from a macro.
+  std::string Instrumenter::sourceText(SourceRange range) const {
+    if (!editable(range.getBegin()) || !editable(range.getEnd())) return "";
+    return Lexer::getSourceText(CharSourceRange::getTokenRange(range), sources_, context_.getLangOpts()).str();
+  }
+
+  // A C++ string literal holding `text` exactly. Newlines become \n, so the
+  // literal stays on one line and no inserted text adds a line.
+  static std::string literal(const std::string &text) {
+    std::string out = "\"";
+    for (unsigned char c : text) {
+      switch (c) {
+        case '\\': out += "\\\\"; break;
+        case '"': out += "\\\""; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+          if (c < 0x20) {
+            char buf[8];
+            std::snprintf(buf, sizeof buf, "\\%03o", c);
+            out += buf;
+          } else {
+            out += static_cast<char>(c);
+          }
+      }
+    }
+    return out + "\"";
   }
 
   // ======================================================================
@@ -258,10 +290,12 @@ namespace rewriter {
   // Blocks and statements
   // ======================================================================
 
-  bool Instrumenter::traverseBlock(CompoundStmt *block, unsigned guard_line, const std::function<void()> &at_end) {
+  bool Instrumenter::traverseBlock(CompoundStmt *block, unsigned guard_line, const std::function<void()> &at_end,
+                                   const std::string &prologue) {
     scopes_.emplace_back();
     if (guard_line != 0 && editable(block->getLBracLoc()))
       insert(block->getLBracLoc().getLocWithOffset(1), " ::trace::Scope trace_scope_(" + std::to_string(guard_line) + ");");
+    if (!prologue.empty() && editable(block->getLBracLoc())) insert(block->getLBracLoc().getLocWithOffset(1), " " + prologue);
     for (Stmt *stmt : block->body()) {
       if (!traverseStatement(stmt)) {
         scopes_.pop_back();
@@ -283,24 +317,140 @@ namespace rewriter {
       else break;
     }
 
-    // Loops get no record of their own: their body's statements do. A nested
-    // `{ }` gets one per statement inside it, and `;` does nothing.
-    const bool is_loop = isa<ForStmt, CXXForRangeStmt, WhileStmt, DoStmt>(target);
-    const bool records = !is_loop && !isa<CompoundStmt, NullStmt>(target) && editable(target->getBeginLoc());
+    // A `for` gets its first header step here, before the loop; its later ones,
+    // and every check of a `while`, `do`, or range-`for`, come from the loop's
+    // own traversal. A nested `{ }` gets one per statement inside it, and `;`
+    // does nothing.
+    const bool header_elsewhere = isa<CXXForRangeStmt, WhileStmt, DoStmt>(target);
+    const bool records = !header_elsewhere && !isa<CompoundStmt, NullStmt>(target) && editable(target->getBeginLoc());
+    const unsigned at = line(target->getBeginLoc());
 
     // 1. The step before this statement: only variables declared before it.
     if (records) {
-      const std::string where = std::to_string(line(target->getBeginLoc()));
-      insert(target->getBeginLoc(), "::trace::record(" + where + varArgs() + "); ");
+      insert(target->getBeginLoc(), "::trace::record(" + std::to_string(at) + varArgs() + "); ");
       if (auto *ret = dyn_cast<ReturnStmt>(target)) rewriteReturn(ret);
     }
-    // 2. Into the statement: nested blocks see the scope as it is here.
-    if (!TraverseStmt(stmt)) return false;
-    // 3. Only now does what it declares become visible, to the statements after it,
+    // 2. A store statement's targets are tracked before anything inside them is
+    //    rewritten, so a wrapper that starts where the statement starts comes first.
+    auto *expr = dyn_cast<Expr>(target);
+    const bool tracked = records && expr != nullptr && trackStores(expr, at);
+    // 3. Into the statement: nested blocks see the scope as it is here, and a
+    //    ?: inside it reports to this statement's step.
+    const unsigned saved_line = step_line_;
+    step_line_ = records ? at : 0;
+    const bool keep_going = TraverseStmt(stmt);
+    step_line_ = saved_line;
+    if (!keep_going) return false;
+    // 4. What the statement stored, once it has run.
+    if (tracked) insert(afterStatement(target), " ::trace::flush();");
+    // 5. Only now does what it declares become visible, to the statements after it,
     //    and an assignment such as `it = m.find(x);` pairs `it` with `m` from now on.
     declare(target);
     noteAssignment(target);
+    if (auto *decls = dyn_cast<DeclStmt>(target); decls && records) storeDeclarations(decls, at);
     return true;
+  }
+
+  // ======================================================================
+  // Outcomes (trace-format.md, Outcomes)
+  // ======================================================================
+
+  // if (c)  ->  if (::trace::cond(L, "c", (c)))
+  // With `step` (a loop header): ::trace::record(L, vars...), ::trace::cond(L, "c", (c))
+  void Instrumenter::wrapCondition(Expr *cond, unsigned at, bool step) {
+    if (cond == nullptr) return;
+    const SourceLocation begin = cond->getBeginLoc();
+    const SourceLocation end = Lexer::getLocForEndOfToken(cond->getEndLoc(), 0, sources_, context_.getLangOpts());
+    const std::string code = sourceText(cond->getSourceRange());
+    if (code.empty() || !editable(end)) return;
+    const std::string where = std::to_string(at);
+    std::string before = "::trace::cond(" + where + ", " + literal(code) + ", (";
+    if (step) before = "::trace::record(" + where + varArgs() + "), " + before;
+    insert(begin, before);
+    insert(end, "))");
+  }
+
+  std::vector<Expr *> Instrumenter::storesIn(Expr *expr) const {
+    expr = expr->IgnoreParens();
+    if (auto *comma = dyn_cast<BinaryOperator>(expr); comma && comma->getOpcode() == BO_Comma) {
+      std::vector<Expr *> out = storesIn(comma->getLHS());
+      for (Expr *e : storesIn(comma->getRHS())) out.push_back(e);
+      return out;
+    }
+    return {expr};
+  }
+
+  // x = e, x += e, ++x, x++ (and the same through a class's operators): x, when
+  // it is an lvalue a reference can hold. Not a bit-field, and not a proxy such
+  // as vector<bool>'s element, which is a prvalue.
+  Expr *Instrumenter::storeTarget(Expr *store) const {
+    Expr *target = nullptr;
+    store = store->IgnoreImplicit();
+    if (auto *op = dyn_cast<BinaryOperator>(store); op && op->isAssignmentOp()) {
+      target = op->getLHS();
+    } else if (auto *op = dyn_cast<UnaryOperator>(store); op && op->isIncrementDecrementOp()) {
+      target = op->getSubExpr();
+    } else if (auto *call = dyn_cast<CXXOperatorCallExpr>(store); call && call->getNumArgs() >= 1) {
+      const OverloadedOperatorKind kind = call->getOperator();
+      const bool assigns = kind == OO_Equal || kind == OO_PlusEqual || kind == OO_MinusEqual || kind == OO_StarEqual ||
+                           kind == OO_SlashEqual || kind == OO_PercentEqual || kind == OO_AmpEqual || kind == OO_PipeEqual ||
+                           kind == OO_CaretEqual || kind == OO_LessLessEqual || kind == OO_GreaterGreaterEqual;
+      if (assigns || kind == OO_PlusPlus || kind == OO_MinusMinus) target = call->getArg(0);
+    }
+    if (target == nullptr || target->refersToBitField()) return nullptr;
+    // Look through a materialized temporary: vector<bool>'s `v[i] = x` calls
+    // operator= on a proxy the subscript returned by value, which is an lvalue
+    // only once materialized. A reference cannot hold the expression as written.
+    if (isa<MaterializeTemporaryExpr>(target) || !target->IgnoreImplicit()->isLValue()) return nullptr;
+    return target;
+  }
+
+  // target  ->  ::trace::track(L, "statement", "target", target)
+  bool Instrumenter::trackStores(Expr *expr, unsigned at) {
+    bool any = false;
+    for (Expr *store : storesIn(expr)) {
+      Expr *target = storeTarget(store);
+      if (target == nullptr) continue;
+      const std::string code = sourceText(store->getSourceRange());
+      const std::string name = sourceText(target->getSourceRange());
+      const SourceLocation end = Lexer::getLocForEndOfToken(target->getEndLoc(), 0, sources_, context_.getLangOpts());
+      if (code.empty() || name.empty() || !editable(end)) continue;
+      insert(target->getBeginLoc(), "::trace::track(" + std::to_string(at) + ", " + literal(code) + ", " + literal(name) + ", ");
+      insert(end, ")");
+      any = true;
+    }
+    return any;
+  }
+
+  // int a = 1, b;  ->  int a = 1, b; ::trace::store(L, "int a = 1, b", "a", a);
+  // Only variables with an initializer the user wrote: `vector<int> v;` and
+  // `int b;` store nothing. Structured bindings are left out.
+  void Instrumenter::storeDeclarations(DeclStmt *decls, unsigned at) {
+    std::string code = sourceText(decls->getSourceRange());
+    while (!code.empty() && (code.back() == ';' || code.back() == ' ')) code.pop_back();
+    if (code.empty()) return;
+    std::string stores;
+    for (Decl *decl : decls->decls()) {
+      auto *var = dyn_cast<VarDecl>(decl);
+      if (var == nullptr || isa<DecompositionDecl>(var) || var->getName().empty() || !var->hasInit()) continue;
+      const Expr *init = var->getInit()->IgnoreImplicit();
+      if (const auto *construct = dyn_cast<CXXConstructExpr>(init);
+          construct && construct->getNumArgs() == 0 && !construct->isListInitialization() && var->getInitStyle() != VarDecl::ListInit &&
+          !construct->getParenOrBraceRange().isValid())
+        continue;  // default-constructed: nothing was written
+      const std::string name = var->getNameAsString();
+      stores += " ::trace::store(" + std::to_string(at) + ", " + literal(code) + ", " + literal(name) + ", " + name + ");";
+    }
+    if (!stores.empty()) insert(afterStatement(decls), stores);
+  }
+
+  // a ? b : c inside a statement that has a step: its condition reports to that step.
+  // A constant one is left alone: it may sit where only a constant may (a
+  // template argument, an array bound), and it cannot go both ways anyway.
+  bool Instrumenter::TraverseConditionalOperator(ConditionalOperator *expr) {
+    if (active_ && step_line_ != 0 && !expr->isValueDependent() && !expr->isCXX11ConstantExpr(context_))
+      wrapCondition(expr->getCond(), step_line_, /*step=*/false);
+    return Base::TraverseConditionalOperator(expr);
   }
 
   // return expr;  ->  return ::trace::ret<T>(LINE, expr, vars...);
@@ -320,17 +470,17 @@ namespace rewriter {
     insert(end, varArgs() + ")");
   }
 
-  bool Instrumenter::traverseBody(Stmt *body, unsigned owner_line) {
+  bool Instrumenter::traverseBody(Stmt *body, unsigned owner_line, const std::string &prologue) {
     if (body == nullptr) return true;
-    if (auto *block = dyn_cast<CompoundStmt>(body)) return traverseBlock(block, owner_line);
-    if (isa<NullStmt>(body)) return true;
+    if (auto *block = dyn_cast<CompoundStmt>(body)) return traverseBlock(block, owner_line, nullptr, prologue);
+    if (isa<NullStmt>(body) && prologue.empty()) return true;
 
     // One statement with no braces, such as `if (x) y++;` or the `if` of an
     // `else if`: wrap it in a block so a Scope and a record can go before it.
     const SourceLocation begin = body->getBeginLoc();
     const SourceLocation end = afterStatement(body);
     if (!editable(begin) || !editable(end)) return TraverseStmt(body);
-    insert(begin, "{ ::trace::Scope trace_scope_(" + std::to_string(owner_line) + "); ");
+    insert(begin, "{ ::trace::Scope trace_scope_(" + std::to_string(owner_line) + "); " + (prologue.empty() ? "" : prologue + " "));
     scopes_.emplace_back();
     const bool keep_going = traverseStatement(body);
     scopes_.pop_back();
@@ -354,25 +504,108 @@ namespace rewriter {
       keep_going = keep_going && TraverseStmt(var->getInit());
       declare(var);
     }
-    keep_going = keep_going && TraverseStmt(stmt->getCond());
     const unsigned owner = line(stmt->getBeginLoc());
+    // The if's own step is the statement's record (or, for `else if`, the one
+    // traverseBody gave it). A constexpr or consteval if is decided at compile time.
+    if (stmt->getConditionVariable() == nullptr && !stmt->isConstexpr() && !stmt->isConsteval() && step_line_ == owner)
+      wrapCondition(stmt->getCond(), owner, /*step=*/false);
+    {
+      const unsigned saved = step_line_;
+      step_line_ = owner;
+      keep_going = keep_going && TraverseStmt(stmt->getCond());
+      step_line_ = saved;
+    }
     keep_going = keep_going && traverseBody(stmt->getThen(), owner);
     keep_going = keep_going && traverseBody(stmt->getElse(), owner);  // an `else if` is an IfStmt body
     scopes_.pop_back();
     return keep_going;
   }
 
+  // for (init; cond; inc) body. The header's step for the first pass is the
+  // record traverseStatement put before the loop; each later pass gets one at
+  // the start of the increment, so it shows the variables before ++i runs:
+  //
+  //   for (int i = ::trace::stored<int>(7, "int i = 0", "i", 0);
+  //        ::trace::cond(7, "i < n", (i < n));
+  //        (::trace::record(7, vars...), ::trace::track(7, "++i", "i", i)++..., ::trace::flush()))
+  //
+  // (on one line, as written). With no increment, the record goes in its place.
   bool Instrumenter::TraverseForStmt(ForStmt *stmt) {
     if (!active_) return Base::TraverseForStmt(stmt);
+    const unsigned at = line(stmt->getBeginLoc());
+    const bool has_step = step_line_ == at;  // traverseStatement recorded the first pass
+    const unsigned saved_line = step_line_;
+    step_line_ = has_step ? at : 0;
     scopes_.emplace_back();  // for (int i = 0; ...): i is visible in the body only
+
+    // The initializer: a declaration's initializers go through stored<T>, an
+    // assignment's target through track.
+    bool flush_init = false;
+    if (has_step) {
+      if (auto *decls = dyn_cast_or_null<DeclStmt>(stmt->getInit())) {
+        std::string code = sourceText(decls->getSourceRange());
+        while (!code.empty() && (code.back() == ';' || code.back() == ' ')) code.pop_back();
+        for (Decl *decl : decls->decls()) {
+          auto *var = dyn_cast<VarDecl>(decl);
+          if (var == nullptr || code.empty() || !var->hasInit() || var->getInitStyle() != VarDecl::CInit) continue;
+          if (var->getType()->isReferenceType() || var->getType()->isArrayType()) continue;
+          Expr *init = var->getInit();
+          const SourceLocation end = Lexer::getLocForEndOfToken(init->getEndLoc(), 0, sources_, context_.getLangOpts());
+          if (!editable(init->getBeginLoc()) || !editable(end)) continue;
+          // The type as the user wrote it (`int`, `long long`), so the value is
+          // recorded after the same conversion the variable gets. When it is not
+          // written out (`auto`), or the declarator changes it (`*p`), stored()
+          // deduces it from the initializer instead: a deduced type such as a
+          // container's `iterator` may have no name that works here.
+          std::string type = sourceText(var->getTypeSourceInfo()->getTypeLoc().getSourceRange());
+          if (type.find("auto") != std::string::npos || type.find("decltype") != std::string::npos ||
+              !context_.hasSameType(var->getType(), var->getTypeSourceInfo()->getType()) || decls->isSingleDecl() == false)
+            type.clear();
+          const std::string call = type.empty() ? "::trace::stored(" : "::trace::stored<" + type + ">(";
+          insert(init->getBeginLoc(), call + std::to_string(at) + ", " + literal(code) + ", " + literal(var->getNameAsString()) + ", ");
+          insert(end, ")");
+        }
+      } else if (auto *init = dyn_cast_or_null<Expr>(stmt->getInit())) {
+        flush_init = trackStores(init, at);
+      }
+    }
     bool keep_going = TraverseStmt(stmt->getInit());
+    if (flush_init) {
+      auto *init = cast<Expr>(stmt->getInit());
+      insert(Lexer::getLocForEndOfToken(init->getEndLoc(), 0, sources_, context_.getLangOpts()), ", ::trace::flush()");
+    }
     declare(stmt->getInit());
     if (VarDecl *var = stmt->getConditionVariable()) {
       keep_going = keep_going && TraverseStmt(var->getInit());
       declare(var);
     }
-    keep_going = keep_going && TraverseStmt(stmt->getCond()) && TraverseStmt(stmt->getInc());
-    keep_going = keep_going && traverseBody(stmt->getBody(), line(stmt->getBeginLoc()));
+
+    // The condition, on the header's step.
+    if (has_step && stmt->getConditionVariable() == nullptr) wrapCondition(stmt->getCond(), at, /*step=*/false);
+    keep_going = keep_going && TraverseStmt(stmt->getCond());
+
+    // The increment: the step for each later pass, then its stores.
+    if (has_step) {
+      const std::string step = "::trace::record(" + std::to_string(at) + varArgs() + ")";
+      if (Expr *inc = stmt->getInc()) {
+        const SourceLocation end = Lexer::getLocForEndOfToken(inc->getEndLoc(), 0, sources_, context_.getLangOpts());
+        if (editable(inc->getBeginLoc()) && editable(end)) {
+          insert(inc->getBeginLoc(), "(" + step + ", ");
+          const bool tracked = trackStores(inc, at);
+          keep_going = keep_going && TraverseStmt(inc);
+          insert(end, tracked ? ", ::trace::flush())" : ")");
+        } else {
+          keep_going = keep_going && TraverseStmt(inc);
+        }
+      } else if (editable(stmt->getRParenLoc())) {
+        insert(stmt->getRParenLoc(), step);
+      }
+    } else {
+      keep_going = keep_going && TraverseStmt(stmt->getInc());
+    }
+    step_line_ = saved_line;
+
+    keep_going = keep_going && traverseBody(stmt->getBody(), at);
     scopes_.pop_back();
     return keep_going;
   }
@@ -384,7 +617,18 @@ namespace rewriter {
     declare(stmt->getInit());
     keep_going = keep_going && TraverseStmt(stmt->getRangeInit());
     declare(stmt->getLoopVariable());
-    keep_going = keep_going && traverseBody(stmt->getBody(), line(stmt->getBeginLoc()));
+    // Each iteration starts with the header's step, showing the loop variable's
+    // new value, and the store that gave it that value.
+    const unsigned at = line(stmt->getBeginLoc());
+    std::string prologue;
+    if (editable(stmt->getBeginLoc())) {
+      prologue = "::trace::record(" + std::to_string(at) + varArgs() + ");";
+      VarDecl *var = stmt->getLoopVariable();
+      const std::string code = sourceText(SourceRange(var->getBeginLoc(), stmt->getRangeInit()->getEndLoc()));
+      if (!isa<DecompositionDecl>(var) && !var->getName().empty() && !code.empty())
+        prologue += " ::trace::store(" + std::to_string(at) + ", " + literal(code) + ", " + literal(var->getNameAsString()) + ", " + var->getNameAsString() + ");";
+    }
+    keep_going = keep_going && traverseBody(stmt->getBody(), at, prologue);
     scopes_.pop_back();
     return keep_going;
   }
@@ -397,15 +641,37 @@ namespace rewriter {
       keep_going = TraverseStmt(var->getInit());
       declare(var);
     }
+    // Each check of the condition is a step on the while's line, with its outcome.
+    // (`while (auto x = f())` declares in its condition: there is nowhere to put a step.)
+    const unsigned at = line(stmt->getBeginLoc());
+    const unsigned saved_line = step_line_;
+    step_line_ = 0;
+    if (stmt->getConditionVariable() == nullptr && editable(stmt->getBeginLoc())) {
+      wrapCondition(stmt->getCond(), at, /*step=*/true);
+      step_line_ = at;
+    }
     keep_going = keep_going && TraverseStmt(stmt->getCond());
-    keep_going = keep_going && traverseBody(stmt->getBody(), line(stmt->getBeginLoc()));
+    step_line_ = saved_line;
+    keep_going = keep_going && traverseBody(stmt->getBody(), at);
     scopes_.pop_back();
     return keep_going;
   }
 
+  // do body while (cond): the body runs first, then each check of the
+  // condition is a step on the line of its `while`.
   bool Instrumenter::TraverseDoStmt(DoStmt *stmt) {
     if (!active_) return Base::TraverseDoStmt(stmt);
-    return traverseBody(stmt->getBody(), line(stmt->getBeginLoc())) && TraverseStmt(stmt->getCond());
+    bool keep_going = traverseBody(stmt->getBody(), line(stmt->getBeginLoc()));
+    const unsigned at = line(stmt->getWhileLoc());
+    const unsigned saved_line = step_line_;
+    step_line_ = 0;
+    if (editable(stmt->getWhileLoc())) {
+      wrapCondition(stmt->getCond(), at, /*step=*/true);
+      step_line_ = at;
+    }
+    keep_going = keep_going && TraverseStmt(stmt->getCond());
+    step_line_ = saved_line;
+    return keep_going;
   }
 
   // A switch body gets records before its cases' statements but no Scope

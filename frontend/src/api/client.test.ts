@@ -21,7 +21,7 @@ describe("run", () => {
     expect(sent).toEqual([{ url: "/api/run", body: REQUEST }]);
     expect(answer.ok).toBe(true);
     if (answer.ok) {
-      expect(answer.value.trace.steps).toHaveLength(10);
+      expect(answer.value.trace.steps).toHaveLength(12);
       expect(answer.value.output).toBe("hi\n");
       expect(answer.value.warnings).toEqual(["w"]);
     }

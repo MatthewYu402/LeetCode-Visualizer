@@ -398,7 +398,7 @@ Each outcome has a `kind`, the `code` it describes as written in the user's sour
 ```
 
 Rules:
-- **An outcome belongs to the most recent step, and that step's top frame is the frame that evaluated it.** The runtime adds it to the step it last recorded, once the line has run and before the next step is recorded. So step N stays drawable from step N alone. A callee's steps come between a call and its result, and every call ends with a step in its caller ([Return steps](#return-steps)), so an outcome evaluated after a call, as in `int left = maxDepth(root->left);` or `if (dfs(x))`, goes on that step.
+- **An outcome goes on the step its own frame recorded for that line.** Once the line has run, the runtime adds the outcome to the last step the evaluating frame recorded as the top frame, when that step is on the outcome's line. So step N stays drawable from step N alone. A callee's steps come between a call and its result, so an outcome evaluated after a call, as in `int left = maxDepth(root->left);` or `if (dfs(x))`, goes on the caller's step for that line, which comes before the callee's steps; nothing new is recorded after the return. An outcome whose line has no step of its own is left out, never put on another line's step. (A loop's condition therefore needs a step for the loop's header: the C++ adapter records one each time the header is checked, [`adapters/cpp.md`](adapters/cpp.md) §4.7.)
 - **In order of evaluation.** A `for` line evaluates its initializer and its condition on the first pass, then its increment and its condition on later ones, so it can carry two outcomes. A line with two statements carries both.
 - **`code` and `target` are the user's text, verbatim.** They come from the source, like `function`, and are shown as they are. The frontend never parses them.
 - **A `value` is a value** ([Section 5](#5-the-value-model)), and a `ref` in one names an object in the step's heap, like a `ref` in `locals`.
@@ -531,6 +531,7 @@ History:
 - **v0.8**:
   - Adds the optional `outcomes` on the top frame: the conditions and stores its line evaluated after the step was taken.
   - Every valid v0.7 trace is still valid once its `version` is changed.
+  - Clarified before any adapter wrote outcomes: an outcome evaluated after a call goes on the evaluating frame's own step for that line (the first draft said a step in the caller after the return, which no adapter records).
 - **v0.7**:
   - Adds the `iterator` kind: a container's local name and an `index`, a `key`, or `end`. Only directly in a frame's `locals`.
   - Every valid v0.6 trace is still valid once its `version` is changed.
@@ -631,4 +632,4 @@ These are mainly notes for me, to help me understand these concepts.
 
 > **Q22. Why record outcomes in the trace instead of working them out in the frontend?** A store could almost be inferred: compare the next step's locals. But a condition cannot. `while (i < j)` that was true and `if (x)` that was false both move to some next line, and only the source's structure says which branch that was, which the frontend would have to parse in every language. A store into a container, `numMap[nums[i]] = i`, changes the map without saying which key the line wrote, and a store a later line overwrote before the next step is lost. The adapter sees the value as it is computed, so it records the fact instead of the frontend guessing it.
 
-> **Q23. Why put an outcome on the step whose line produced it, instead of on the next step?** So a step can be drawn on its own (Key Insight 8). With the outcome on step N+1, drawing step N would need step N+1, and the last step before a truncation would have nothing to say. Writing it on step N costs the runtime one thing: the step it last recorded stays open until the next one begins.
+> **Q23. Why put an outcome on the step whose line produced it, instead of on the next step?** So a step can be drawn on its own (Key Insight 8). With the outcome on step N+1, drawing step N would need step N+1, and the last step before a truncation would have nothing to say. Writing it on step N costs the runtime one thing: each frame's last step stays open until the frame records another, so a store after a call can still reach it.

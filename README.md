@@ -32,7 +32,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
 | CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, the rewriter and pipeline on Linux and macOS, the sandbox under Docker and gVisor, frontend tests and build |
 | C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
-| C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines. Every golden fixture is reproduced from its plain source |
+| C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines, including the outcomes of each line (conditions and statement-level stores) and a step for each check of a loop's header. Every golden fixture is reproduced from its plain source |
 | CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command. Without `--sandbox` it runs the code directly with a time limit |
 | Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
 | Python adapter | Planned |
@@ -552,6 +552,7 @@ Tentative. The architecture does not depend on these choices.
 - [x] Driver generation for C++
 - [x] LibTooling rewriter
 - [x] Iterators: the `iterator` kind, paired with their container by the rewriter
+- [x] Outcomes: conditions and stores recorded by the rewriter and runtime, shown in the state panel
 - [x] CLI: one command from a Solution and an example to a validated trace
 - [ ] Any C++ solution: member variables, lambdas, hint inference
 - [x] The call stack: frames and return steps, with recursive golden traces

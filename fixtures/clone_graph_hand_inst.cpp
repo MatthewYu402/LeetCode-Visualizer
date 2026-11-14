@@ -6,8 +6,14 @@
 // Instrumentation, as the rewriter will write it:
 //  - ::trace::Frame on the first line of each function: pushes a frame for the
 //    call and pops it when the call ends.
-//  - ::trace::record(line, ...) before each statement. A loop header gets no
-//    record of its own: its body's statements do.
+//  - ::trace::record(line, ...) before each statement, and a step for a loop's
+//    header each time it is checked (a for loop: before the loop, then at the
+//    start of its increment; a while loop: in its condition; a range-for: at
+//    the start of each iteration).
+//  - outcomes: what a line evaluated, added to that line's step once it ran.
+//    ::trace::cond wraps a condition, ::trace::store follows a declaration,
+//    ::trace::track wraps an assignment's target (then ::trace::flush), and
+//    ::trace::stored<T> wraps a for loop's initializer.
 //  - ::trace::Scope at the start of each loop body and each block that
 //    declares a variable, with the line of the statement that owns the block.
 //  - a record() before each return statement, then
@@ -60,7 +66,7 @@ public:
   Node *cloneGraph(Node *node) {
     ::trace::Frame frame("cloneGraph");
     ::trace::record(4, ::trace::var("node", node));
-    if (node == nullptr) {
+    if (::trace::cond(4, "node == nullptr", node == nullptr)) {
       ::trace::record(5, ::trace::var("node", node));
       return ::trace::ret<Node *>(5, nullptr, ::trace::var("node", node));
     }
@@ -77,13 +83,17 @@ public:
 
     ::trace::record(11, ::trace::var("node", node), ::trace::var("visited", visited),
                     ::trace::var("q", q));
-    visited[node] = new Node(node->val);
+    ::trace::track(11, "visited[node] = new Node(node->val)", "visited[node]", visited[node]) = new Node(node->val);
+    ::trace::flush();
 
-    while (!q.empty()) {
+    // Each check of the loop's condition is a step on line 13, with its outcome.
+    while ((::trace::record(13, ::trace::var("node", node), ::trace::var("visited", visited), ::trace::var("q", q)),
+            ::trace::cond(13, "!q.empty()", !q.empty()))) {
       ::trace::Scope scope(13);
       ::trace::record(14, ::trace::var("node", node), ::trace::var("visited", visited),
                       ::trace::var("q", q));
       Node *curr = q.front();
+      ::trace::store(14, "Node* curr = q.front()", "curr", curr);
 
       ::trace::record(15, ::trace::var("node", node), ::trace::var("visited", visited),
                       ::trace::var("q", q), ::trace::var("curr", curr));
@@ -91,14 +101,21 @@ public:
 
       for (Node *neighbor : curr->neighbors) {
         ::trace::Scope inner_scope(17);
+        // Each iteration starts with the header's step: the loop variable's new value.
+        ::trace::record(17, ::trace::var("node", node), ::trace::var("visited", visited),
+                        ::trace::var("q", q), ::trace::var("curr", curr),
+                        ::trace::var("neighbor", neighbor));
+        ::trace::store(17, "Node* neighbor : curr->neighbors", "neighbor", neighbor);
         ::trace::record(18, ::trace::var("node", node), ::trace::var("visited", visited),
                         ::trace::var("q", q), ::trace::var("curr", curr),
                         ::trace::var("neighbor", neighbor));
-        if (visited.find(neighbor) == visited.end()) {
+        if (::trace::cond(18, "visited.find(neighbor) == visited.end()", visited.find(neighbor) == visited.end())) {
           ::trace::record(19, ::trace::var("node", node), ::trace::var("visited", visited),
                           ::trace::var("q", q), ::trace::var("curr", curr),
                           ::trace::var("neighbor", neighbor));
-          visited[neighbor] = new Node(neighbor->val);
+          ::trace::track(19, "visited[neighbor] = new Node(neighbor->val)", "visited[neighbor]", visited[neighbor]) =
+              new Node(neighbor->val);
+          ::trace::flush();
 
           ::trace::record(20, ::trace::var("node", node), ::trace::var("visited", visited),
                           ::trace::var("q", q), ::trace::var("curr", curr),

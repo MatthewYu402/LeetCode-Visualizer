@@ -6,8 +6,14 @@
 // Instrumentation, as the rewriter will write it:
 //  - ::trace::Frame on the first line of each function: pushes a frame for the
 //    call and pops it when the call ends.
-//  - ::trace::record(line, ...) before each statement. A loop header gets no
-//    record of its own: its body's statements do.
+//  - ::trace::record(line, ...) before each statement, and a step for a loop's
+//    header each time it is checked (a for loop: before the loop, then at the
+//    start of its increment; a while loop: in its condition; a range-for: at
+//    the start of each iteration).
+//  - outcomes: what a line evaluated, added to that line's step once it ran.
+//    ::trace::cond wraps a condition, ::trace::store follows a declaration,
+//    ::trace::track wraps an assignment's target (then ::trace::flush), and
+//    ::trace::stored<T> wraps a for loop's initializer.
 //  - ::trace::Scope at the start of each loop body and each block that
 //    declares a variable, with the line of the statement that owns the block.
 //  - a record() before each return statement, then
@@ -37,16 +43,19 @@ public:
   int maxDepth(TreeNode *root) {
     ::trace::Frame frame("maxDepth");
     ::trace::record(4, ::trace::var("root", root));
-    if (root == nullptr) {
+    if (::trace::cond(4, "root == nullptr", root == nullptr)) {
       ::trace::record(5, ::trace::var("root", root));
       return ::trace::ret<int>(5, 0, ::trace::var("root", root));
     }
 
     ::trace::record(7, ::trace::var("root", root));
     int left = maxDepth(root->left);
+    // After the call: goes on this frame's step for line 7, not on the callee's.
+    ::trace::store(7, "int left = maxDepth(root->left)", "left", left);
 
     ::trace::record(8, ::trace::var("root", root), ::trace::var("left", left));
     int right = maxDepth(root->right);
+    ::trace::store(8, "int right = maxDepth(root->right)", "right", right);
 
     ::trace::record(9, ::trace::var("root", root), ::trace::var("left", left), ::trace::var("right", right));
     return ::trace::ret<int>(9, 1 + max(left, right), ::trace::var("root", root), ::trace::var("left", left),

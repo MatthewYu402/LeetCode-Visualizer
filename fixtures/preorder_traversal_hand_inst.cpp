@@ -7,8 +7,14 @@
 // Instrumentation, as the rewriter will write it:
 //  - ::trace::Frame on the first line of each function: pushes a frame for the
 //    call and pops it when the call ends.
-//  - ::trace::record(line, ...) before each statement. A loop header gets no
-//    record of its own: its body's statements do.
+//  - ::trace::record(line, ...) before each statement, and a step for a loop's
+//    header each time it is checked (a for loop: before the loop, then at the
+//    start of its increment; a while loop: in its condition; a range-for: at
+//    the start of each iteration).
+//  - outcomes: what a line evaluated, added to that line's step once it ran.
+//    ::trace::cond wraps a condition, ::trace::store follows a declaration,
+//    ::trace::track wraps an assignment's target (then ::trace::flush), and
+//    ::trace::stored<T> wraps a for loop's initializer.
 //  - ::trace::Scope at the start of each loop body and each block that
 //    declares a variable, with the line of the statement that owns the block.
 //  - a record() before each return statement, then
@@ -40,7 +46,7 @@ public:
     vector<int> result;
 
     ::trace::record(5, ::trace::var("root", root), ::trace::var("result", result));
-    if (root == nullptr) {
+    if (::trace::cond(5, "root == nullptr", root == nullptr)) {
       ::trace::record(6, ::trace::var("root", root), ::trace::var("result", result));
       return ::trace::ret<vector<int>>(6, result, ::trace::var("root", root), ::trace::var("result", result));
     }
@@ -52,11 +58,14 @@ public:
                     ::trace::var("st", st));
     st.push(root);
 
-    while (!st.empty()) {
+    // Each check of the loop's condition is a step on line 12, with its outcome.
+    while ((::trace::record(12, ::trace::var("root", root), ::trace::var("result", result), ::trace::var("st", st)),
+            ::trace::cond(12, "!st.empty()", !st.empty()))) {
       ::trace::Scope scope(12);
       ::trace::record(13, ::trace::var("root", root), ::trace::var("result", result),
                       ::trace::var("st", st));
       TreeNode *curr = st.top();
+      ::trace::store(13, "TreeNode* curr = st.top()", "curr", curr);
 
       ::trace::record(14, ::trace::var("root", root), ::trace::var("result", result),
                       ::trace::var("st", st), ::trace::var("curr", curr));
@@ -68,7 +77,7 @@ public:
 
       ::trace::record(17, ::trace::var("root", root), ::trace::var("result", result),
                       ::trace::var("st", st), ::trace::var("curr", curr));
-      if (curr->right != nullptr) {
+      if (::trace::cond(17, "curr->right != nullptr", curr->right != nullptr)) {
         ::trace::record(18, ::trace::var("root", root), ::trace::var("result", result),
                         ::trace::var("st", st), ::trace::var("curr", curr));
         st.push(curr->right);
@@ -76,7 +85,7 @@ public:
 
       ::trace::record(20, ::trace::var("root", root), ::trace::var("result", result),
                       ::trace::var("st", st), ::trace::var("curr", curr));
-      if (curr->left != nullptr) {
+      if (::trace::cond(20, "curr->left != nullptr", curr->left != nullptr)) {
         ::trace::record(21, ::trace::var("root", root), ::trace::var("result", result),
                         ::trace::var("st", st), ::trace::var("curr", curr));
         st.push(curr->left);

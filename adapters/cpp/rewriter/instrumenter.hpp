@@ -9,9 +9,20 @@
 //
 // What it inserts (docs/adapters/cpp.md, section 4):
 //   - ::trace::Frame trace_frame_("name");    after the `{` of each instrumented function
-//   - ::trace::record(LINE, vars...);         before each statement in a block (not before loops).
+//   - ::trace::record(LINE, vars...);         before each statement in a block. A loop's
+//     header gets a step each time it is checked instead: a `for` before the loop
+//     (first pass) and at the start of its increment (later passes), a `while` or
+//     `do`-`while` in its condition, a range-`for` at the start of each iteration.
 //     Each variable is ::trace::var("x", x), or ::trace::var_iter("it", it, "v", v)
 //     when it was made from a call on a container v (v.begin(), m.find(k), ...).
+//   - outcomes (trace-format.md, Outcomes), at statement level:
+//       ::trace::cond(LINE, "code", (cond))          around the condition of if, while,
+//                                                    do-while, for, and ?:
+//       ::trace::store(LINE, "code", "x", x);        after a declaration with an initializer
+//       ::trace::track(LINE, "code", "t", t) ... ; ::trace::flush();
+//                                                    around the target of an assignment,
+//                                                    compound assignment, or ++/-- statement
+//       ::trace::stored<T>(LINE, "code", "i", init)  around a for loop's initializer
 //   - ::trace::Scope trace_scope_(LINE);      after the `{` of every other block
 //   - { ... }                                 around an unbraced body, so it has a block
 //   - return ::trace::ret<T>(LINE, expr, vars...);   for each return with a value
@@ -57,6 +68,7 @@ namespace rewriter {
     bool TraverseWhileStmt(clang::WhileStmt *stmt);
     bool TraverseDoStmt(clang::DoStmt *stmt);
     bool TraverseSwitchStmt(clang::SwitchStmt *stmt);
+    bool TraverseConditionalOperator(clang::ConditionalOperator *expr);
 
   private:
     // ---- the function being instrumented ----
@@ -66,12 +78,28 @@ namespace rewriter {
     // ---- blocks and statements ----
     // Instruments a `{ ... }`: a Scope guard (unless guard_line is 0), then each statement.
     // `at_end` runs while the block's own variables are still in scope.
-    bool traverseBlock(clang::CompoundStmt *block, unsigned guard_line, const std::function<void()> &at_end = nullptr);
+    // `prologue` goes right after the guard: a range-for's step for its header.
+    bool traverseBlock(clang::CompoundStmt *block, unsigned guard_line, const std::function<void()> &at_end = nullptr,
+                       const std::string &prologue = "");
     // The body of an if, else, for, while, or do: a block, or one statement that gets braces.
-    bool traverseBody(clang::Stmt *body, unsigned owner_line);
+    bool traverseBody(clang::Stmt *body, unsigned owner_line, const std::string &prologue = "");
     // One statement of a block: its record, its return rewrite, a walk into it, then its declarations.
     bool traverseStatement(clang::Stmt *stmt);
     void rewriteReturn(clang::ReturnStmt *ret);
+
+    // ---- outcomes ----
+    // Wraps a condition in ::trace::cond. With `step`, a record goes first: the
+    // loop header's step for this check.
+    void wrapCondition(clang::Expr *cond, unsigned at, bool step);
+    // The stores of an expression: itself, or each operand of a top-level comma.
+    std::vector<clang::Expr *> storesIn(clang::Expr *expr) const;
+    // The target an assignment, compound assignment, or ++/-- writes to, if it can be tracked.
+    clang::Expr *storeTarget(clang::Expr *store) const;
+    // Wraps each store target of `expr` in ::trace::track. Returns whether any was.
+    bool trackStores(clang::Expr *expr, unsigned at);
+    // After a declaration: one ::trace::store per variable it initializes.
+    void storeDeclarations(clang::DeclStmt *decls, unsigned at);
+    std::string sourceText(clang::SourceRange range) const;
 
     // ---- scopes ----
     // A visible variable, and the container it was made from, if any: the
@@ -102,6 +130,7 @@ namespace rewriter {
     bool returns_void_ = false;
     std::string return_type_;        // spelled for ret<T>; empty when it cannot be spelled
     std::vector<std::vector<Var>> scopes_;  // innermost last; variables in declaration order
+    unsigned step_line_ = 0;         // the line of the step the code being walked belongs to (0: none)
   };
 
 }  // namespace rewriter

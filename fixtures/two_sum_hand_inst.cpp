@@ -8,8 +8,13 @@
 // Instrumentation, as the rewriter will write it:
 //  - ::trace::Frame on the first line of each function: pushes a frame for the
 //    call and pops it when the call ends.
-//  - ::trace::record(line, ...) before each statement. A loop header gets no
-//    record of its own: its body's statements do.
+//  - ::trace::record(line, ...) before each statement. A for loop's header
+//    gets one before the loop (first pass) and one at the start of its
+//    increment (each later pass), so every check of the condition has a step.
+//  - outcomes: what a line evaluated, added to that line's step once it ran.
+//    ::trace::cond wraps a condition, ::trace::store follows a declaration,
+//    ::trace::track wraps an assignment's target (then ::trace::flush), and
+//    ::trace::stored<T> wraps a for loop's initializer.
 //  - ::trace::Scope at the start of each loop body and each block that
 //    declares a variable, with the line of the statement that owns the block.
 //  - a record() before each return statement, then
@@ -41,11 +46,18 @@ public:
     ::trace::record(5, ::trace::var("nums", nums), ::trace::var("target", target));
     unordered_map<int, int> numMap;
 
-    for (int i = 0; i < static_cast<int>(nums.size()); ++i) {
+    // The loop header's first step; the later ones are in the increment.
+    ::trace::record(7, ::trace::var("nums", nums), ::trace::var("target", target), ::trace::var("numMap", numMap));
+    for (int i = ::trace::stored<int>(7, "int i = 0", "i", 0);
+         ::trace::cond(7, "i < static_cast<int>(nums.size())", i < static_cast<int>(nums.size()));
+         (::trace::record(7, ::trace::var("nums", nums), ::trace::var("target", target), ::trace::var("numMap", numMap),
+                          ::trace::var("i", i)),
+          ++::trace::track(7, "++i", "i", i), ::trace::flush())) {
       ::trace::Scope scope(7);
       ::trace::record(8, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i));
       int complement = target - nums[i];
+      ::trace::store(8, "int complement = target - nums[i]", "complement", complement);
 
       ::trace::record(9, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
@@ -56,7 +68,7 @@ public:
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
                       ::trace::var("complement", complement),
                       ::trace::var_iter("it", it, "numMap", numMap));
-      if (it != numMap.end()) {
+      if (::trace::cond(11, "it != numMap.end()", it != numMap.end())) {
         ::trace::record(12, ::trace::var("nums", nums), ::trace::var("target", target),
                         ::trace::var("numMap", numMap), ::trace::var("i", i),
                         ::trace::var("complement", complement),
@@ -72,7 +84,8 @@ public:
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
                       ::trace::var("complement", complement),
                       ::trace::var_iter("it", it, "numMap", numMap));
-      numMap[nums[i]] = i;
+      ::trace::track(16, "numMap[nums[i]] = i", "numMap[nums[i]]", numMap[nums[i]]) = i;
+      ::trace::flush();
     }
 
     // Never reached for this example, so the fixture has no step for it.

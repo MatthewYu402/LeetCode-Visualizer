@@ -115,8 +115,9 @@ public:
     }
 };"""
         trace, code = run_source(src, "n = 5")
-        # n = 5: the else branch (7), the for body twice (8), and the while body never runs
-        self.assertEqual(lines(trace), [4, 5, 6, 7, 8, 8, 10, 10])
+        # n = 5: the else branch (7); on line 8 the for header three times (i = 0, 1, 2)
+        # and its body twice; the while header once (false), so its body never runs
+        self.assertEqual(lines(trace), [4, 5, 6, 7, 8, 8, 8, 8, 8, 9, 10, 10])
         self.assertEqual(trace["result"], 2)
         self.assertEqual(code.count("\n"), src.count("\n"))
 
@@ -384,8 +385,9 @@ public:
 };"""
         trace, code = run_source(src, "n = 2")
         self.assertEqual(trace["result"], 2)
-        # Loops and a bare block get no step of their own, and the empty bodies none inside them.
-        self.assertEqual(lines(trace), [4, 8, 9, 11, 11])
+        # A loop's header gets a step each time it is checked (the for three times, the
+        # while and the do once each); a bare block gets none, and the empty bodies none inside them.
+        self.assertEqual(lines(trace), [4, 5, 5, 5, 6, 7, 8, 9, 11, 11])
         self.assertEqual(len(code.splitlines()), len(src.splitlines()))
         # for, while, do, then, else, the second then, and the bare block: one Scope each.
         self.assertEqual(code.count("{ ::trace::Scope trace_scope_("), 7, code)
@@ -424,3 +426,132 @@ public:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def outcomes(trace):
+    """Each step's outcomes as short strings: 'cond: true' or 'x = 3', by line, in step order."""
+    out = []
+    for step in trace["steps"]:
+        top = step["frames"][-1]
+        for o in top.get("outcomes", []):
+            text = f"{o['code']}: {json.dumps(o['value'])}" if o["kind"] == "condition" else f"{o['target']} = {json.dumps(o['value'])}"
+            out.append((top["line"], text))
+    return out
+
+
+@needs_rewriter
+@needs_compiler
+class Outcomes(unittest.TestCase):
+    """What each line evaluated (trace-format.md, Outcomes), at statement level."""
+
+    def test_conditions_stores_and_loop_headers(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        int sum = 0;
+        for (int i = 0; i < 2; i++) {
+            sum += nums[i];
+        }
+        int j = 3;
+        while (j > 1) j--;
+        do { j += 5; } while (j < 4);
+        if (sum > 100) sum = 0;
+        int sign = sum > 0 ? 1 : -1;
+        return sum * sign;
+    }
+};"""
+        trace, _ = run_source(src, "nums = [4,5]")
+        self.assertEqual(trace["result"], 9)
+        self.assertEqual(outcomes(trace), [
+            (4, "sum = 0"),
+            (5, "i = 0"), (5, "i < 2: true"),
+            (6, "sum = 4"),
+            (5, "i = 1"), (5, "i < 2: true"),
+            (6, "sum = 9"),
+            (5, "i = 2"), (5, "i < 2: false"),
+            (8, "j = 3"),
+            (9, "j > 1: true"), (9, "j = 2"),
+            (9, "j > 1: true"), (9, "j = 1"),
+            (9, "j > 1: false"),
+            (10, "j = 6"), (10, "j < 4: false"),
+            (11, "sum > 100: false"),
+            (12, "sum > 0: true"), (12, "sign = 1"),
+        ])
+
+    def test_a_store_after_a_call_goes_on_the_callers_step(self):
+        src = """class Solution {
+public:
+    int fact(int n) {
+        if (n <= 1) return 1;
+        int rest = fact(n - 1);
+        return n * rest;
+    }
+};"""
+        trace, _ = run_source(src, "n = 3")
+        first_rest = next(s for s in trace["steps"] if s["frames"][-1]["line"] == 5)
+        self.assertEqual(len(first_rest["frames"]), 1)
+        self.assertEqual(first_rest["frames"][-1]["outcomes"], [{"kind": "store", "code": "int rest = fact(n - 1)", "target": "rest", "value": 2}])
+        for step in trace["steps"]:
+            self.assertNotIn("outcomes", step["frames"][-1] if "return_value" in step["frames"][-1] else {}, "no outcomes on a return step")
+
+    def test_targets_are_read_after_the_statement(self):
+        src = """class Solution {
+public:
+    int count(string s) {
+        unordered_map<char, int> freq;
+        for (char c : s) freq[c]++;
+        string t = "a";
+        t += "b";
+        vector<bool> seen(2);
+        seen[0] = true;
+        return freq['x'] + (int)t.size();
+    }
+};"""
+        trace, _ = run_source(src, 's = "xyx"')
+        self.assertEqual(trace["result"], 4)
+        got = outcomes(trace)
+        # the range-for's header step each iteration, with the loop variable's store
+        self.assertEqual([t for line, t in got if line == 5], ['c = "x"', "freq[c] = 1", 'c = "y"', "freq[c] = 1", 'c = "x"', "freq[c] = 2"])
+        self.assertIn((7, 't = "ab"'), got)
+        # vector<bool>'s element is a proxy, not a reference: nothing is tracked, and it still compiles
+        self.assertFalse(any(line == 9 for line, _ in got))
+
+    def test_for_initializers_with_auto_and_without_a_condition(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        int total = 0;
+        for (auto it = nums.begin(); it != nums.end(); ++it) total += *it;
+        for (long long k = 2;; k++) { if (k > 3) break; }
+        return total;
+    }
+};"""
+        trace, _ = run_source(src, "nums = [1,2]")
+        self.assertEqual(trace["result"], 3)
+        got = outcomes(trace)
+        self.assertIn((5, "it != nums.end(): true"), got)  # an iterator's own store is left out
+        self.assertEqual([t for line, t in got if line == 6], ["k = 2", "k > 3: false", "k = 3", "k > 3: false", "k = 4", "k > 3: true"])
+        # With no condition, every pass still gets a header step (k = 2, 3, 4). Line 6 also
+        # holds the body: its if on each pass (3 steps) and the break (1): 7 in all.
+        self.assertEqual(lines(trace).count(6), 7)
+
+    def test_code_with_quotes_and_constant_conditions(self):
+        src = r"""class Solution {
+public:
+    string f(int n) {
+        string s = n > 0 ? "say \"hi\"" : "c";
+        if constexpr (sizeof(int) == 4) n++;
+        int a[sizeof(int) > 2 ? 2 : 3] = {};
+        return s + to_string(a[0] + n);
+    }
+};"""
+        trace, _ = run_source(src, "n = 1")
+        step = next(s for s in trace["steps"] if s["frames"][-1]["line"] == 4)
+        stored = step["frames"][-1]["outcomes"][1]
+        # The code is the user's text exactly, quotes and backslashes included.
+        self.assertEqual(stored["code"], r'string s = n > 0 ? "say \"hi\"" : "c"')
+        self.assertEqual(stored["value"], 'say "hi"')
+        got = outcomes(trace)
+        self.assertEqual(got[0], (4, "n > 0: true"))
+        # if constexpr and a constant ?: are left alone (they would not compile wrapped)
+        self.assertFalse(any("sizeof" in t for _, t in got))

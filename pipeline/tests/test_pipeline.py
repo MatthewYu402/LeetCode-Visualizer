@@ -99,10 +99,17 @@ class Failures(unittest.TestCase):
         self.assertIn("crashed", str(error))
 
     def test_time_limit(self):
-        # An empty body has no statement to record, so the step cap never stops it: only the time limit does.
-        error = self.fails(solution("        while (n > 0) {}\n        return n;"), timeout=2)
+        # A loop inside a lambda is not instrumented, so it records no step and the step cap
+        # never stops it: only the time limit does. (A loop in the Solution itself records a
+        # step each time its header is checked, so it reaches the cap and gives a truncated trace.)
+        error = self.fails(solution("        [&] { while (n > 0) {} }();\n        return n;"), timeout=2)
         self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
         self.assertIn("did not finish within 2 seconds", str(error))
+
+    def test_an_empty_infinite_loop_reaches_the_step_cap(self):
+        result = run(solution("        while (n > 0) {}\n        return n;"), "n = 3", timeout=10)
+        self.assertTrue(result.trace.get("truncated"))
+        self.assertEqual(len(result.trace["steps"]), 2000)
 
     def test_what_the_program_prints_is_kept(self):
         source = "#include <iostream>\n" + solution('        std::cout << "hello " << n << std::endl;\n        return n;')
