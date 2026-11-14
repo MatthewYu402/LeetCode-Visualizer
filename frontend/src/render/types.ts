@@ -9,6 +9,8 @@ export interface RenderContext {
   heap?: Record<string, ObjectValue>;
   /** The hint for this local, if it is a parameter that has one. */
   hint?: Hint;
+  /** What this step did to the value ("push 3"), from its diff, for the header's chip (render/ops.ts). */
+  op?: string | null;
 }
 
 export interface RendererProps {

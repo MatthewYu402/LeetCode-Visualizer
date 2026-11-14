@@ -69,7 +69,8 @@ Every split is resizable by dragging the border between panels: the left / right
 | `player/playback.ts` | Pure reducer for the step index and Run / Pause | Actions |
 | `player/usePlayer.ts` | Wraps the reducer and owns the Run timer | Step count, speed |
 | `render/registry.ts` | Chooses a renderer for a value ([Section 5](#5-renderer-registry)) | Kind and hint |
-| `render/*.tsx` | `ArrayRenderer`, `MapRenderer`, `SequenceRenderer`, `SetRenderer`, `FallbackRenderer` | One value, its diff, context |
+| `render/*.tsx` | `ArrayRenderer`, `MapRenderer`, `MultimapRenderer`, `StackRenderer`, `TubeRenderer`, `ListRenderer`, `TupleRenderer`, `SetRenderer`, `HeapRenderer`, `FallbackRenderer`; `Card.tsx` (the shared header) | One value, its diff, context |
+| `render/ops.ts` | `operation(value, diff)`: the operation chip's words ("push 3", "erase key 3") | One value and its diff |
 | `trace/heap.ts` | Edges between heap objects, a node's label and shape, pointers into the heap, `heapDiff` | One or two steps |
 | `trace/calls.ts` | `callTree(trace)`: every call, its caller, arguments, and return value; where a call stands at a step | The whole trace, once |
 | `render/layout.ts` | `layoutTrace(trace)`: a fixed place for every node of every linked structure ([Section 6.4](#64-linked-structures-layout)) | The whole trace, once |
@@ -136,7 +137,7 @@ type Renderer = (props: {
   name: string;            // the local's name, used as the label
   value: Value;            // the value in this step
   diff: ValueDiff | null;  // null on step 0 and after a jump
-  ctx: RenderContext;      // this step's locals and the param's hint
+  ctx: RenderContext;      // this step's locals, heap, the param's hint, and the operation chip's text
 }) => JSX.Element;
 ```
 
@@ -146,8 +147,8 @@ The registry is two maps and a fallback:
 
 ```ts
 byHint: Partial<Record<Hint, Renderer>>   // empty in this version
-byKind: Partial<Record<Kind, Renderer>>   // array, map
-fallback: Renderer                        // everything else
+byKind: Partial<Record<Kind, Renderer>>   // every container kind
+fallback: Renderer                        // object, and any kind from a future version
 ```
 
 **Selection order:** the param's hint (from `problem.params`, if the local is a parameter and has one), then the value's `kind`, then the fallback. The first match wins. An unknown or future kind lands on the fallback instead of crashing (spec §9: "draw an unknown kind with a generic fallback").
@@ -160,29 +161,36 @@ The README's full order is "view as override, hint, kind, object shape, fallback
 
 ### 6.1 Containers
 
+The canvas is a dot grid. At its top, a full-width strip reads "Line N runs next" (or "is returning"), styled like the editor's line highlight. Under it, every structure sits in its own **card** spanning the canvas: a rounded panel with a header of the variable's name, a muted kind label with its size (`hash map · 3`), and, on the right, an **operation chip** when this step changed it in one clear way. A card fades in and slides up the first time its structure is drawn, and fades out when it leaves scope.
+
 | Kind | Renderer | Drawing |
 |---|---|---|
-| `array` | `ArrayRenderer` | A row of boxes, the index under each box, pointer markers under that |
-| `map`, `multimap` | `MapRenderer` | Two-column table, `key` and `value`. A multimap may show a key on several rows |
-| `stack` | `SequenceRenderer` | A column of boxes, the top first and marked `top` |
-| `queue`, `deque`, `list` | `SequenceRenderer` | A row of boxes between `front` and `back` (`⇄` between the nodes of a `list`) |
-| `priority-queue` | `SequenceRenderer` | A row of boxes in the trace's order, `items[0]` marked `top`, labelled with its order (`priority queue (max) · 3`) |
-| `tuple` | `SequenceRenderer` | A row of boxes in parentheses |
-| `set`, `multiset` | `SetRenderer` | Chips in the trace's order, never sorted |
+| `array` | `ArrayRenderer` | A row of rounded cells, the index under each, pointer tags under those ([Section 6.2](#62-pointer-markers)) |
+| `map` | `MapRenderer` | One row per entry, `key → value`. Header `hash map · N` |
+| `multimap` | `MultimapRenderer` | One row per key, in order of first appearance, with that key's values side by side as chips |
+| `stack` | `StackRenderer` | A vertical container open at the top, the top item first with a `top` tag beside it. Up to 6 items drawn whole; deeper, the top 3, a "⋮ N more" row, and the bottom 2 |
+| `queue`, `deque` | `TubeRenderer` | A horizontal tube open at both ends, `front` and `back` under the ends. A queue's arrows point the way items flow; a deque's are double-headed |
+| `list` | `ListRenderer` | Cells joined by two-way links, `front` and `back` under the ends |
+| `priority-queue` | `HeapRenderer` | The binary heap its storage array forms (slot i's children are 2i+1 and 2i+2), with the storage-order row beside it and a `top` tag on the root. Header `priority queue · max · N` (or `min`, `custom`). Circles while every value fits in three characters; otherwise every node of that heap is a rounded rectangle sized to the widest value (a pair shows as `(3, 1)`). The tree is drawn up to 31 items; past that, the storage row alone |
+| `tuple` | `TupleRenderer` | The elements inside faint parentheses, each with its position (0, 1, ...) under it |
+| `set`, `multiset` | `SetRenderer` | Members inside faint curly braces, in the trace's order, never sorted. A multiset shows each value once with a `×N` badge |
 | `object`, `ref` | `HeapView` | Not drawn per local: the heap is drawn once per step, and a local holding a `ref` becomes a pointer label on its node ([Section 6.5](#65-linked-structures-drawing)) |
-| an unknown kind | `FallbackRenderer` | A labelled row of boxes plus the kind name |
-| primitives | none | Not drawn in the visual panel. They appear in the state panel |
+| an unknown kind | `FallbackRenderer` | The value as indented data in an inset box, with "There is no view for this kind yet, so it is shown as data." |
+| primitives | none | Not drawn on the canvas. They appear in the state panel |
 
-The visual panel draws, top to bottom: the recursion tree when one call made another ([Section 6.6](#66-recursion-tree)), the linked structures of the step's heap, then one renderer per other **container local** of the running frame (a tagged kind other than `int`, `float`, `ref`, and `object`), in the order the trace lists them. A `ref` inside a container (a queue of nodes, a map from node to clone) shows its node's value, with the id on hover.
+The canvas draws, top to bottom: the recursion tree when one call made another ([Section 6.6](#66-recursion-tree)), the linked structures of the step's heap, then one card per other **container local** of the running frame (a tagged kind other than `int`, `float`, `ref`, and `object`), in the order the trace lists them. A `ref` inside a container (a queue of nodes, a map from node to clone) shows its node's value, with the id on hover.
 
-Items of a queue, deque, priority queue, and set are keyed by their value and which copy of that value they are, so popping the front fades that item out and glides the rest forward, instead of every box changing its value.
+Items of a queue, deque, list, and set are keyed by their value and which copy of that value they are, so popping the front fades that item out and glides the rest forward, instead of every cell changing its value. A stack's items are keyed by their position from the bottom.
+
+#### Operation chips
+`render/ops.ts` names what one step did to a container, from its diff alone, in plain data-structure words: `push 3` / `pop 3` (stack, priority queue), `enqueue 9` / `dequeue 3` (queue), `push front 0` / `pop back 2` (deque, list), `insert 4` / `remove 3` / `move 3` (list), `insert "b"` / `erase "a"` / `erase one 3` (set, multiset), `insert 2` / `update 2` / `erase 2` (map), `insert (2, "to")` / `erase (2, "to")` / `erase key 3` (multimap). Never a language's method name (`push_back`), so nothing depends on the language. No chip when there is no diff, when nothing changed, when the step made more than one change, or for an array or tuple, whose values are assigned in place.
 
 ### 6.2 Pointer markers
-An integer local becomes a labelled marker (`▲ i`) under an array's box when **both** hold:
+An integer local becomes a pointer tag (a small accent pill under a triangle, `i`) under an array's cell when **both** hold:
 1. Its name is one of `i`, `j`, `k`, `l`, `r`, `left`, `right`, `lo`, `hi`, `mid`, `start`, `end`, `slow`, `fast`, `p`, `q`.
 2. Its value is a bare integer `n` with `0 ≤ n < items.length` for that array.
 
-An `iterator` local is also a marker, with no name rule: when its `container` is this array's own local name and its `index` is in range, it is drawn under that box, labelled with its own name (`▲ it`). The trace says which container it walks, so this is not a guess. An iterator at `end`, or into another container, gets no marker; the state panel shows it as `→ nums[2]`, `→ numMap[7]`, or `→ numMap.end()`.
+An `iterator` local is also a marker, with no name rule: when its `container` is this array's own local name and its `index` is in range, it is drawn under that cell, labelled with its own name (`it`). The trace says which container it walks, so this is not a guess. An iterator at `end`, or into another container, gets no marker; the state panel shows it as `→ nums[2]`, `→ numMap[7]`, or `→ numMap.end()`.
 
 There is no other heuristic. A local named `idx`, or a `j` that points past the end, is not drawn as a marker, though it is still in the state panel. Several markers on one box stack vertically. A marker is keyed by its name, so when `i` goes from 0 to 1 the same element slides to the next box instead of a new one appearing.
 
@@ -255,7 +263,8 @@ Motion uses `framer-motion`. Nothing appears or disappears instantly: nodes, box
 The heap gets its own diff, `heapDiff(prev, curr)`: nodes added, removed, and changed (a scalar field differs), and edges added, removed, and redirected (the same field of the same node now points elsewhere). Nodes and edges are matched by id and field, never by position.
 
 Inside containers it goes one level deeper:
-- **Indexed kinds** (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`): per index. An index past the old length is `added`, past the new length is `removed`, otherwise `changed` or `same`.
+- **Indexed kinds** (`array`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`): per index. An index past the old length is `added`, past the new length is `removed`, otherwise `changed` or `same`. A queue and a deque are then coloured by count, so items that only shifted are not coloured. A priority queue stays per slot: a sift moves values through slots, and the changed slots show its path.
+- **`list`**: matched in order by the longest common subsequence (`matchInOrder`), because a list has no node identity. A push at the front is one `added` item, not every slot `changed`. An item that left one place and appears in another is `changed` (moved). Past 250,000 cells of the matching table (about 500 × 500 items), it falls back to per index.
 - **`set`**: per member, matched by value.
 - **`map`**: per key, matched by value. A key only in `curr` is `added`, only in `prev` is `removed`, and a key whose value differs is `changed`.
 - **`multiset`** and **`multimap`**: by count, because a member (or a `[key, value]` entry) may repeat. Each copy in `curr` is `same` while `prev` still has an unmatched equal copy, and `added` after that. The unmatched copies in `prev` are `removed`. In a multimap a value that changed under a repeated key shows as the new entry added and the old one removed, since with repeated keys nothing says which old value became which new one.
@@ -272,8 +281,8 @@ A diff is shown only when the step was entered **from the step directly before i
 | Change | Drawing |
 |---|---|
 | added | `--success` border and tint, with a short flash |
-| changed | `--attention` border and tint, with a short flash |
-| removed | Drawn faded (old value) for this step only. Gone on the next step |
+| changed (or moved) | `--attention` border and tint, with a short flash |
+| removed | Drawn faded and dashed (old value) for this step only, or faded out by motion. Gone on the next step |
 
 The state panel uses the same colours on its rows.
 

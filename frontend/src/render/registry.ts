@@ -1,8 +1,9 @@
 import { isTagged, type Hint, type Kind, type Value } from "../trace/types";
 import { ArrayRenderer } from "./ArrayRenderer";
 import { FallbackRenderer } from "./FallbackRenderer";
-import { MapRenderer } from "./MapRenderer";
-import { SequenceRenderer, SetRenderer } from "./SequenceRenderer";
+import { HeapRenderer } from "./HeapRenderer";
+import { MapRenderer, MultimapRenderer } from "./MapRenderer";
+import { ListRenderer, SetRenderer, StackRenderer, TubeRenderer, TupleRenderer } from "./SequenceRenderer";
 import type { Renderer } from "./types";
 
 /** Renderers chosen by hint. Empty in this version: grid, graph, intervals, ... come later. */
@@ -12,13 +13,13 @@ export const byHint: Partial<Record<Hint, Renderer>> = {};
 export const byKind: Partial<Record<Kind, Renderer>> = {
   array: ArrayRenderer,
   map: MapRenderer,
-  multimap: MapRenderer,
-  stack: SequenceRenderer,
-  queue: SequenceRenderer,
-  deque: SequenceRenderer,
-  list: SequenceRenderer,
-  tuple: SequenceRenderer,
-  "priority-queue": SequenceRenderer,
+  multimap: MultimapRenderer,
+  stack: StackRenderer,
+  queue: TubeRenderer,
+  deque: TubeRenderer,
+  list: ListRenderer,
+  tuple: TupleRenderer,
+  "priority-queue": HeapRenderer,
   set: SetRenderer,
   multiset: SetRenderer,
 };

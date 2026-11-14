@@ -38,8 +38,9 @@ describe("Two Sum renders every step in isolation", () => {
   it("step 1 highlights line 8; step 5 shows numMap [2, 0] added and i's pointer under index 1", () => {
     expect(trace.steps.map((s) => topFrame(s).line)).toEqual([5, 8, 9, 11, 16, 8, 9, 11, 12, 12]);
     const html = renderStep(trace, 5, true);
-    expect(html).toMatch(/<tr class="diff-added"><td>2<\/td><td>0<\/td><\/tr>/);
-    expect(html).toContain("translate(52px, 0px)"); // i = 1 → one cell to the right
+    expect(html).toMatch(/<div class="kv-row diff-added" role="row"><span role="cell">2<\/span><svg[^]*?<\/svg><span role="cell">0<\/span><\/div>/);
+    expect(html).toContain("insert 2"); // the operation chip on numMap's card
+    expect(html).toContain("translate(58px, 0px)"); // i = 1 → one cell and one gap to the right
     expect(html).toContain("Step 5 of 9 · line 8");
   });
 
@@ -155,8 +156,8 @@ describe("iterators", () => {
       0,
       false,
     );
-    expect(html).toContain("translate(104px, 0px)"); // index 2 → two cells to the right
-    expect(html).toMatch(/▲<\/span> it</);
+    expect(html).toContain("translate(116px, 0px)"); // index 2 → two cells and two gaps to the right
+    expect(html).toMatch(/class="tag-pill pointer-name">it</);
     expect(html).toContain("→ nums[2]"); // and its row in the state panel
   });
 
@@ -171,8 +172,8 @@ describe("iterators", () => {
       0,
       false,
     );
-    expect(html.match(/▲<\/span> it</g)).toHaveLength(1); // under b only
-    expect(html).not.toMatch(/▲<\/span> done</);
+    expect(html.match(/class="tag-pill pointer-name">it</g)).toHaveLength(1); // under b only
+    expect(html).not.toMatch(/class="tag-pill pointer-name">done</);
     expect(html).toContain("→ a.end()");
   });
 
@@ -243,7 +244,7 @@ describe("every v0.8 kind renders without crashing", () => {
 
   it("renders each container through the registry", () => {
     const html = renderStep(t, 0, false);
-    for (const k of ["list", "stack", "queue", "deque", "priority queue (max) · 2", "tuple", "set", "multiset · 3", "multimap · 2", "ref"])
+    for (const k of ["list · 2", "stack · 2", "queue · 1", "deque · 0", "priority queue · max · 2", "tuple · 2", "set · 1", "multiset · 3", "multimap · 2", "ref"])
       expect(html).toContain(k);
     expect(html).toContain("9007199254740993");
     expect(html).toContain("NaN");
@@ -268,12 +269,14 @@ describe("multiset and multimap with repeated members", () => {
     const t: Trace = { ...trace, steps: [prev, curr] };
     const html = renderStep(t, 1, true);
 
-    // multiset: 5 same, 2 same, 2 added; two 5s removed.
-    expect(html.match(/set-member diff-added"[^>]*>2</g)).toHaveLength(1);
-    expect(html.match(/set-member diff-removed"[^>]*>5</g)).toHaveLength(2);
-    // multimap: [1,"a"] same, two [1,"z"] added; [1,"a"] and [2,"b"] removed.
-    expect(html.match(/<tr class="diff-added"><td>1<\/td><td>&quot;z&quot;<\/td><\/tr>/g)).toHaveLength(2);
-    expect(html).toContain('<tr class="diff-removed"><td>2</td><td>&quot;b&quot;</td></tr>');
+    // multiset: one chip per member with its count; 5 went from three copies to one, 2 from one to two.
+    expect(html).toMatch(/set-member diff-changed"[^>]*>5</);
+    expect(html).toMatch(/set-member diff-changed"[^>]*>2<span class="count-badge is-changed">×2</);
+    // multimap, matched by count: [1,"a"] same, two [1,"z"] added, one [1,"a"] removed in key 1's
+    // row; key 2 is gone, so its row is faded with its [2,"b"].
+    expect(html.match(/<span class="chip diff-added">&quot;z&quot;<\/span>/g)).toHaveLength(2);
+    expect(html.match(/<span class="chip diff-removed">&quot;a&quot;<\/span>/g)).toHaveLength(1);
+    expect(html).toMatch(/<div class="kv-row diff-removed" role="row"><span role="cell" class="kv-key">2<\/span>[^]*?<span class="chip diff-removed">&quot;b&quot;<\/span>/);
   });
 
   it("a reordered multiset or multimap draws with no diff colour", () => {

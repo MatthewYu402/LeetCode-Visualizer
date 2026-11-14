@@ -71,7 +71,7 @@ describe("linked structures draw at every step, with and without a diff", () => 
     const last = cloneGraph.steps[cloneGraph.steps.length - 1];
     const html = renderToStaticMarkup(<VisualPanel trace={cloneGraph} step={last} diff={null} />);
     expect(html).not.toMatch(/→ n\d/);
-    expect(html).toMatch(/<td title="n\d+: Node">1<\/td>/);
+    expect(html).toMatch(/<span role="cell" title="n\d+: Node">1<\/span>/);
   });
 
   it("a null pointer of the running frame is listed", () => {

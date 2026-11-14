@@ -713,30 +713,657 @@ kbd {
   border-radius: 0 3px 3px 0;
 }
 
-/* ---- Visual panel ---- */
+/* ---- Canvas (components/VisualPanel.tsx) ---- */
 
-.visual {
+.canvas-filled {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* "Line N runs next": full bleed, styled like the editor's line highlight. */
+.line-strip {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 30px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+  font-size: 12.5px;
+  color: var(--fg-soft);
+}
+
+.line-strip-bar {
+  width: 4px;
+  height: 30px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.line-strip-number {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px 24px;
+}
+
+.card {
+  min-width: 0;
+  padding: 16px 20px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+  overflow-x: auto;
+}
+
+.card.is-new {
+  animation: card-new 900ms ease-out;
+}
+
+@keyframes card-new {
+  from {
+    border-color: color-mix(in srgb, var(--success) 60%, transparent);
+  }
+}
+
+.canvas-note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.structure {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: max-content;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.card-name {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.card-meta {
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.card-header-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 16px;
+}
+
+.op-chip {
+  padding: 2px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 16px;
+  white-space: nowrap;
+  animation: fade-in 260ms ease-out both;
+}
+
+/* ---- Cells, shared by every container ---- */
+
+.cell {
+  height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, opacity 300ms ease-out;
+}
+
+.cell-auto {
+  padding: 0 12px;
+}
+
+.cell-index {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.empty {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-strong);
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+/* Tags point at things: pointers under array cells, `top` beside a stack or over a heap. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent-fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.tag-arrow,
+.pointer-arrow {
+  fill: var(--accent);
+  flex-shrink: 0;
+}
+
+/* ---- array (render/ArrayRenderer.tsx) ---- */
+
+.array-cells {
+  display: flex;
+  gap: var(--cell-gap, 6px);
+}
+
+.array-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.array .array-col .cell {
+  width: var(--cell);
+  padding: 0 4px;
+}
+
+.pointers {
+  position: relative;
+  margin-top: 4px;
+}
+
+.pointer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--cell);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 380ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.tag-pill {
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.pointer-name {
+  margin-top: 1px;
+}
+
+/* ---- map and multimap (render/MapRenderer.tsx) ---- */
+
+.kv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 280px;
+  width: max-content;
+}
+
+.kv-head,
+.kv-row {
+  display: grid;
+  grid-template-columns: minmax(64px, auto) 28px minmax(64px, auto);
+  align-items: center;
+  column-gap: 8px;
+  padding: 0 12px;
+}
+
+.kv-head {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.kv-row {
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, opacity 300ms ease-out;
+}
+
+.kv-arrow {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.kv-multi .kv-head,
+.kv-multi .kv-row {
+  grid-template-columns: 52px 28px auto;
+}
+
+.kv-multi .kv-row {
+  padding: 5px 12px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.kv-key {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+}
+
+.kv-values {
   display: flex;
   flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 20px 32px;
+  gap: 6px;
 }
 
-.structure-wrap {
+.chip {
+  height: 40px;
+  min-width: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, opacity 300ms ease-out;
+}
+
+/* ---- stack, queue, deque, list, tuple, set (render/SequenceRenderer.tsx) ---- */
+
+/* stack: open at the top. */
+.stack {
+  align-self: flex-start;
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 12px 8px;
+  border: 1.5px solid var(--border-strong);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+}
+
+.stack-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.stack-item .cell {
+  min-width: 72px;
+  height: 36px;
+}
+
+.tag-side {
+  position: absolute;
+  left: calc(100% + 8px);
+  padding-right: 4px;
+}
+
+
+.stack-fold {
+  min-width: 72px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-strong);
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* queue and deque: a tube open at both ends. */
+.tube-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.tube-arrow {
+  margin-top: 20px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tube-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+}
+
+.tube {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-top: 1.5px solid var(--border-strong);
+  border-bottom: 1.5px solid var(--border-strong);
+}
+
+.tube .cell {
+  height: 40px;
+}
+
+.tube-empty,
+.set-empty {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* list: cells joined by two-way links. */
+.list-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: flex-start;
+}
+
+.list {
+  display: flex;
+  align-items: center;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.list-link {
+  margin: 0 4px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* tuple and set: faint brackets around the parts. */
+.bracket {
+  color: var(--edge);
+  font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 300;
+  line-height: 40px;
+}
+
+.tuple {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tuple-part {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tuple-comma {
+  color: var(--edge);
+  font-family: var(--font-mono);
+  font-size: 20px;
+  line-height: 44px;
+}
+
+.tuple .bracket {
+  margin-top: 1px;
+}
+
+.set {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.set-member {
+  position: relative;
+  height: 40px;
+  min-width: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, opacity 300ms ease-out;
+}
+
+.count-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 22px;
+  padding: 0 5px;
   border-radius: 8px;
-  padding: 4px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-control);
+  color: var(--fg-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, color 300ms ease-out;
 }
 
+.count-badge.is-changed {
+  border-color: var(--attention);
+  background: color-mix(in srgb, var(--attention) 18%, var(--bg-inset));
+  color: color-mix(in srgb, var(--attention) 60%, var(--fg));
+}
+
+/* ---- priority queue (render/HeapRenderer.tsx) ---- */
+
+.pq-layout {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 24px 56px;
+}
+
+.heap-tree {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.heap-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.heap-edges line {
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  transition: opacity 300ms ease-out;
+}
+
+.heap-edges line.is-removed {
+  opacity: 0.45;
+}
+
+.heap-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background-color 300ms ease-out, border-color 300ms ease-out, box-shadow 300ms ease-out;
+}
+
+.heap-node.is-round {
+  border-radius: 50%;
+  font-size: 14px;
+}
+
+.heap-node.is-top {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-inset));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.tag-top {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+
+.heap-storage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.heap-storage-label,
+.heap-note {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* ---- fallback (render/FallbackRenderer.tsx) ---- */
+
+.data-box {
+  align-self: flex-start;
+  min-width: 280px;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 22px;
+  transition: border-color 300ms ease-out;
+}
+
+.data-box.is-changed {
+  border-color: var(--attention);
+}
+
+.data-line.is-changed {
+  display: inline-block;
+  margin: 0 -8px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--attention) 12%, transparent);
+}
+
+.data-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* Headers inside HeapView and RecursionTree, until stage 3 gives them CardHeader. */
 .structure-label {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .structure-name {
   font-family: var(--font-mono);
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -745,126 +1372,18 @@ kbd {
   font-size: 12px;
 }
 
-.cell {
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  background: var(--bg-inset);
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: background-color 200ms, border-color 200ms, opacity 200ms;
-}
-
-.cell-auto {
-  min-width: 36px;
-  padding: 0 10px;
-  border-radius: 4px;
-}
-
-.empty {
-  color: var(--fg-muted);
-  font-style: italic;
-  font-size: 12px;
-  padding: 8px 0;
-}
-
-/* array */
-
-.array-cells {
-  display: flex;
-}
-
-.array-col {
-  width: var(--cell);
-  display: flex;
-  flex-direction: column;
-}
-
-.array-col .cell {
-  margin-right: -1px; /* collapse adjacent borders */
-}
-
-.array-col:first-child .cell {
-  border-radius: 4px 0 0 4px;
-}
-
-.array-col:last-child .cell {
-  border-radius: 0 4px 4px 0;
-  margin-right: 0;
-}
-
-.cell-index {
-  text-align: center;
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding-top: 3px;
-}
-
-.pointers {
-  position: relative;
-  margin-top: 2px;
-}
-
-.pointer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: var(--cell);
-  height: 22px;
-  text-align: center;
-  color: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  transition: transform 300ms ease;
-  white-space: nowrap;
-}
-
-.pointer-arrow {
-  font-size: 10px;
-}
-
-/* map */
-
-.map-table,
+/* The state panel's table (restyled in stage 4). */
 .state-table {
   border-collapse: collapse;
   font-family: var(--font-mono);
   font-size: 13px;
 }
 
-.map-table th,
-.map-table td {
-  border: 1px solid var(--border);
-  padding: 6px 14px;
-  text-align: center;
-  min-width: 64px;
-  transition: background-color 200ms, opacity 200ms;
-}
-
-.map-table th,
 .state-table th {
   color: var(--fg-muted);
   font-weight: 500;
   font-family: var(--font-ui);
   font-size: 12px;
-}
-
-.map-table td {
-  background: var(--bg-inset);
-}
-
-.fallback-row {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
 }
 
 /* ---- State panel ---- */
@@ -984,19 +1503,17 @@ kbd {
 
 /* ---- Diff colours (animation only: correct drawing never depends on them) ---- */
 
-/* Tint = the token colour mixed into the inset background. */
+/* Tint = the token colour mixed into the inset background. Shapes keep their own radius. */
 .diff-added,
-.map-table tr.diff-added td,
 .state-table tr.diff-added td {
-  background: color-mix(in srgb, var(--success) 18%, var(--bg-inset));
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-inset));
   border-color: var(--success);
   animation: flash-added 600ms ease-out;
 }
 
 .diff-changed,
-.map-table tr.diff-changed td,
 .state-table tr.diff-changed td {
-  background: color-mix(in srgb, var(--attention) 18%, var(--bg-inset));
+  background: color-mix(in srgb, var(--attention) 10%, var(--bg-inset));
   border-color: var(--attention);
   animation: flash-changed 600ms ease-out;
 }
@@ -1014,102 +1531,28 @@ kbd {
   box-shadow: inset 3px 0 0 var(--attention);
 }
 
-.diff-removed,
+/* Removed this step: faded, dashed, for one step only. (Table rows fade below.) */
+.diff-removed:not(tr) {
+  opacity: 0.45;
+  border-style: dashed;
+  background: transparent;
+}
+
 tr.diff-removed td {
   opacity: 0.4;
   text-decoration: line-through;
 }
 
-.structure-wrap.diff-removed {
-  text-decoration: none;
-}
-
-.diff-added-outline {
-  border-color: var(--success);
-  animation: flash-added 600ms ease-out;
-}
-
 @keyframes flash-added {
   from {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 50%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 35%, transparent);
   }
 }
 
 @keyframes flash-changed {
   from {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--attention) 50%, transparent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--attention) 35%, transparent);
   }
-}
-
-/* ---- Stacks, queues, deques, lists, tuples, priority queues, sets (render/SequenceRenderer.tsx) ---- */
-
-.sequence {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.sequence-vertical {
-  flex-direction: column;
-  align-items: flex-start;
-  flex-wrap: nowrap;
-}
-
-.sequence-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  position: relative;
-}
-
-.sequence-vertical .sequence-item .cell {
-  min-width: 64px;
-}
-
-.sequence-top {
-  font-size: 10px;
-  color: var(--accent);
-  font-family: var(--font-mono);
-}
-
-.sequence-vertical .sequence-top {
-  position: absolute;
-  left: calc(100% + 6px);
-}
-
-.sequence:not(.sequence-vertical) .sequence-top {
-  position: absolute;
-  top: -14px;
-  left: 0;
-}
-
-.sequence-end,
-.sequence-paren,
-.sequence-link {
-  color: var(--fg-muted);
-  font-size: 11px;
-  font-family: var(--font-mono);
-  align-self: center;
-}
-
-.sequence-paren {
-  font-size: 22px;
-}
-
-.set {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.set-member {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  padding: 3px 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--bg-inset);
 }
 
 /* ---- The recursion tree (components/RecursionTree.tsx) ---- */

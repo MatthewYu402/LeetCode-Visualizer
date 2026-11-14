@@ -96,6 +96,13 @@ export function diffValue(prev: Value, curr: Value): ValueDiff {
     return { status: "changed", prev, entries: status, removedKeys: removed.map(([key, value]) => ({ key, value })) };
   }
 
+  if (curr.kind === "list" && prev.kind === "list" && prev.items.length * curr.items.length <= LIST_MATCH_LIMIT) {
+    // A list has no node identity, so its items are matched in order (longest common
+    // subsequence): a push at the front adds one item instead of changing every slot.
+    const { status, removed } = matchInOrder(prev.items, curr.items);
+    return { status: "changed", prev, items: status, removedItems: removed.map((index) => ({ index, value: prev.items[index] })) };
+  }
+
   if (hasItems(prev) && hasItems(curr)) {
     const items: Change[] = curr.items.map((v, i) =>
       i >= prev.items.length ? "added" : valuesEqual(prev.items[i], v) ? "same" : "changed",
@@ -106,6 +113,53 @@ export function diffValue(prev: Value, curr: Value): ValueDiff {
 
   // object, ref, or a future kind: no per-item detail in this version.
   return { status: "changed", prev };
+}
+
+/** Past this many cells of the matching table, a list falls back to matching by position. */
+export const LIST_MATCH_LIMIT = 250_000;
+
+/**
+ * Matches two ordered lists without identity (a `list`'s items) by their longest common
+ * subsequence. Items on it are "same". Of the rest, an item whose value also left from
+ * somewhere else is "changed" (it moved), and is paired with that old position; the
+ * others are "added". `pair[i]` is the old index item i continues, or -1; `removed` are
+ * the old indices nothing continues.
+ */
+export function matchInOrder<T>(prev: T[], curr: T[]): { status: Change[]; pair: number[]; removed: number[] } {
+  const a = prev.map(canonical);
+  const b = curr.map(canonical);
+  const n = a.length;
+  const m = b.length;
+  // lcs[i][j]: the longest common subsequence of a[i..] and b[j..].
+  const lcs = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+
+  const pair = new Array<number>(m).fill(-1);
+  const status = new Array<Change>(m).fill("added");
+  const used = new Array<boolean>(n).fill(false);
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (a[i] === b[j]) {
+      pair[j] = i;
+      status[j] = "same";
+      used[i] = true;
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++;
+    else j++;
+  }
+  // An added item whose value left from another place moved there.
+  for (let j = 0; j < m; j++) {
+    if (status[j] !== "added") continue;
+    const i = a.findIndex((v, k) => !used[k] && v === b[j]);
+    if (i >= 0) {
+      used[i] = true;
+      pair[j] = i;
+      status[j] = "changed";
+    }
+  }
+  const removed = a.flatMap((_, k) => (used[k] ? [] : [k]));
+  return { status, pair, removed };
 }
 
 /**

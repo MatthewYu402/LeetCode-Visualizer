@@ -41,7 +41,7 @@ src/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
 │   ├── loader.ts        JSON.parse + version check (accepts exactly "0.8")
 │   ├── format.ts        compact value text, kind names, canonical comparison
-│   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, plus the heap diff
+│   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
 │   └── calls.ts         callTree(trace): every call, its caller, arguments, return value; callState at a step
 ├── player/
@@ -49,7 +49,9 @@ src/
 │   └── usePlayer.ts     reducer + Run timer (1x = 700 ms)
 ├── render/
 │   ├── registry.ts      hint -> kind -> fallback
-│   ├── ArrayRenderer.tsx, MapRenderer.tsx, SequenceRenderer.tsx (stack, queue, deque, list, tuple, priority queue; SetRenderer), FallbackRenderer.tsx
+│   ├── Card.tsx         the header every card shares: name, kind · size, operation chip
+│   ├── ops.ts           operation(value, diff): "push 3", "dequeue 1", "erase key 3", from the diff alone
+│   ├── ArrayRenderer.tsx, MapRenderer.tsx (map, multimap), SequenceRenderer.tsx (stack, queue/deque tube, list, tuple, set/multiset), HeapRenderer.tsx (priority queue), FallbackRenderer.tsx
 │   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
 │   ├── HeapView.tsx     one step's linked structures: nodes, edges, pointer labels, highlights
 │   ├── pointers.ts      the index-name rule and iterators, for pointer markers
