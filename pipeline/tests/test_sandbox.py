@@ -131,8 +131,11 @@ class Isolation(unittest.TestCase):
         self.assertLess(made, Limits().pids)
 
     def test_time_limit_removes_the_container(self):
+        # The loop is in a lambda, which is not instrumented, so it records no step and only
+        # the time limit stops it. A loop in the Solution itself would reach the step cap
+        # instead (test_pipeline.py's test_an_empty_infinite_loop_reaches_the_step_cap).
         before = containers()
-        error = self.fails(solution("        while (n > 0) {}\n        return n;"), timeout=2)
+        error = self.fails(solution("        [&] { while (n > 0) {} }();\n        return n;"), timeout=2)
         self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
         self.assertIn("did not finish within 2 seconds", str(error))
         self.assertEqual(new_containers_after(before), set())
