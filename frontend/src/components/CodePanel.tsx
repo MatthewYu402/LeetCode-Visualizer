@@ -80,6 +80,8 @@ export function CodePanel({ source, language, line, onChange, onRun }: Props) {
           overviewRulerBorder: false,
           hideCursorInOverviewRuler: true,
           scrollBeyondLastLine: false,
+          // Sticky scroll pins the enclosing class and function over the top lines, covering them.
+          stickyScroll: { enabled: false },
           automaticLayout: true,
           renderLineHighlight: "none",
           glyphMargin: false,
