@@ -3,7 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
+    <script>
+      // The theme before the page draws, so it never flashes the other one: the theme picked
+      // before (src/theme.ts, THEME_KEY), else the system's. Storage can be blocked.
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem("lcv-theme"); } catch (e) {}
+        if (t !== "dark" && t !== "light") t = window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
     <link rel="icon" href="data:," />
     <title>LeetCode Visualizer · Sandbox</title>
   </head>

@@ -10,6 +10,7 @@ import { Toolbar } from "./components/Toolbar";
 import { VisualPanel } from "./components/VisualPanel";
 import { LANGUAGES, monacoLanguage, STARTER_EXAMPLE, TEMPLATES, type EditorLanguage } from "./editor/languages";
 import { usePlayer } from "./player/usePlayer";
+import { useTheme } from "./theme";
 import type { PlayerAction } from "./player/playback";
 import { diffForStep } from "./trace/diff";
 import { topFrame } from "./trace/types";
@@ -28,10 +29,13 @@ export function App() {
   const [language, setLanguage] = useState<EditorLanguage>("cpp");
   const [source, setSource] = useState(TEMPLATES.cpp);
   const [showCalls, setShowCalls] = useState(true);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   // Only C++ runs so far. The language picks the editor mode and whether the form is enabled.
   const inputs = useInputs(source, language === "cpp");
-  const trace = inputs.run.status === "done" ? inputs.run.result.trace : null;
+  const done = inputs.run.status === "done" ? inputs.run : null;
+  const trace = done?.result.trace ?? null;
+  const running = inputs.run.status === "running";
   const { state, dispatch, speed, setSpeed } = usePlayer(trace?.steps.length ?? 0, trace);
 
   // For one render after a trace swap the index may be stale, so guard the lookup.
@@ -61,9 +65,11 @@ export function App() {
           showCalls={showCalls}
           onShowCalls={setShowCalls}
           onRun={inputs.start}
-          running={inputs.run.status === "running"}
+          running={running}
           blocked={inputs.blocked}
           runShortcut={RUN_KEYS.join(" ")}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
         <main className="workspace">
           <Split
@@ -87,6 +93,7 @@ export function App() {
                       line={step ? topFrame(step).line : null}
                       onChange={setSource}
                       onRun={inputs.start}
+                      theme={theme}
                     />
                   </section>
                 }
@@ -106,12 +113,12 @@ export function App() {
                 label="Resize visual panel"
                 first={
                   <section className="panel panel-canvas" aria-label="Visual">
-                    <VisualPanel trace={trace} step={step} diff={stepDiff} notice={notice} runKeys={RUN_KEYS} showCalls={showCalls} />
+                    <VisualPanel trace={trace} step={step} diff={stepDiff} notice={notice} runKeys={RUN_KEYS} showCalls={showCalls} running={running} />
                   </section>
                 }
                 second={
                   <section className="panel" aria-label="State">
-                    <StatePanel trace={trace} step={step} index={state.index} diff={stepDiff} source={inputs.run.status === "done" ? inputs.run.source : undefined} />
+                    <StatePanel trace={trace} step={step} index={state.index} diff={stepDiff} source={done?.source} output={done?.result.output} running={running} />
                   </section>
                 }
               />

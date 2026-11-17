@@ -6,7 +6,7 @@ Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and 
 
 ## What this is
 
-The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). There is no home page or "view as" override yet.
+The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). It has a dark theme and a light one (`theme.ts`, `docs/frontend.md` §11). While a run is going, the canvas shows `RunningCanvas`. When the program printed something, the state panel has an Output tab. There is no home page or "view as" override yet.
 
 The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000.
 
@@ -33,6 +33,7 @@ React + TypeScript + Vite, `@monaco-editor/react` with `monaco-editor` bundled l
 src/
 ├── App.tsx              the sandbox page: layout, language, keyboard shortcuts (Cmd/Ctrl + Enter runs)
 ├── main.tsx             entry: fonts, theme, styles
+├── theme.ts             the page's theme: data-theme on <html>, the system's setting, the toggle, remembering the choice
 ├── api/
 │   ├── client.ts        signature() and run(): fetch /api, answers as unions, the trace through checkTrace
 │   ├── form.ts          fields per method, placeholders, kept values, filling from an example, the run request
@@ -56,7 +57,7 @@ src/
 │   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
 │   ├── pointers.ts      pointer markers: integer locals the trace's `indexes` pairs with an array, and iterators
 │   └── types.ts         Renderer, RendererProps, RenderContext
-├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, StatePanel, RecursionTree (the recursion card), CallStackCard, Split
+├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -73,7 +74,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 6. **Map order is the trace's order.** Never sort map entries (or set, multiset, multimap members) for display. Diffs match by key, never by position; multiset and multimap match by count. `canonical` sorts members only to compare.
 7. **Pointer markers** come from one rule only: an integer local that the trace's `indexes` pairs with that array in the running function (`indexes[frame.function][name]` lists the array; spec §3, Indexes) and whose value is a valid index into it, and an `iterator` local whose `container` is that array and whose `index` is in range. An iterator's marker is labeled with its own name, so `it` points at `nums[2]`; one at `end` gets no marker.
 8. **Unknown kinds go to the fallback**, never crash.
-9. **Colours come from the theme tokens.** No hex values in components or CSS outside `styles/theme.css` (the one exception is a fully transparent constant in `editor/monaco.ts`). The Monaco theme reads the same variables.
+9. **Colours come from the theme tokens.** No hex values in components or CSS outside `styles/theme.css` (the one exception is a fully transparent constant in `editor/monaco.ts`), and no colour or shadow that is right in one theme only. A new token gets a value in both the dark `:root` block and the `:root[data-theme="light"]` block. The Monaco theme reads the same variables.
 10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`. Only tests import them: the page opens with no trace.
 11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`.
 12. **Wherever the problem's title is shown, it is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`. (The top bar shows the app's name, not the problem's.)
@@ -83,7 +84,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 
 ## Theme tokens
 
-The full table is in `docs/frontend.md` §11. The ones every component reaches for:
+The full tables, dark and light, are in `docs/frontend.md` §11. The dark values of the ones every component reaches for:
 
 | Token | Value | Use |
 |---|---|---|
@@ -99,6 +100,8 @@ The full table is in `docs/frontend.md` §11. The ones every component reaches f
 
 Editor-only syntax tokens: `--syntax-keyword`, `--syntax-string`, `--syntax-number`, `--syntax-comment`, `--syntax-type`.
 
+Also `--knob` (a switch's knob) and `--card-shadow` (a card's lift, the one token that is a shadow).
+
 Fonts: `--font-ui` (Geist) for text, `--font-mono` (Geist Mono) for code and values.
 
 ## Gotchas
@@ -108,5 +111,6 @@ Fonts: `--font-ui` (Geist) for text, `--font-mono` (Geist Mono) for code and val
 - Keyboard shortcuts are ignored inside Monaco and form controls. Space on a focused button is left to the button.
 - "Run code" (top bar, Cmd/Ctrl + Enter) runs the code in the sandbox. Play, in the playback bar, replays the trace. Restart goes back to step 1 of the same trace without running the code.
 - Monaco binds Ctrl/Cmd + Enter to "insert line"; `CodePanel` overrides it to run the code, and the window listener skips key events from inside the editor so a run is not started twice.
+- The theme is `data-theme` on `<html>`, set by a script in `index.html` before the page draws, then by `useTheme`. The toggle sets the attribute before React renders, so the editor, which reads the tokens with `getComputedStyle`, sees the new values: `CodePanel` calls `defineTheme` again and `setTheme(THEME)` on each change. Monaco needs the theme redefined; it does not follow CSS on its own.
 - Monaco measures glyphs when it mounts, before Geist Mono has loaded; `CodePanel` calls `remeasureFonts()` once `document.fonts.ready` resolves.
 - A browser test that types code into Monaco gets auto-indent and auto-closed braces, which breaks the code. Paste it through the clipboard instead, as a user does.

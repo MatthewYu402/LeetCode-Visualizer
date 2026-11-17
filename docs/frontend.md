@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.8 (reads trace format v0.9)
+> **Status:** Draft v0.9 (reads trace format v0.9)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -18,13 +18,14 @@ POST /api/run ──► loader ──► step player ──► code panel
 | In | Out |
 |---|---|
 | One sandbox page at `/` | The home page |
-| Replaying the trace of each run | A light theme |
+| Replaying the trace of each run | |
 | An inputs panel: one field per parameter, Run code through the API | Design problems (LRU Cache, Min Stack) |
 | Monaco code panel with the current line highlighted | Hint renderers (grid, adjacency list, intervals, ...) |
 | Renderers for every container kind, and a fallback for unknown kinds | The "view as" override UI |
 | Linked lists, trees, and graphs drawn from `heap`, with pointer labels | Objects that are not nodes (no `val`/`next`/`left`/`neighbors` shape) drawn as more than a node |
 | The calls: a recursion card (tree or stack) when calls return values, a call-stack card when they return nothing | |
 | Diff highlighting between adjacent steps, and motion (fade, glide, draw-in) | |
+| A dark theme and a light one, switched in the top bar ([Section 11](#11-theme-tokens)) | |
 | Playback: restart, step, play, pause, scrub, speed, keyboard; Cmd/Ctrl + Enter runs the code | Comparing two traces side by side |
 | A language select that changes the editor mode | Sending the language anywhere |
 
@@ -44,10 +45,14 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 │   (tint + 4px bar)           │                                           │
 │   scrolled into view         │   before a run: "Run your code to see it  │
 │                              │   here." and how to run it                │
+│                              │   while a run is going: the trace line    │
+│                              │   drawing itself, "Running your code in   │
+│                              │   the sandbox", the seconds so far        │
 ├──────────────────────────────┼───────────────────────────────────────────┤
 │ INPUTS PANEL                 │ STATE PANEL                               │
 │   method (when several)      │   Step N of M   [truncated]               │
 │   one field per parameter    │   Line i  statement  →  true / x = 4      │
+│                              │   Locals | Output (when it printed)       │
 │                              │   name · kind · value  (one row / local)  │
 │   or paste a LeetCode example│   result or "did not return" (last step)  │
 │   Fill fields · why Run waits│   before a run: "No trace yet"            │
@@ -78,13 +83,15 @@ Every split is resizable by dragging the border between panels: the left / right
 | `render/HeapView.tsx` | `LinkedCard`: one linked structure of one step as a card: nodes, edges, pointer tags, highlights; `NullPointers` for pointers that hold null | One step, its heap diff, the layout, the running call's parameters |
 | `components/RecursionTree.tsx` | The recursion card at one step: a Tree view (whole or focused) and a Stack view ([Section 6.6](#66-calls)) | The call tree, one step |
 | `components/CallStackCard.tsx` | The call-stack card at one step, for calls that return nothing: one row per live frame, with the node's neighbours ([Section 6.6](#66-calls)) | The call tree, one step, the frames just pushed |
-| `components/Toolbar.tsx` | The top bar: logo and name, language select, the call-stack switch, the theme button, Run code | Language, run state |
+| `components/Toolbar.tsx` | The top bar: logo and name, language select, the call-stack switch, the theme button, Run code | Language, run state, theme |
 | `components/PlaybackBar.tsx` | The bottom bar: Restart, previous, play/pause, next, last, the counter, the scrubber with a tick per step, speed | Player state |
-| `components/CodePanel.tsx` | Monaco with the line decoration | Source, `step.line` |
-| `components/VisualPanel.tsx` | The line strip, then one card per linked structure, one per other container local, and the calls card at the bottom, or a notice / error | One step, its diff, the per-trace layout and call tree, the call-stack switch |
-| `components/StatePanel.tsx` | "Step N of M" with a progress bar, the running line (its statement and what it produced), and the running frame's locals as a table, plus `result` on the last step ([Section 9](#9-state-panel)) | One step, its diff, the code the run was made from |
+| `components/CodePanel.tsx` | Monaco with the line decoration; rebuilds the editor theme when the page's theme changes | Source, `step.line`, theme |
+| `components/VisualPanel.tsx` | The line strip, then one card per linked structure, one per other container local, and the calls card at the bottom, or a notice / error; while a run is going, `RunningCanvas` instead | One step, its diff, the per-trace layout and call tree, the call-stack switch, whether a run is going |
+| `components/RunningCanvas.tsx` | The canvas while the sandbox makes a trace: a line of trace points drawing itself, what the sandbox is doing, and the seconds since Run code | Nothing: its own one-second timer |
+| `components/StatePanel.tsx` | "Step N of M" with a progress bar, the running line (its statement and what it produced), and the running frame's locals as a table, plus `result` on the last step, and an Output tab when the program printed ([Section 9](#9-state-panel)) | One step, its diff, the code the run was made from, the run's output |
 | `components/Split.tsx` | A draggable split between two panels | Pointer events |
-| `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables | `theme.css` |
+| `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables, again after each theme change | `theme.css` |
+| `theme.ts` | The page's theme: the first one (the one picked before, else the system's), `data-theme` on `<html>`, the toggle, remembering the choice | The system setting, browser storage |
 | `editor/languages.ts` | Editor languages, the bare Two Sum starter in each, and Two Sum's example as placeholder text | Nothing |
 | `api/client.ts` | `signature()` and `run()`: the two API calls, answers as unions, the trace through the loader | The API |
 | `api/form.ts` | Fields for a method, placeholders, kept values, filling from an example, the run request | A signature |
@@ -118,7 +125,7 @@ Spec [§9](trace-format.md#9-versioning): while the major version is 0, any mino
 
 A `void` method that returned has `"result": null`, which alone would read as a returned null pointer. `returnsVoid(problem)` in `trace/types.ts` checks `problem.returns.type === "void"` ([trace-format.md §3, The return value](trace-format.md#the-return-value)), and the state panel then shows `returned, no value` with the kind `void` instead of `null`.
 
-**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel names the running function over the table (`Locals in maxDepth`) and lists no other frames: the calls are drawn on the canvas. In a return step the table gets a `returns` row with the frame's `return_value`. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. A caller's pointers into the heap are drawn as dashed rings on their nodes ([Section 6.5](#65-linked-structures-drawing)), and the canvas's calls card shows the stack ([Section 6.6](#66-calls)).
+**The call stack.** A step is a list of frames (trace format v0.6 and later). The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel names the running function over the table (`Locals in maxDepth`) and lists no other frames: the calls are drawn on the canvas. In a return step, what the frame returns is shown on the running line (`returns [0, 1]`), not as a row of the table: it is not a local. The diff compares the running frame with the frame that has the same `id` in the previous step, so after a return the caller is compared with its own earlier self and the variable that took the returned value lights up. A caller's pointers into the heap are drawn as dashed rings on their nodes ([Section 6.5](#65-linked-structures-drawing)), and the canvas's calls card shows the stack ([Section 6.6](#66-calls)).
 
 `result_heap` (the objects a `ref` result points to) is in the `Trace` type but nothing draws it yet. It arrives with the `object` / `ref` renderers.
 
@@ -350,7 +357,9 @@ The player holds `{ index, cameFrom, playing }`. All transitions are a pure redu
 - **Chips** come from the top frame's `outcomes` (trace format v0.8, spec §6) in order: a condition is a green `true` or a muted red `false` (the condition's code on hover); a store is `name = value`. In a return step the chip is purple: `returns [0, 1]`, or just `returns` for a function that returns nothing (every return step of it has `return_value: null`, `voidFunctions`). A line with nothing recorded shows the pill and the statement only, so traces from adapters that do not record outcomes yet still read well.
 - **Locals:** `Locals in twoSum`, then a full-width rounded table: Name, Kind, Value. The kind of a bare number is `int` when it is an integer and `float` otherwise; strings, booleans, and `null` show `string`, `bool`, and `null`. A `ref` shows its node's value (`→ 7`), with the id on hover, so the table never shows heap ids.
 - **Rows** use the diff colours: an added local has a green bar and tint, a changed one amber. A local that went out of scope is shown faded with its last value and `out of scope` beside it, for one step.
-- **Returns and result:** a return step adds a purple `returns` row. On the last step, `result` is a purple row under the locals; a void method shows `returned, no value`; a run that did not finish says why, muted (never as a wrong answer).
+- **Returns and result:** what a return step returns is only the purple chip on the running line; the table lists locals, and a return value is not one. On the last step, `result` is a purple row under the locals; a void method shows `returned, no value`; a run that did not finish says why, muted (never as a wrong answer).
+- **Output:** when the program printed something (`cout`, and `cerr`: the API returns both as `output`), a tab bar replaces the `Locals in …` title: `Locals in twoSum` | `Output`. Output shows everything the program printed during the whole run, in a monospace box with "Everything the program printed, for the whole run." over it: the API returns the output of the run, not of each step, so it does not change with the step. A run that printed nothing has no tabs. The tab picked stays across runs; a run with no output shows the locals.
+- **While a run is going:** "Waiting for the trace" in place of "No trace yet".
 - The state panel lists no calls: the canvas draws them ([Section 6.6](#66-calls)).
 
 ## 10. Language select
@@ -370,10 +379,14 @@ The inputs panel turns the pasted Solution into a form ([`backend.md`](backend.m
 1. **The signature.** 400 ms after the source stops changing, `POST /api/signature` returns the public methods, each parameter's name and neutral type, and the method to preselect. A request still in flight when the source changes again is cancelled. If the new source cannot be read, the last good fields stay, with the error above them, so typing does not make the form flicker.
 2. **The fields.** One per parameter of the chosen method, labeled with its name and neutral type (`nums array<int>`), with LeetCode's notation for that type as the placeholder (`[1,2,3]`, `[3,9,20,null,null,15,7]`). For the starter's own method, `twoSum`, the placeholders are Two Sum's example (`[2,7,11,15]`, `9`), ghost text that goes as the user types. An extra such as `pos` is an optional field. A method picker appears only when the Solution has several public methods. A value typed earlier is kept when the signature changes but the field still exists.
 3. **Paste a LeetCode example.** Pasting the whole example block from the problem page (`Input: ... Output: ...`) into the box under the fields fills them at once: by name, or in order when none of the names match (Clone Graph's `adjList` for the parameter `node`), as the driver does. A note says which fields were filled. "Fill fields" under the box does the same for an example edited by hand.
-4. **Run code** is in the top bar (and Cmd/Ctrl + Enter). Disabled until every required field has a value; the inputs panel says why ("Fill in target."). It sends the source, the method, and the fields to `POST /api/run`, and shows a spinner meanwhile. A trace that comes back goes through the loader and replaces the last one in the player, which restarts at step 0. A failure shows a red card in the inputs panel with its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. A successful run adds nothing to the inputs panel: the canvas shows it.
+4. **Run code** is in the top bar (and Cmd/Ctrl + Enter). Disabled until every required field has a value; the inputs panel says why ("Fill in target."). It sends the source, the method, and the fields to `POST /api/run`, and shows a spinner meanwhile. The canvas shows the run is going (`RunningCanvas`): a line of trace points drawing itself on a loop, "Running your code in the sandbox", "Compiling it, tracing every step, and checking the trace", and the whole seconds since the press, from 1 s on. The run is one request, so no stage is named as the current one. With reduced motion the line is drawn whole and still. A trace that comes back goes through the loader and replaces the last one in the player, which restarts at step 0. A failure shows a red card in the inputs panel with its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. A successful run adds nothing to the inputs panel: the canvas shows it.
 
 ## 11. Theme tokens
-A blue-tinted dark theme with calm, slightly desaturated colours. Every colour is a CSS variable on `:root` in `src/styles/theme.css`, and components use only the variables.
+Two themes, dark (the default) and light, with the same tokens and meanings. Every colour is a CSS variable in `src/styles/theme.css`, and components use only the variables. The theme is the `data-theme` attribute on `<html>`: `:root` holds the dark values and `:root[data-theme="light"]` the light ones, so switching is one attribute and nothing re-renders to change colour.
+
+**Which theme.** A first visit follows the system's setting (`prefers-color-scheme`), and so does a change to it while the page is open. The top bar's button switches theme: it shows a sun on the dark page and a moon on the light one, the theme it switches to, and its label says so ("Switch to the light theme"). Once pressed, the choice is remembered in this browser (`localStorage`, key `lcv-theme`) and wins over the system's setting. A small script in `index.html` sets the attribute before the page draws, with the same rule, so the page never flashes the other theme. Storage can be blocked; then the choice lasts until the page is closed.
+
+The dark theme: a blue-tinted dark with calm, slightly desaturated colours.
 
 | Token | Value | Used for |
 |---|---|---|
@@ -393,16 +406,30 @@ A blue-tinted dark theme with calm, slightly desaturated colours. Every colour i
 | `--done`, `--done-fg` | `#a995e8`, `#cfc3f5` | Result, returning |
 | `--line-highlight` | `rgba(122, 165, 245, 0.1)` | The current line |
 
+`--knob` is a switch's knob, and `--card-shadow` is a card's lift off the canvas, the one token that is a shadow rather than a colour.
+
+**The light theme** keeps every token's hue. Text and lines have their lightness mirrored (`--fg` `#e4e8f0` becomes `#0f131b`). The accents are not mirrored, which would make them nearly black, but deepened to a target contrast on white, so they still work as fills and tints: about 4.9:1 for `--accent`, 7:1 for each `-fg` text colour, 4.6 to 4.8:1 for `--danger` and `--done`, and 3.4:1 for the diff colours `--success` and `--attention`, which are bars, rings, and tints, never text. Amber is deepened the most. One deliberate difference from a mirror: cards stay the lightest surface, white (`--bg-raised`) on a light grey canvas (`--bg` `#edf0f5`), because a mirror would make what is raised darker than the page.
+
+| Token | Light value |
+|---|---|
+| `--bg`, `--bg-subtle`, `--bg-raised`, `--bg-inset` | `#edf0f5`, `#f5f7fa`, `#ffffff`, `#f8f9fb` |
+| `--bg-control`, `--bg-control-on`, `--grid-dot` | `#eaedf3`, `#dde2ec`, `#c1c8d7` |
+| `--border`, `--border-strong`, `--border-subtle`, `--edge` | `#d4dae5`, `#c3cbda`, `#dce1ec`, `#808ea8` |
+| `--fg`, `--fg-soft`, `--fg-muted`, `--fg-faint` | `#0f131b`, `#222a39`, `#596275`, `#7a859c` |
+| `--accent`, `--accent-strong`, `--accent-fg`, `--on-accent` | `#336cd8`, `#6187ca`, `#2254b2`, `#ffffff` |
+| `--success`, `--success-fg`, `--attention` | `#349d65`, `#277547`, `#b88021` |
+| `--danger`, `--danger-fg`, `--done`, `--done-fg` | `#ca4949`, `#a93131`, `#7a60ca`, `#5f40bf` |
+| `--line-highlight`, `--knob` | `rgba(51, 108, 216, 0.09)`, `#ffffff` |
+
 Syntax colours for the editor are five extra variables in the same file (`--syntax-keyword`, `--syntax-string`, `--syntax-number`, `--syntax-comment`, `--syntax-type`), kept soft so the line highlight stays the loudest thing. Bracket pairs are not coloured.
 
-The Monaco theme (`monaco.editor.defineTheme`, base `vs-dark`) is built at startup by reading these variables with `getComputedStyle`, so the editor and the page cannot drift apart. Monaco accepts only hex colours, so `rgba(...)` values are converted to `#rrggbbaa` first.
+The Monaco theme (`monaco.editor.defineTheme`, base `vs-dark` or `vs` to match the page) is built by reading these variables with `getComputedStyle`, at startup and again each time the theme changes, so the editor and the page cannot drift apart. In the light theme the syntax colours reach at least 4.8:1 on the editor's background, and comments 4:1. Monaco accepts only hex colours, so `rgba(...)` values are converted to `#rrggbbaa` first.
 
 Fonts: Geist for text and Geist Mono for code and values, bundled from npm (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`, SIL Open Font License) and imported in `main.tsx`, so no font is fetched from a CDN. The editor re-measures its glyphs once the fonts have loaded.
 
 ## 12. Out of scope
 Planned for later versions, not designed here:
 - The home page, and any routing.
-- A light theme. The top bar's button is there, disabled, until it is designed.
 - Design problems (LRU Cache, Min Stack), whose example is a sequence of calls.
 - Several examples at once (one run and one trace each).
 - Hint renderers (grid, adjacency list, intervals, ...). The registry slot exists and is empty.
@@ -440,3 +467,9 @@ Planned for later versions, not designed here:
 > **Q14. Why two calls cards, chosen by return value?** A call that returns a value hands its answer up to its caller, and the tree is where that hand-off shows: each box holds its result, and the return-to-caller arrow shows it moving up. A call that returns nothing (a void DFS, a flood fill, backtracking) does its work on data structures instead; its tree would be a column of boxes with nothing inside them. What matters there is where each call is in its own loop (which neighbour it is checking, which call it is waiting on), so the call-stack card shows that, next to the structure it is walking. The trace already says which is which: a void call's return step has `return_value: null`.
 
 > **Q15. Why does "being checked" use the last-declared pointer?** The frontend sees only pointers, never the loop that set them. In the searches it is meant for, the pointer that walks the neighbours is declared inside the loop, after the pointer to the node being expanded (`for (Node* nb : node->neighbors)`, or `curr` then `neighbor`), so it is the last one. When that pointer's node is linked from another pointer's node, the pair reads as "expanding this node, looking at that neighbour". When it is not, nothing is marked as checked, which is wrong only by saying less. A hint from the adapter could replace the guess later.
+
+> **Q16. Why is a return step's value on the running line and not a `returns` row in the locals table?** The table answers "what variables does this call have now?", and a return value is not a variable: it exists only for the moment the call hands it back. The running line already answers "what did this line produce?" with a chip (`returns [0, 1]`), so a row said the same thing twice, in a place that suggested it was a local. The run's `result` keeps its row on the last step, because it is the answer to the whole run and has no line of its own.
+
+> **Q17. Why does the Output tab show the whole run's output instead of what was printed up to the step?** The API returns the program's output once, for the whole run, and the trace says nothing about when each line was printed. Showing it per step would mean guessing. The tab says so in plain words. Per-step output would need the trace to record prints, a format change that can come later if it is wanted.
+
+> **Q18. Why are light cards white on a grey canvas, when the light theme mirrors the dark one?** The decision was to mirror lightness and keep hue. Done literally for surfaces, the canvas (darkest in the dark theme) becomes the lightest, and cards become darker than the page they sit on, so a raised card looks sunk. Surfaces keep their meaning instead: the nearer something is, the lighter it is in the light theme, as cards are in most light interfaces. Text, lines, and accents keep the mirror's intent (same hue, contrast reversed).

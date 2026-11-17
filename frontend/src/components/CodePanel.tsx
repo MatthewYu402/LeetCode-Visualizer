@@ -2,6 +2,7 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as monacoNs from "monaco-editor";
 import { useEffect, useRef } from "react";
 import { cssVarHex, defineTheme, MONO_FONT, THEME } from "../editor/monaco";
+import type { Theme } from "../theme";
 
 interface Props {
   source: string;
@@ -12,10 +13,12 @@ interface Props {
   onChange: (source: string) => void;
   /** Cmd/Ctrl + Enter inside the editor runs the code, as it does anywhere on the page. */
   onRun: () => void;
+  /** The page's theme: the editor rebuilds its colours from the tokens when it changes. */
+  theme: Theme;
 }
 
 /** Monaco with the current step's line highlighted (background + gutter marker) and kept in view. */
-export function CodePanel({ source, language, line, onChange, onRun }: Props) {
+export function CodePanel({ source, language, line, onChange, onRun, theme }: Props) {
   const editorRef = useRef<monacoNs.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monacoNs | null>(null);
   const decorations = useRef<monacoNs.editor.IEditorDecorationsCollection | null>(null);
@@ -57,8 +60,17 @@ export function CodePanel({ source, language, line, onChange, onRun }: Props) {
     highlight();
   };
 
-  // Re-apply on every step, and after the source changes (a language switch replaces the model's text).
-  useEffect(highlight, [line, source]);
+  // The tokens have already switched (applyTheme runs before this render), so read them again.
+  useEffect(() => {
+    const m = monacoRef.current;
+    if (!m) return;
+    defineTheme(m);
+    m.editor.setTheme(THEME);
+  }, [theme]);
+
+  // Re-apply on every step, after the source changes (a language switch replaces the model's
+  // text), and after a theme change, which changes the overview ruler's colour.
+  useEffect(highlight, [line, source, theme]);
 
   return (
     <div className="code-panel">

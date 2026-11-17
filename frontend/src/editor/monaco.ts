@@ -1,5 +1,6 @@
 // Monaco setup: bundle it locally (no CDN), give it its base worker, and build the theme
 // from the CSS variables in styles/theme.css so the editor and the page cannot drift apart.
+// The page's theme changes the variables, so the editor theme is built again each time.
 
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor";
@@ -10,26 +11,28 @@ import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 loader.config({ monaco });
 
-export const THEME = "visualizer-dark";
+/** One editor theme name for both page themes: defineTheme rebuilds it from the current tokens. */
+export const THEME = "visualizer";
 const TRANSPARENT = "#00000000";
 export const MONO_FONT = "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace";
-
-let defined = false;
 
 /** A :root CSS variable from styles/theme.css, as hex (the only colour format Monaco accepts). */
 export function cssVarHex(name: string): string {
   return toHex(getComputedStyle(document.documentElement).getPropertyValue(name));
 }
 
-/** Define the editor theme from the :root CSS variables. Safe to call more than once. */
+/**
+ * Define the editor theme from the CSS variables as they are now, on Monaco's light or dark base
+ * to match the page (the `data-theme` attribute, src/theme.ts). Call it again after the page's
+ * theme changes, then `setTheme(THEME)`.
+ */
 export function defineTheme(m: typeof monaco): void {
-  if (defined) return;
-  defined = true;
   const v = cssVarHex;
+  const light = document.documentElement.dataset.theme === "light";
   const bare = (name: string) => v(name).slice(1); // token rules take hex without '#'
 
   m.editor.defineTheme(THEME, {
-    base: "vs-dark",
+    base: light ? "vs" : "vs-dark",
     inherit: true,
     rules: [
       { token: "", foreground: bare("--fg") },

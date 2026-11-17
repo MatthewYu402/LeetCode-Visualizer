@@ -9,6 +9,7 @@ import type { StepDiff } from "../trace/diff";
 import { isContainer, isReturning, topFrame, type Hint, type Step, type Trace, type Value } from "../trace/types";
 import { CallStackCard } from "./CallStackCard";
 import { callLayout, RecursionTree } from "./RecursionTree";
+import { RunningCanvas } from "./RunningCanvas";
 
 interface Props {
   trace: Trace | null;
@@ -20,6 +21,8 @@ interface Props {
   runKeys?: string[];
   /** The top bar's "Call stack" switch: shows or hides the call-stack card. */
   showCalls?: boolean;
+  /** The sandbox is making a trace: the canvas shows that instead of anything else. */
+  running?: boolean;
 }
 
 /**
@@ -32,12 +35,14 @@ interface Props {
  * The layout of linked structures and the call tree are computed once per trace
  * (frontend/CLAUDE.md rule 2); everything drawn for a step comes from that step.
  */
-export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Enter"], showCalls = true }: Props) {
+export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Enter"], showCalls = true, running = false }: Props) {
   const views = useMemo(() => {
     if (!trace) return null;
     const calls = callTree(trace);
     return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls) };
   }, [trace]);
+
+  if (running) return <RunningCanvas />;
 
   if (!notice && !trace) {
     return (

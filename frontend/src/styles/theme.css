@@ -1,6 +1,7 @@
-/* Theme tokens: the dark theme of the redesign (claude/redesign-decisions.md). Every colour in
-   the app comes from here, including the Monaco theme, which reads these variables at startup
-   (src/editor/monaco.ts). Keep values hex or rgb(a): Monaco needs them converted to hex. */
+/* Theme tokens: a dark theme (the default) and a light one (docs/frontend.md §11). Every colour in
+   the app comes from here, including the Monaco theme, which reads these variables whenever the
+   theme changes (src/editor/monaco.ts). Keep values hex or rgb(a): Monaco needs them converted to
+   hex. The theme is the `data-theme` attribute on <html> ("dark" or "light", src/theme.ts). */
 :root {
   /* Surfaces, from the page down to the inside of a control. */
   --bg: #0b0e14;            /* page and canvas */
@@ -36,6 +37,10 @@
   --done: #a995e8;          /* result, returning */
   --done-fg: #cfc3f5;
   --line-highlight: rgba(122, 165, 245, 0.1);
+  --knob: #e4e8f0;          /* a switch's knob */
+
+  /* A card's lift off the canvas: shadows only, never a colour. */
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 32px -16px rgb(0 0 0 / 0.6);
 
   /* Editor syntax colours, used only by the Monaco theme. */
   --syntax-keyword: #b4a0ec;
@@ -49,4 +54,54 @@
   --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
 
   color-scheme: dark;
+}
+
+/* The light theme: the same tokens and meanings. Text keeps the dark theme's hues with their
+   lightness mirrored. The accents keep their hues too, made deeper so each reaches a contrast on
+   white: about 4.9:1 for the accent, 7:1 for the -fg text colours, 3.4:1 for the diff colours,
+   which are bars and tints, never text; amber is deepened the most. One deliberate difference
+   from a pure mirror: cards stay the lightest surface (white on a light grey canvas), so what is
+   raised still looks nearer than the page. */
+:root[data-theme="light"] {
+  --bg: #edf0f5;
+  --bg-subtle: #f5f7fa;
+  --bg-raised: #ffffff;
+  --bg-inset: #f8f9fb;
+  --bg-control: #eaedf3;
+  --bg-control-on: #dde2ec;
+  --grid-dot: #c1c8d7;
+
+  --border: #d4dae5;
+  --border-strong: #c3cbda;
+  --border-subtle: #dce1ec;
+  --edge: #808ea8;
+
+  --fg: #0f131b;
+  --fg-soft: #222a39;
+  --fg-muted: #596275;
+  --fg-faint: #7a859c;
+
+  --accent: #336cd8;
+  --accent-strong: #6187ca;
+  --accent-fg: #2254b2;
+  --on-accent: #ffffff;
+  --success: #349d65;
+  --success-fg: #277547;
+  --attention: #b88021;
+  --danger: #ca4949;
+  --danger-fg: #a93131;
+  --done: #7a60ca;
+  --done-fg: #5f40bf;
+  --line-highlight: rgba(51, 108, 216, 0.09);
+  --knob: #ffffff;
+
+  --card-shadow: 0 1px 2px rgb(15 19 27 / 0.06), 0 10px 24px -14px rgb(15 19 27 / 0.18);
+
+  --syntax-keyword: #6f48da;
+  --syntax-string: #3a7849;
+  --syntax-number: #97631b;
+  --syntax-comment: #6e7c94;
+  --syntax-type: #347972;
+
+  color-scheme: light;
 }

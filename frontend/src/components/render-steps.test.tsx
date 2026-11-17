@@ -133,11 +133,11 @@ describe("the call stack (Maximum Depth fixture)", () => {
     expect(html).toContain('Locals in <span class="state-locals-fn">maxDepth</span>');
   });
 
-  it("a return step shows what the running frame returns", () => {
+  it("a return step shows what the running frame returns on the running line only, not as a local", () => {
     const i = t.steps.findIndex((s) => "return_value" in topFrame(s));
     const html = renderStep(t, i, false);
-    expect(html).toContain("return-row");
     expect(html).toContain('class="outcome-chip is-return"');
+    expect(html).not.toContain('<td class="state-name">returns</td>');
   });
 
   it("after a return, the caller is diffed against its own earlier self", () => {
@@ -251,6 +251,8 @@ describe("top bar", () => {
         running={false}
         blocked={null}
         runShortcut="Ctrl Enter"
+        theme="dark"
+        onToggleTheme={() => {}}
         {...over}
       />,
     );
@@ -274,6 +276,47 @@ describe("top bar", () => {
 
   it("the call-stack switch says when it is off", () => {
     expect(bar({ showCalls: false })).toMatch(/role="switch" aria-checked="false"/);
+  });
+
+  it("the theme button offers the other theme: light from the dark page, dark from the light one", () => {
+    expect(bar()).toContain('aria-label="Switch to the light theme"');
+    expect(bar({ theme: "light" })).toContain('aria-label="Switch to the dark theme"');
+    expect(bar()).not.toContain('aria-disabled="true"');
+  });
+});
+
+describe("while the sandbox runs", () => {
+  it("the canvas shows that it is running, instead of the empty state or the last trace", () => {
+    const html = renderToStaticMarkup(<VisualPanel trace={trace} step={trace.steps[0]} diff={null} running />);
+    expect(html).toContain('role="status"');
+    expect(html).toContain("Running your code in the sandbox");
+    expect(html).toContain('class="running-trace"');
+    expect(html).not.toContain("Run your code to see it here.");
+    expect(html).not.toContain('aria-label="nums: array"');
+  });
+
+  it("the state panel says it is waiting for the trace", () => {
+    const html = renderToStaticMarkup(<StatePanel trace={null} step={null} index={0} diff={null} running />);
+    expect(html).toContain("Waiting for the trace");
+    expect(renderToStaticMarkup(<StatePanel trace={null} step={null} index={0} diff={null} />)).toContain("No trace yet");
+  });
+});
+
+describe("the Output tab", () => {
+  const panel = (output?: string) => renderToStaticMarkup(<StatePanel trace={trace} step={trace.steps[0]} index={0} diff={null} output={output} />);
+
+  it("is there only when the program printed something", () => {
+    expect(panel()).not.toContain('role="tab"');
+    expect(panel("")).not.toContain('role="tab"');
+    const html = panel("checking 2\n");
+    expect(html).toMatch(/role="tab"[^>]*aria-selected="true"[^>]*>Locals in /);
+    expect(html).toMatch(/role="tab"[^>]*aria-selected="false"[^>]*>Output</);
+  });
+
+  it("opens on Locals, so the table is still what shows first", () => {
+    const html = panel("checking 2\n");
+    expect(html).toContain('class="state-table"');
+    expect(html).not.toContain('class="state-output"');
   });
 });
 
