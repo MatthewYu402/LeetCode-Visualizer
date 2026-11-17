@@ -16,7 +16,7 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
   if (!hasItems(value)) throw new Error(`ArrayRenderer got a ${typeof value} value for ${name}`);
   const items = value.items;
   const removed = diff?.removedItems ?? [];
-  const pointers = pointersFor(ctx.locals, items.length, name);
+  const pointers = pointersFor(ctx.locals, items.length, name, ctx.indexes);
 
   // Tags on the same cell stack downwards, in trace order.
   const depth = new Map<number, number>();

@@ -555,3 +555,63 @@ public:
         self.assertEqual(got[0], (4, "n > 0: true"))
         # if constexpr and a constant ?: are left alone (they would not compile wrapped)
         self.assertFalse(any("sizeof" in t for _, t in got))
+
+
+@needs_rewriter
+@needs_compiler
+class Indexes(unittest.TestCase):
+    """trace-format.md section 3, Indexes: which integer locals index which containers."""
+
+    def test_subscripts_at_and_expressions(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums, string s) {
+        int total = 0, mid = 1, idx = 0, start = 0;
+        vector<int> copy = nums;
+        for (int i = start; i < (int)nums.size(); ++i) total += nums[i] + copy.at(i);
+        total += nums[nums.size() - 1 - idx] + s[mid] + nums[mid + 1];
+        int x = nums[0];
+        return total + x;
+    }
+};"""
+        trace, _ = run_source(src, 'nums = [1,2,3], s = "abc"')
+        self.assertEqual(trace["indexes"], {"f": {"i": ["nums", "copy"], "idx": ["nums"], "mid": ["s", "nums"]}})
+        # start and total are never inside brackets; x and a literal 0 index nothing
+
+    def test_only_the_first_subscript_of_a_named_container(self):
+        src = """class Solution {
+public:
+    int f(vector<vector<int>>& grid) {
+        int r = 1, c = 0;
+        return grid[r][c];
+    }
+};"""
+        trace, _ = run_source(src, "grid = [[1,2],[3,4]]")
+        self.assertEqual(trace["indexes"], {"f": {"r": ["grid"]}})
+
+    def test_per_function_and_lambdas_left_out(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        int j = 0;
+        auto peek = [&](int k) { return nums[k]; };
+        return peek(j) + helper(nums, 1);
+    }
+    int helper(vector<int>& v, int p) {
+        return v[p];
+    }
+};"""
+        trace, _ = run_source(src, "nums = [1,2]")
+        self.assertEqual(trace["indexes"], {"helper": {"p": ["v"]}})
+
+    def test_absent_when_nothing_is_indexed(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        int sum = 0;
+        for (int x : nums) sum += x;
+        return sum;
+    }
+};"""
+        trace, _ = run_source(src, "nums = [1,2]")
+        self.assertNotIn("indexes", trace)

@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.8).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.9).
 
 Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and rewriter: see the root `CLAUDE.md`).
 
@@ -39,7 +39,7 @@ src/
 │   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.8")
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.9")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
@@ -54,7 +54,7 @@ src/
 │   ├── ArrayRenderer.tsx, MapRenderer.tsx (map, multimap), SequenceRenderer.tsx (stack, queue/deque tube, list, tuple, set/multiset), HeapRenderer.tsx (priority queue), FallbackRenderer.tsx
 │   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
 │   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
-│   ├── pointers.ts      the index-name rule and iterators, for pointer markers
+│   ├── pointers.ts      pointer markers: integer locals the trace's `indexes` pairs with an array, and iterators
 │   └── types.ts         Renderer, RendererProps, RenderContext
 ├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, StatePanel, RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
@@ -71,7 +71,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 4. **A diff is shown only after a one-step move forward** (`cameFrom === index - 1`). Step 0, jumps, and moving back draw with no diff.
 5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`.
 6. **Map order is the trace's order.** Never sort map entries (or set, multiset, multimap members) for display. Diffs match by key, never by position; multiset and multimap match by count. `canonical` sorts members only to compare.
-7. **Pointer markers** come from one rule only: an integer local named one of `i j k l r left right lo hi mid start end slow fast p q` whose value is a valid index into that array, and an `iterator` local whose `container` is that array and whose `index` is in range. An iterator's marker is labeled with its own name, so `it` points at `nums[2]`; one at `end` gets no marker.
+7. **Pointer markers** come from one rule only: an integer local that the trace's `indexes` pairs with that array in the running function (`indexes[frame.function][name]` lists the array; spec §3, Indexes) and whose value is a valid index into it, and an `iterator` local whose `container` is that array and whose `index` is in range. An iterator's marker is labeled with its own name, so `it` points at `nums[2]`; one at `end` gets no marker.
 8. **Unknown kinds go to the fallback**, never crash.
 9. **Colours come from the theme tokens.** No hex values in components or CSS outside `styles/theme.css` (the one exception is a fully transparent constant in `editor/monaco.ts`). The Monaco theme reads the same variables.
 10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`. Only tests import them: the page opens with no trace.

@@ -22,6 +22,10 @@ Every file is always:
       frames: only the top frame has return_value or outcomes, and never
         both; frame ids are unique in a step; an id keeps one function name
         for the whole run, and never comes back after its call returned
+      indexes: every function named in "indexes" ran (a frame has that
+        function), unless the trace is truncated, and no local is listed as
+        indexing itself. Whether the locals appear in its frames is not
+        checked: an index declared in a loop that never runs never does
 
 Options add checks:
   --equals FIXTURE    the parsed trace must equal the parsed fixture. The
@@ -242,6 +246,19 @@ def check_frames(doc):
         previous = ids
 
 
+def check_indexes(doc):
+    """trace-format.md section 3, Indexes: what the schema cannot say about "indexes"."""
+    indexes = doc.get("indexes", {})
+    ran = {f["function"] for step in doc["steps"] for f in step["frames"]}
+    for function, uses in indexes.items():
+        where = f"$.indexes.{function}"
+        if function not in ran and not doc.get("truncated"):
+            raise CheckError(f"{where}: no frame runs {json.dumps(function)}")
+        for local, containers in uses.items():
+            if local in containers:
+                raise CheckError(f"{where}.{local}: a local cannot index itself")
+
+
 def check_truncated(doc):
     if "truncated" not in doc:
         raise CheckError('"truncated" is absent, expected true')
@@ -289,6 +306,7 @@ def check_file(path, validator, fixture, expect):
     check_refs(doc)
     check_frames(doc)
     check_iterators(doc)
+    check_indexes(doc)
 
     if fixture is not None:
         diff = first_difference(doc, fixture[1], [])

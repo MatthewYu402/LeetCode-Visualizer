@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.8).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.9).",
   "type": "object",
   "required": [
     "version",
@@ -23,6 +23,24 @@
     },
     "problem": {
       "$ref": "#/$defs/problem"
+    },
+    "indexes": {
+      "type": "object",
+      "description": "Which integer locals each function uses to index which of its containers, read from the source: function name -> local name -> container local names. Present only when some function indexes a container, so it is never empty, and neither is any function's entry.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     },
     "steps": {
       "type": "array",

@@ -1,7 +1,8 @@
 {
-  "version": "0.8",
+  "version": "0.9",
   "language": "cpp",
   "problem": {"method": "subsets", "params": [{"name": "nums", "type": "array<int>"}], "returns": {"type": "array<array<int>>"}, "input": {"nums": [1, 2, 3]}},
+  "indexes": {"backtrack": {"i": ["nums"]}},
   "steps": [
     {"step": 0, "frames": [{"id": "f1", "function": "subsets", "line": 4, "locals": {"nums": {"kind": "array", "items": [1, 2, 3]}}}], "heap": {}},
     {"step": 1, "frames": [{"id": "f1", "function": "subsets", "line": 5, "locals": {"nums": {"kind": "array", "items": [1, 2, 3]}, "result": {"kind": "array", "items": []}}}], "heap": {}},

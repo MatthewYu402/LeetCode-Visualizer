@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.8).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.9).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -149,6 +149,12 @@ export interface Trace {
   /** Informational only. Nothing in the frontend may read it (CLAUDE.md invariant 2). */
   language: string;
   problem: Problem;
+  /**
+   * Which integer locals each function uses to index which of its containers, read from the source
+   * by the adapter (spec §3, Indexes): function name -> local name -> container names. Absent when
+   * no function indexes a container. Pointer markers come from it (frontend/CLAUDE.md rule 7).
+   */
+  indexes?: Record<string, Record<string, string[]>>;
   steps: Step[];
   /** Present only when the method returned. Absent means the run did not finish, never a wrong answer. */
   result?: Value;

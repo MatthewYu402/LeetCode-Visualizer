@@ -74,7 +74,7 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const current = Object.entries(locals).filter(([, v]) => drawnHere(v));
   const last = step.step === trace.steps.length - 1;
   const resultId = last ? refId(trace.result) : null;
-  const ctxBase = { locals, heap: step.heap };
+  const ctxBase = { locals, heap: step.heap, indexes: trace.indexes?.[frame.function] };
   const linked = shownComponents(step, views.layout);
   const nulls = nullPointers(step, views.layout);
   const params = new Set(views.calls.calls.get(frame.id)?.params ?? []);

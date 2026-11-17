@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.6
+> **Status:** Draft v0.7
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -277,6 +277,8 @@ The frame stack is a `std::vector<FrameState>` in the `Tracer`. Each `FrameState
 
 **`ret<T>` records, then returns.** It sets the running frame's line and `Value`s like `record`, builds a step whose top frame also has `return_value`, and returns `value` unchanged. The return value is serialized after every frame's locals, so ids are given in a fixed order. `T` is named, never deduced. That keeps `return {it->second, i};` working: a braced list cannot be deduced, but it can initialize a parameter of a known type.
 
+**A frame registers its function's `indexes`.** `Frame("backtrack", R"({"i": ["nums"]})")` passes the JSON text of the function's entry in the trace's `indexes` ([`trace-format.md` §3, Indexes](../trace-format.md#indexes)). The first call of a function stores it in `tracer.indexes`; later calls find it there. The text comes from the rewriter, which reads it from the source (§8.1), so the runtime never parses it. A function with no entry passes nothing.
+
 **Past the step cap**, `ret` adds no step but still returns the value, so the program's behavior does not change.
 
 **Exceptions** pop frames through the guards' destructors, but produce no return step. The format does not model exceptions yet.
@@ -414,9 +416,10 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.8"`) |
+| `version` | Always | The `VERSION` constant (`"0.9"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
+| `indexes` | Only when some function registered an entry | `tracer.indexes`: each function's entry, from its `Frame` (§8.1), keyed by function name |
 | `steps` | Always | `tracer.steps`, joined with `", "` |
 | `result` | Only when the caller passes one | The serialized return value, or `null` for a `void` method |
 | `result_heap` | Only with a `result`, and only when the heap is not empty | The heap filled while serializing the return value |
@@ -469,7 +472,7 @@ The file is parsed with the driver's prelude, the same flags the program is comp
 
 | Where | Inserted |
 |---|---|
-| After the `{` of each instrumented function | `::trace::Frame trace_frame_("name");` |
+| After the `{` of each instrumented function | `::trace::Frame trace_frame_("name");`, or `::trace::Frame trace_frame_("name", "{\"i\": [\"nums\"]}");` when the function indexes a container (§8.2) |
 | Before each statement in a block, except `while`, `do`, range-`for`, `{ }`, and `;` | `::trace::record(LINE, ::trace::var("a", a), ...);` |
 | A `for` loop's increment (or, with none, in its place) | `(::trace::record(LINE, vars...), INC, ::trace::flush())`: the header's step for each later pass |
 | Around a `while` or `do`-`while` condition | `::trace::record(LINE, vars...), ::trace::cond(LINE, "c", (c))`: a step and an outcome for each check |
@@ -506,6 +509,8 @@ The scope is a stack of name lists: the parameters, then one list per block, and
 **Order at one position.** Every insertion is appended after earlier ones at the same position. The walk is ordered so that this is right: a body's `{` is inserted before the `record` that follows it, and an inner block's `}` before the `}` of the block around it.
 
 **Iterators are paired with a container.** For each variable declared or assigned (`auto it = m.find(x);`, `it = s.lower_bound(v);`), the walk looks for the container in the initializer: the object of a `begin`, `end`, `cbegin`, `cend`, `find`, `lower_bound`, `upper_bound`, `erase`, `insert`, `emplace`, or `emplace_hint` call, or the argument of a free `begin`/`end`. If exactly one visible variable is found, the variable's later `var(...)` becomes `var_iter("it", it, "m", m)`. An assignment with no container (`it = f();`) clears the pairing. The runtime decides whether the type really is that container's iterator (§5.1), so `int i = v.size();`-like lookalikes that pass the syntax check (`auto n = m.find(x)->second;`) are written as ordinary locals.
+
+**Indexes are read before the body is walked.** `indexesOf` looks at every subscript in the function's body, `v[expr]` (a built-in array, or an `operator[]` call) and `v.at(expr)`, where `v` names a local container that a position counts into: `std::vector`, `std::array`, `std::deque`, `std::basic_string`, `std::bitset`, or a built-in array. Every integer local named anywhere in `expr` (not a `bool`, a character, or an enum) is paired with `v`. Only a container named directly counts, so `grid[r][c]` pairs `r` with `grid` and nothing with `c`. Lambdas are skipped, like everything the rewriter does not instrument. The result goes into the function's `Frame` as the JSON text of its entry ([`trace-format.md` §3, Indexes](../trace-format.md#indexes)), so it costs nothing per step.
 
 **A `switch` body** gets records but no `Scope`: a jump to a `case` label may not skip a variable's initialization, and the guard is a variable. The `record` for `case 1: x = 2;` goes after the label, so it stays in that case.
 

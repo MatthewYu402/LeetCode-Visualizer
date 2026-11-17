@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.7 (reads trace format v0.8)
+> **Status:** Draft v0.8 (reads trace format v0.9)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -99,10 +99,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.8"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.9"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.8 only.
+Unsupported trace version "0.2". This frontend reads version 0.9 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
@@ -189,14 +189,14 @@ Items of a queue, deque, list, and set are keyed by their value and which copy o
 
 ### 6.2 Pointer markers
 An integer local becomes a pointer tag (a small accent pill under a triangle, `i`) under an array's cell when **both** hold:
-1. Its name is one of `i`, `j`, `k`, `l`, `r`, `left`, `right`, `lo`, `hi`, `mid`, `start`, `end`, `slow`, `fast`, `p`, `q`.
+1. The trace's `indexes` pairs it with that array in the running function: `indexes[frame.function][name]` lists the array's name ([trace-format.md §3, Indexes](trace-format.md#indexes)). The adapter reads that from the source: the code subscripts the array with an expression naming the local (`nums[i]`, `nums[mid + 1]`).
 2. Its value is a bare integer `n` with `0 ≤ n < items.length` for that array.
 
 An `iterator` local is also a marker, with no name rule: when its `container` is this array's own local name and its `index` is in range, it is drawn under that cell, labelled with its own name (`it`). The trace says which container it walks, so this is not a guess. An iterator at `end`, or into another container, gets no marker; the state panel shows it as `→ nums[2]`, `→ numMap[7]`, or `→ numMap.end()`.
 
-There is no other heuristic. A local named `idx`, or a `j` that points past the end, is not drawn as a marker, though it is still in the state panel. Several markers on one box stack vertically. A marker is keyed by its name, so when `i` goes from 0 to 1 the same element slides to the next box instead of a new one appearing.
+There is no heuristic: no list of conventional names, no guess from values. In Subsets, `i` is drawn under `nums` only, because the code reads `nums[i]` and never `path[i]` or `result[i]`, and `start`, which only bounds the loop, gets no marker. `idx` or `pos` gets one when the code subscripts with it. A paired local that points past the end is not drawn, though it is still in the state panel; neither is any local when the trace has no `indexes`. Several markers on one box stack vertically. A marker is keyed by its name, so when `i` goes from 0 to 1 the same element slides to the next box instead of a new one appearing.
 
-This is a frontend display rule, not a hint. Hints are for what the adapter infers about a parameter ([trace-format.md §4](trace-format.md#4-problem-metadata)), and an index marker does not change how `nums` is drawn, only what is drawn under it.
+This is not a hint. Hints are for what the adapter infers about a parameter ([trace-format.md §4](trace-format.md#4-problem-metadata)), and an index marker does not change how `nums` is drawn, only what is drawn under it.
 
 ### 6.3 Map order
 `MapRenderer` lists entries in the order the trace gives them. It does not sort. Map order is unspecified and is real language behaviour (spec §8), so the frontend shows what the program saw. Diffs match entries by key, never by position. The same goes for `set`, `multiset`, and `multimap`.
@@ -415,7 +415,7 @@ Planned for later versions, not designed here:
 
 > **Q2. Why not diff backwards when stepping back?** Going from 5 to 4 could show `[2, 0]` as "removed", but it was never removed in the program. The colours describe what the program did, so they only run forwards.
 
-> **Q3. Why is the index-name rule a fixed list instead of something smarter?** Anything smarter (an integer used inside `nums[...]`) needs to read the source, and that is language knowledge. The adapter can do it later and send a hint. A fixed list of conventional names is language-neutral, predictable, and wrong in an obvious way when it is wrong.
+> **Q3. Why do pointer markers come from the trace's `indexes` instead of a list of conventional names?** The first version used a fixed list (`i`, `j`, `left`, `mid`, ...), and it was wrong in an obvious way: any listed integer that fit drew a marker under every array, so Subsets showed `i` and `start` under `nums`, `path`, and `result`. Knowing which array an index belongs to means reading `nums[i]` in the source, which is language knowledge the frontend must not have. The adapter already reads the source, so since trace format v0.9 it records the pairing (`indexes`), and the frontend draws exactly that.
 
 > **Q4. Why does the language select not filter traces by `trace.language`?** Because then the frontend would branch on `language`, which the spec forbids. The select picks what to *ask for* (today a fixture, later a run). Whatever trace comes back is drawn the same way regardless of what produced it.
 

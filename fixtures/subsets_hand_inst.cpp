@@ -59,7 +59,7 @@ public:
 
 private:
   void backtrack(vector<int> &nums, int start, vector<int> &path, vector<vector<int>> &result) {
-    ::trace::Frame frame("backtrack");
+    ::trace::Frame frame("backtrack", R"({"i": ["nums"]})");
     ::trace::record(12, ::trace::var("nums", nums), ::trace::var("start", start), ::trace::var("path", path),
                     ::trace::var("result", result));
     result.push_back(path);

@@ -77,7 +77,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.8"} ;
+  inline constexpr const char* VERSION  {"0.9"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -725,6 +725,12 @@ namespace trace {
     bool exit_at_cap = true;
     void begin(std::string problem_json) { problem = std::move(problem_json); }
 
+    // trace-format.md, Indexes: for each function, which of its locals index
+    // which of its containers, as a JSON object's text ({"i": ["nums"]}). Each
+    // function's Frame registers it on its first call; the rewriter reads it
+    // from the source.
+    std::map<std::string, Json> indexes;
+
     // The call stack, bottom to top. Frame pushes and pops it (below).
     std::vector<FrameState> frames;
     std::size_t calls = 0;   // calls made so far; the next frame is "f<calls + 1>"
@@ -843,8 +849,21 @@ namespace trace {
     }
     steps_trace += "]";
 
-    std::string full_trace = std::format(R"({{"version": {}, "language": {}, "problem": {}, "steps": {})",
-      quote(tracer.version), quote(tracer.language), tracer.problem, steps_trace);
+    std::string full_trace = std::format(R"({{"version": {}, "language": {}, "problem": {})",
+      quote(tracer.version), quote(tracer.language), tracer.problem);
+
+    if (!tracer.indexes.empty()) {
+      full_trace += R"(, "indexes": {)";
+      bool first_function = true;
+      for (const auto& [function, uses] : tracer.indexes) {
+        if (!first_function) full_trace += ", ";
+        first_function = false;
+        full_trace += quote(function) + ": " + uses;
+      }
+      full_trace += "}";
+    }
+
+    full_trace += R"(, "steps": )" + steps_trace;
 
     if (result) {
       full_trace += R"(, "result": )" + (*result);
@@ -1236,7 +1255,10 @@ namespace trace {
   // own pop. Not copyable: copying would pop the same frame twice.
   class Frame {
   public:
-    explicit Frame(const char* function) {
+    // `indexes` is the JSON text of this function's entry in the trace's
+    // "indexes" ({"i": ["nums"]}), or nullptr when it has none.
+    explicit Frame(const char* function, const char* indexes = nullptr) {
+      if (indexes != nullptr && *indexes != '\0') tracer.indexes.try_emplace(function, indexes);
       ++tracer.calls;
       tracer.frames.push_back(FrameState{std::format("f{}", tracer.calls), function, 0, nullptr});
     }

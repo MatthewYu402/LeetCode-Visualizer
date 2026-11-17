@@ -219,6 +219,96 @@ namespace rewriter {
     return true;
   }
 
+  // A container whose positions an integer counts: what an index marker can
+  // point into. The class templates are matched by name in namespace std.
+  static bool indexable(QualType type) {
+    type = type.getNonReferenceType().getCanonicalType();
+    if (type->isConstantArrayType()) return true;
+    const CXXRecordDecl *record = type->getAsCXXRecordDecl();
+    if (record == nullptr || !record->isInStdNamespace()) return false;
+    static const std::set<std::string> names = {"vector", "array", "deque", "basic_string", "bitset"};
+    return names.count(record->getNameAsString()) != 0;
+  }
+
+  // An integer variable (not bool, not a character) local to the function: a parameter or
+  // a variable declared in its body.
+  static const VarDecl *integerLocal(const Expr *expr) {
+    const auto *ref = dyn_cast<DeclRefExpr>(expr->IgnoreParenImpCasts());
+    const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+    if (var == nullptr || !var->isLocalVarDeclOrParm() || var->getName().empty() || isa<DecompositionDecl>(var)) return nullptr;
+    const QualType type = var->getType().getNonReferenceType();
+    if (!type->isIntegerType() || type->isBooleanType() || type->isAnyCharacterType() || type->isEnumeralType()) return nullptr;
+    return var;
+  }
+
+  // A container local to the function, named directly: the `nums` of nums[i].
+  // grid[r] is not one, so in grid[r][c] only r indexes grid.
+  static const VarDecl *containerLocal(const Expr *expr) {
+    const auto *ref = dyn_cast<DeclRefExpr>(expr->IgnoreParenImpCasts());
+    const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+    if (var == nullptr || !var->isLocalVarDeclOrParm() || var->getName().empty() || isa<DecompositionDecl>(var)) return nullptr;
+    return indexable(var->getType()) ? var : nullptr;
+  }
+
+  // Every subscript of a local container in the body, `v[expr]` or `v.at(expr)`,
+  // pairs each integer local named anywhere in `expr` with `v`: nums[i], nums[i + 1],
+  // nums[n - 1 - i]. Lambdas are skipped, like everything else the rewriter
+  // does not instrument. Locals and their containers keep the order of first use.
+  std::string Instrumenter::indexesOf(const FunctionDecl *fn) const {
+    std::vector<std::pair<std::string, std::vector<std::string>>> uses;
+    auto pair = [&](const std::string &index, const std::string &container) {
+      auto found = std::find_if(uses.begin(), uses.end(), [&](const auto &use) { return use.first == index; });
+      if (found == uses.end()) {
+        uses.push_back({index, {container}});
+      } else if (std::find(found->second.begin(), found->second.end(), container) == found->second.end()) {
+        found->second.push_back(container);
+      }
+    };
+
+    // Every integer local named in an index expression.
+    std::function<void(const Stmt *, const std::string &)> indexesIn = [&](const Stmt *node, const std::string &container) {
+      if (node == nullptr || isa<LambdaExpr>(node)) return;
+      if (const auto *expr = dyn_cast<Expr>(node))
+        if (const VarDecl *var = integerLocal(expr); var && isa<DeclRefExpr>(expr->IgnoreParenImpCasts())) {
+          pair(var->getNameAsString(), container);
+          return;
+        }
+      for (const Stmt *child : node->children()) indexesIn(child, container);
+    };
+
+    std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
+      if (node == nullptr || isa<LambdaExpr>(node)) return;
+      const Expr *base = nullptr, *index = nullptr;
+      if (const auto *subscript = dyn_cast<ArraySubscriptExpr>(node)) {  // a built-in array
+        base = subscript->getBase();
+        index = subscript->getIdx();
+      } else if (const auto *call = dyn_cast<CXXOperatorCallExpr>(node); call && call->getOperator() == OO_Subscript && call->getNumArgs() == 2) {
+        base = call->getArg(0);
+        index = call->getArg(1);
+      } else if (const auto *call = dyn_cast<CXXMemberCallExpr>(node); call && call->getNumArgs() == 1) {
+        if (const CXXMethodDecl *method = call->getMethodDecl(); method && method->getNameAsString() == "at") {
+          base = call->getImplicitObjectArgument();
+          index = call->getArg(0);
+        }
+      }
+      if (base != nullptr) {
+        if (const VarDecl *container = containerLocal(base)) indexesIn(index, container->getNameAsString());
+      }
+      for (const Stmt *child : node->children()) walk(child);
+    };
+    walk(fn->getBody());
+
+    if (uses.empty()) return "";
+    std::string json = "{";
+    for (std::size_t i = 0; i < uses.size(); ++i) {
+      if (i > 0) json += ", ";
+      json += "\"" + uses[i].first + "\": [";
+      for (std::size_t j = 0; j < uses[i].second.size(); ++j) json += (j > 0 ? ", \"" : "\"") + uses[i].second[j] + "\"";
+      json += "]";
+    }
+    return json + "}";
+  }
+
   bool Instrumenter::traverseFunction(FunctionDecl *fn, const std::function<bool()> &walk_normally) {
     if (!shouldInstrument(fn)) {
       const bool saved = active_;
@@ -248,7 +338,9 @@ namespace rewriter {
       if (!param->getName().empty()) scopes_.back().push_back({param->getNameAsString(), ""});
 
     auto *body = cast<CompoundStmt>(fn->getBody());
-    insert(body->getLBracLoc().getLocWithOffset(1), " ::trace::Frame trace_frame_(\"" + fn->getNameAsString() + "\");");
+    const std::string indexes = indexesOf(fn);
+    insert(body->getLBracLoc().getLocWithOffset(1), " ::trace::Frame trace_frame_(\"" + fn->getNameAsString() + "\"" +
+                                                       (indexes.empty() ? "" : ", " + literal(indexes)) + ");");
 
     const bool keep_going = traverseBlock(body, /*guard_line=*/0, [&] {
       // A void function that runs off its end returns here: give that its return step.

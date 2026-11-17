@@ -5,6 +5,7 @@ import { diff, diffValue } from "../trace/diff";
 import { loadTrace } from "../trace/loader";
 import { topFrame, type Frame, type Trace, type Value } from "../trace/types";
 import maxDepthRaw from "../../../fixtures/max-depth.trace.json?raw";
+import subsetsRaw from "../../../fixtures/subsets.trace.json?raw";
 import { StatePanel } from "./StatePanel";
 import { Toolbar } from "./Toolbar";
 import { VisualPanel } from "./VisualPanel";
@@ -153,6 +154,53 @@ describe("the call stack (Maximum Depth fixture)", () => {
   });
 });
 
+describe("index markers come from the trace's indexes", () => {
+  const frameWith = (locals: Record<string, Value>, indexes?: Trace["indexes"]): Trace => ({
+    ...trace,
+    indexes,
+    steps: [{ step: 0, frames: [{ id: "f1", function: "f", line: 1, locals }], heap: {} }],
+  });
+  const markers = (html: string) => [...html.matchAll(/class="tag-pill pointer-name">([^<]+)</g)].map((m) => m[1]);
+  const draw = (t: Trace) => renderToStaticMarkup(<VisualPanel trace={t} step={t.steps[0]} diff={null} />);
+
+  it("a local the function uses to index an array is a marker under it, whatever its name", () => {
+    const locals = { nums: { kind: "array", items: [1, 2, 3] }, idx: 2 } as Record<string, Value>;
+    const html = draw(frameWith(locals, { f: { idx: ["nums"] } }));
+    expect(markers(html)).toEqual(["idx"]);
+    expect(html).toContain("translate(116px, 0px)");
+  });
+
+  it("an index name the trace does not pair with that array draws nothing", () => {
+    const locals = { nums: { kind: "array", items: [1, 2, 3] }, path: { kind: "array", items: [1, 2] }, i: 1, start: 0 } as Record<string, Value>;
+    expect(markers(draw(frameWith(locals)))).toEqual([]); // no indexes at all
+    expect(markers(draw(frameWith(locals, { g: { i: ["nums"] } })))).toEqual([]); // another function's entry
+    expect(markers(draw(frameWith(locals, { f: { i: ["nums"] } })))).toEqual(["i"]); // under nums, not path; start nowhere
+  });
+
+  it("a paired index outside the array draws no marker", () => {
+    const locals = { nums: { kind: "array", items: [1] }, i: 1 } as Record<string, Value>;
+    expect(markers(draw(frameWith(locals, { f: { i: ["nums"] } })))).toEqual([]);
+  });
+});
+
+describe("Subsets", () => {
+  const loadedSubsets = loadTrace(subsetsRaw);
+  if (!loadedSubsets.ok) throw new Error(loadedSubsets.error);
+  const subsets = loadedSubsets.trace;
+
+  it("i is a marker under nums only, and start under nothing", () => {
+    for (const step of subsets.steps) {
+      const html = renderToStaticMarkup(<VisualPanel trace={subsets} step={step} diff={null} />);
+      const names = [...html.matchAll(/class="tag-pill pointer-name">([^<]+)</g)].map((m) => m[1]);
+      expect(names.filter((n) => n !== "i")).toEqual([]);
+      expect(names.length).toBeLessThanOrEqual(1);
+    }
+    const inLoop = subsets.steps.find((s) => topFrame(s).function === "backtrack" && typeof topFrame(s).locals.i === "number")!;
+    const html = renderToStaticMarkup(<VisualPanel trace={subsets} step={inLoop} diff={null} />);
+    expect(html).toMatch(/aria-label="nums: array"[^]*?pointer-name">i</);
+  });
+});
+
 describe("iterators", () => {
   const withLocals = (locals: Record<string, Value>) => ({
     ...trace,
@@ -229,7 +277,7 @@ describe("top bar", () => {
   });
 });
 
-describe("every v0.8 kind renders without crashing", () => {
+describe("every v0.9 kind renders without crashing", () => {
   const values: Record<string, Value> = {
     arr: { kind: "array", items: [1, { kind: "int", value: "9007199254740993" }] },
     lst: { kind: "list", items: [1, 2] },

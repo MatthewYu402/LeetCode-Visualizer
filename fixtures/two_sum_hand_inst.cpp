@@ -41,7 +41,7 @@ using namespace std;
 class Solution {
 public:
   vector<int> twoSum(vector<int> &nums, int target) {
-    ::trace::Frame frame("twoSum");
+    ::trace::Frame frame("twoSum", R"({"i": ["nums"]})");
     // key: a number from the array, value: its index
     ::trace::record(5, ::trace::var("nums", nums), ::trace::var("target", target));
     unordered_map<int, int> numMap;

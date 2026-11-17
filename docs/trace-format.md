@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.8
+> **Status:** Draft v0.9
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,9 +56,10 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.8",
+  "version": "0.9",
   "language": "cpp",
   "problem": { ... },
+  "indexes": { ... },
   "steps": [ ... ],
   "result": ...,
   "result_heap": { ... }
@@ -70,6 +71,7 @@ A trace is one JSON object:
 | `version` | Trace format version (see [Section 9](#9-versioning)) |
 | `language` | Informational only. The frontend must **not** branch on this. |
 | `problem` | Metadata about the problem and input ([Section 4](#4-problem-metadata)) |
+| `indexes` | Optional. Which integer locals each function uses to index which of its containers ([Indexes](#indexes)). Present only when some function does |
 | `steps` | Ordered list of snapshots ([Section 6](#6-steps)) |
 | `result` | Optional. Final return value, as a normalized value. Absent means the method did not return ([Unfinished runs](#unfinished-runs)). `null` for a `void` method that returned ([The return value](#the-return-value)) |
 | `result_heap` | Optional. The objects `result` refers to, in the same shape as a step's `heap`. Present only when `result` contains a `ref` ([The return value](#the-return-value)) |
@@ -126,6 +128,25 @@ An absent `result` does **not** mean a wrong answer. A wrong solution still retu
 For a `void` method the answer the user cares about is the input it changed. Steps are taken before each line, so the last statement's effect is not in any ordinary step. The method's **return step** shows it: every function call ends with one, including a `void` method that runs off its closing brace ([Return steps](#return-steps)).
 
 `result` and the bottom frame's last `return_value` hold the same value. Both are kept: `result` is the answer of the run in one place, and it is the only one a trace has when the frontend shows a summary, while the return step is what the player steps through.
+
+#### Indexes
+An `array` card can show where a loop is: a marker for `i` under `nums[i]`. Which local belongs under which array is a fact about the code, not the data. In Subsets, `i` and `start` are small integers that fit as an index into `nums`, `path`, and `result` alike, but the code only ever reads `nums[i]`. A rule that looks only at names and values puts markers under all three. `indexes` records the pairing the adapter reads from the source:
+
+```json
+"indexes": {
+  "twoSum":    {"i": ["nums"]},
+  "backtrack": {"i": ["nums"]}
+}
+```
+
+It maps a function's name (the `function` of its frames) to that function's locals, and each local to the containers it indexes, in the order of first use.
+
+- **What counts as indexing:** a local container named directly, subscripted with an expression that names the local: `nums[i]`, `nums[i + 1]`, `nums[n - 1 - i]`, `nums.at(mid)`. The local is an integer (not a boolean or a character). The container is one a position counts into: an `array`, a `deque`, or a string.
+- **Only the container named directly.** In `grid[r][c]`, `r` indexes `grid`, but `c` indexes `grid[r]`, which is not a local, so `c` is not recorded.
+- **A local only used as a bound is not an index.** `start` in `for (int i = start; ...)` is never inside brackets, so it has no entry.
+- **Per function, for the whole run.** The pairing comes from the source, so it does not change between steps, and it is written once instead of on every frame. Two variables of one function with the same name (a shadowed `i`) share one entry, which lists every container either indexes.
+- **Present only when it says something.** A trace where no function indexes a container leaves the field out, and every function and local listed has at least one container. An adapter that cannot tell leaves it out too.
+- **It is not a hint.** A hint says how to draw a value ([Section 4](#4-problem-metadata)); `indexes` only says which locals the frontend may draw as markers on a container that is drawn anyway.
 
 ## 4. Problem metadata
 This describes what was run. It also gives the frontend hints so it can pick a renderer (for example, "this `array` of `array`s is a grid").
@@ -430,7 +451,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.8",
+  "version": "0.9",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -441,6 +462,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
     "returns": {"type": "array<int>"},
     "input": {"nums": [2, 7, 11, 15], "target": 9}
   },
+  "indexes": {"twoSum": {"i": ["nums"]}},
   "steps": [
     {"step": 0, "heap": {}, "frames": [{"id": "f1", "function": "twoSum", "line": 5,
      "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}}]},
@@ -464,7 +486,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 }
 ```
 
-The frontend reads `nums` as an `array` (array renderer, with `i` as a pointer) and `numMap` as a `map` (key-value table). It never learns that `numMap` was an `unordered_map`.
+The frontend reads `nums` as an `array` (array renderer, with `i` as a pointer, because `indexes` pairs `i` with `nums`) and `numMap` as a `map` (key-value table). It never learns that `numMap` was an `unordered_map`.
 
 
 
@@ -489,6 +511,7 @@ Adapters must:
 15. Give every call its own frame id, and never reuse one.
 16. End every call that returns with a return step, with `return_value` on the top frame only ([Return steps](#return-steps)).
 17. Write an iterator as its container's local name and a position ([Positions in a container](#positions-in-a-container-iterators)), only directly in `locals`. Leave it out when its container is not a local of the same frame.
+18. Write `indexes` from what the source subscripts, never from names or values ([Indexes](#indexes)). Leave it out when no function indexes a container.
 
 ### What is a bug and what is not
 Two adapters running the same algorithm may legitimately produce different traces
@@ -528,6 +551,9 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.9**:
+  - Adds the optional top-level `indexes`: for each function, which integer locals index which of its containers, read from the source.
+  - Every valid v0.8 trace is still valid once its `version` is changed.
 - **v0.8**:
   - Adds the optional `outcomes` on the top frame: the conditions and stores its line evaluated after the step was taken.
   - Every valid v0.7 trace is still valid once its `version` is changed.
@@ -633,3 +659,5 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q22. Why record outcomes in the trace instead of working them out in the frontend?** A store could almost be inferred: compare the next step's locals. But a condition cannot. `while (i < j)` that was true and `if (x)` that was false both move to some next line, and only the source's structure says which branch that was, which the frontend would have to parse in every language. A store into a container, `numMap[nums[i]] = i`, changes the map without saying which key the line wrote, and a store a later line overwrote before the next step is lost. The adapter sees the value as it is computed, so it records the fact instead of the frontend guessing it.
 
 > **Q23. Why put an outcome on the step whose line produced it, instead of on the next step?** So a step can be drawn on its own (Key Insight 8). With the outcome on step N+1, drawing step N would need step N+1, and the last step before a truncation would have nothing to say. Writing it on step N costs the runtime one thing: each frame's last step stays open until the frame records another, so a store after a call can still reach it.
+
+> **Q24. Why record which locals index which containers, instead of letting the frontend guess from names like `i` and `j`?** A name and a value cannot say which array an index belongs to. In Subsets, `i` fits as an index into `nums`, `path`, and `result`, so a name rule draws it under all three, and it draws `start`, which only bounds a loop, as if the code read `nums[start]`. The frontend could read the subscripts out of the source, but that is parsing a language, which the frontend must never do. The adapter already walks the source to place its calls, so it records the pairing once, per function, and the frontend draws exactly what the code reads. It also drops the list of names: `idx` and `pos` get markers too.

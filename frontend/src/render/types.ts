@@ -5,6 +5,8 @@ import type { Hint, ObjectValue, Value } from "../trace/types";
 export interface RenderContext {
   /** Every local in the step being drawn. Used for pointer markers. */
   locals: Record<string, Value>;
+  /** The running function's entry in the trace's `indexes`: which locals index which containers. For pointer markers. */
+  indexes?: Readonly<Record<string, readonly string[]>>;
   /** The step's heap, so an item that is a ref can show its node's value. */
   heap?: Record<string, ObjectValue>;
   /** The hint for this local, if it is a parameter that has one. */

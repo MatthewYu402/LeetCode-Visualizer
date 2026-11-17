@@ -8,7 +8,9 @@
 // a compile error in the user's code still points at the user's line.
 //
 // What it inserts (docs/adapters/cpp.md, section 4):
-//   - ::trace::Frame trace_frame_("name");    after the `{` of each instrumented function
+//   - ::trace::Frame trace_frame_("name");    after the `{` of each instrumented function,
+//     or ::trace::Frame trace_frame_("name", "{\"i\": [\"nums\"]}"); when the function
+//     indexes a container with one of its integer locals (indexesOf)
 //   - ::trace::record(LINE, vars...);         before each statement in a block. A loop's
 //     header gets a step each time it is checked instead: a `for` before the loop
 //     (first pass) and at the start of its increment (later passes), a `while` or
@@ -74,6 +76,10 @@ namespace rewriter {
     // ---- the function being instrumented ----
     bool shouldInstrument(const clang::FunctionDecl *fn) const;
     bool traverseFunction(clang::FunctionDecl *fn, const std::function<bool()> &walk_normally);
+    // trace-format.md, Indexes: which integer locals index which containers in
+    // this function's body, as the JSON object the runtime writes ({"i": ["nums"]}),
+    // or "" when none do.
+    std::string indexesOf(const clang::FunctionDecl *fn) const;
 
     // ---- blocks and statements ----
     // Instruments a `{ ... }`: a Scope guard (unless guard_line is 0), then each statement.
