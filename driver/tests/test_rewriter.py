@@ -651,8 +651,18 @@ public:
     }
 };"""
         trace, _ = run_source(src, "nums = [1,2,3]")
-        codes = [code for _, code, _ in reads_of(trace)]
-        self.assertEqual(codes, ["nums[0]", "nums[1]", "dp[1]", "nums[2]", "dp[2]", "dp[3]", "dp[3]"])
+        # The order of reads within one line is the compiler's: GCC evaluates max()'s arguments
+        # right to left, Clang left to right. So compare each line's reads as a sorted list.
+        by_line = {}
+        for line, code, _ in reads_of(trace):
+            by_line.setdefault(line, []).append(code)
+        self.assertEqual({line: sorted(codes) for line, codes in by_line.items()}, {
+            5: ["nums[0]", "nums[1]"],
+            6: ["dp[1]", "nums[2]"],
+            7: ["dp[2]"],
+            11: ["dp[3]"],
+            12: ["dp[3]"],
+        })
         self.assertEqual(trace["result"], 3)
 
     def test_a_2d_table_and_a_row(self):
