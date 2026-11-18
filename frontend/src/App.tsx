@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useInputs } from "./api/useInputs";
 import { CodePanel } from "./components/CodePanel";
 import { InputsPanel } from "./components/InputsPanel";
+import { PasteHint } from "./components/PasteHint";
 import { PlaybackBar } from "./components/PlaybackBar";
 import { Split } from "./components/Split";
 import { StatePanel } from "./components/StatePanel";
@@ -85,6 +86,7 @@ export function App() {
                   <section className="panel" aria-label="Code">
                     <header className="panel-header">
                       <h2 className="panel-heading">Code</h2>
+                      <PasteHint />
                       <span className="panel-meta panel-meta-end">{languageLabel}</span>
                     </header>
                     <CodePanel

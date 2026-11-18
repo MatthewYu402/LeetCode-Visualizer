@@ -600,6 +600,78 @@ textarea {
   font-weight: 600;
 }
 
+/* The info button beside the Code title, and its note (PasteHint). The note shows on hover and on
+   focus, sits over the editor, and keeps the theme's colours. */
+.paste-hint {
+  position: relative;
+  z-index: 30;
+  display: inline-flex;
+  margin-left: -4px;
+}
+
+.paste-hint-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: help;
+  transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.paste-hint-button:hover,
+.paste-hint-button:focus-visible {
+  color: var(--fg);
+  background: var(--bg-inset);
+}
+
+.paste-hint-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.paste-hint-note {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: -6px;
+  z-index: 20;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: var(--card-shadow);
+  color: var(--fg-soft);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(-2px);
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 150ms ease-out, transform 150ms ease-out, visibility 0s linear 150ms;
+}
+
+.paste-hint:hover .paste-hint-note,
+.paste-hint:focus-within .paste-hint-note {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition: opacity 150ms ease-out, transform 150ms ease-out, visibility 0s;
+}
+
+.paste-hint.is-dismissed .paste-hint-note {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .panel-meta {
   font-size: 12px;
   color: var(--fg-muted);

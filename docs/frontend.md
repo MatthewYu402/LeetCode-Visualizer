@@ -38,7 +38,7 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ TOP BAR  logo · LeetCode Visualizer │ language · Call stack ◉   ☀ Run code │
 ├──────────────────────────────┬───────────────────────────────────────────┤
-│ CODE PANEL  "Code"       C++ │ CANVAS (dot grid)                         │
+│ CODE PANEL  "Code" (i)   C++ │ CANVAS (dot grid)                         │
 │                              │   lists, trees, graphs from the heap      │
 │   Monaco, editable           │   one structure per other container local │
 │   step.line highlighted      │   the calls, at the bottom (when nested)  │
@@ -61,6 +61,8 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 └──────────────────────────────────────────────────────────────────────────┘
           ◄── drag ──►                        ▲ drag ▼
 ```
+
+The **(i)** beside the Code title is an info button (`components/PasteHint.tsx`). Its note asks for the code exactly as LeetCode gives it, with the comments above the `Solution`: those comments define `ListNode`, `TreeNode`, or `Node`, and the driver reads them to know how linked lists, trees, and graphs are built ([driver-generation.md](driver-generation.md)). The note shows on hover and on keyboard focus, a tap shows it on a touch screen, and Escape hides it.
 
 Every split is resizable by dragging the border between panels: the left / right split horizontally, and the code / inputs and visual / state splits vertically. The split sizes are plain UI state and are not saved.
 
@@ -86,6 +88,7 @@ Every split is resizable by dragging the border between panels: the left / right
 | `components/Toolbar.tsx` | The top bar: logo and name, language select, the call-stack switch, the theme button, Run code | Language, run state, theme |
 | `components/PlaybackBar.tsx` | The bottom bar: Restart, previous, play/pause, next, last, the counter, the scrubber with a tick per step, speed | Player state |
 | `components/CodePanel.tsx` | Monaco with the line decoration; rebuilds the editor theme when the page's theme changes | Source, `step.line`, theme |
+| `components/PasteHint.tsx` | The info button beside the Code title: paste LeetCode's code with its comments | Nothing |
 | `components/VisualPanel.tsx` | The line strip, then one card per linked structure, one per other container local, and the calls card at the bottom, or a notice / error; while a run is going, `RunningCanvas` instead | One step, its diff, the per-trace layout and call tree, the call-stack switch, whether a run is going |
 | `components/RunningCanvas.tsx` | The canvas while the sandbox makes a trace: a line of trace points drawing itself, and what the sandbox is doing | Nothing |
 | `components/StatePanel.tsx` | "Step N of M" with a progress bar, the running line (its statement and what it produced), and the running frame's locals as a table, plus `result` on the last step, and an Output tab when the program printed ([Section 9](#9-state-panel)) | One step, its diff, the code the run was made from, the run's output |
