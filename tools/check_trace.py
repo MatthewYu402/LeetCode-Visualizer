@@ -23,8 +23,9 @@ Every file is always:
         both; frame ids are unique in a step; an id keeps one function name
         for the whole run, and never comes back after its call returned
       reads: a read outcome names a local of its frame, of a kind that is read
-        that way: `at` on an array or deque (at every level), `key` on a map,
-        multimap, set, or multiset. Positions and keys are not checked against the
+        that way: `at` on an array or deque at every level, or a string at the
+        last level (`s[i]`, `words[i][j]`), `key` on a map, multimap, set, or
+        multiset. Positions and keys are not checked against the
         step's locals, which are from before the line ran: a line can read a cell
         it made (`m[k]` inserts a missing key)
       indexes: every function named in "indexes" ran (a frame has that
@@ -264,18 +265,26 @@ def check_reads(doc):
                     continue
                 where = f"$.steps[{s}].frames[{f}].outcomes[{o}]"
                 target = frame["locals"].get(outcome["target"])
-                if not isinstance(target, dict) or "kind" not in target:
-                    raise CheckError(f"{where}: {json.dumps(outcome['target'])} is not a container local of its frame")
+                is_string = isinstance(target, str)
+                if not is_string and (not isinstance(target, dict) or "kind" not in target):
+                    raise CheckError(f"{where}: {json.dumps(outcome['target'])} is not a container or string local of its frame")
                 if "at" in outcome:
                     value = target
+                    last = len(outcome["at"]) - 1
                     for level in range(len(outcome["at"])):
+                        if isinstance(value, str):
+                            # a string's characters (since v0.11): only as the last level, s[i] or words[i][j]
+                            if level != last:
+                                raise CheckError(f"{where}: level {level} of {json.dumps(outcome['target'])} is a character, so it has no position")
+                            break
                         if not isinstance(value, dict) or value.get("kind") not in POSITIONED:
-                            raise CheckError(f"{where}: level {level} of {json.dumps(outcome['target'])} is not an array or deque, so it has no position")
+                            raise CheckError(f"{where}: level {level} of {json.dumps(outcome['target'])} is not an array, deque, or string, so it has no position")
                         items = value["items"]
                         k = outcome["at"][level]
                         value = items[k] if k < len(items) else None
-                elif target["kind"] not in KEYED:
-                    raise CheckError(f"{where}: {json.dumps(outcome['target'])} is a {target['kind']}, so it has no key")
+                elif is_string or target["kind"] not in KEYED:
+                    kind = "string" if is_string else target["kind"]
+                    raise CheckError(f"{where}: {json.dumps(outcome['target'])} is a {kind}, so it has no key")
 
 
 def check_indexes(doc):

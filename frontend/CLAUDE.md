@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.10).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.11).
 
 Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and rewriter: see the root `CLAUDE.md`).
 
@@ -40,7 +40,7 @@ src/
 │   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.10")
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.11")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
@@ -53,6 +53,7 @@ src/
 │   ├── Card.tsx         the header every card shares: name, kind · size, operation chip
 │   ├── ops.ts           operation(value, diff, heap): "push 3", "dequeue 1", "erase key 3", from the diff alone
 │   ├── ArrayRenderer.tsx  array by shape: a contiguous strip, a grid (equal rows of plain values), or rows; raggedLocals (once per trace)
+│   ├── StringRenderer.tsx  a string as a strip of characters (bare letters, ␣ for a space, 26 px cells, scrolls to follow its pointers); stringLocals (once per trace)
 │   ├── MapRenderer.tsx (map, multimap), SequenceRenderer.tsx (stack, queue/deque tube, list, tuple, set/multiset), HeapRenderer.tsx (priority queue), FallbackRenderer.tsx
 │   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
 │   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
@@ -69,7 +70,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 ## Rules
 
 1. **Renderers are pure.** A renderer is a function of `(value, diff, ctx)` for one step. No state, no access to other steps, and it must draw correctly with `diff = null`.
-2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`), the call tree (`callTree`), and which 2D locals are ever ragged (`raggedLocals`, so a local keeps one drawing). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
+2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`), the call tree (`callTree`), which 2D locals are ever ragged (`raggedLocals`, so a local keeps one drawing), and which bare-string locals are strings rather than chars (`stringLocals`, so a string keeps its card). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
 3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `App.tsx` may use it, to pick the editor mode and the starter template. Renderers, diff, and the state panel never see it.
 4. **A diff is shown only after a one-step move forward** (`cameFrom === index - 1`). Step 0, jumps, and moving back draw with no diff.
 5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`.

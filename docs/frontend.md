@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.11 (reads trace format v0.10)
+> **Status:** Draft v0.12 (reads trace format v0.11)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -109,10 +109,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.10"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.11"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.10 only.
+Unsupported trace version "0.2". This frontend reads version 0.11 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
@@ -197,7 +197,7 @@ The drawing comes from the value's shape alone, never from guessing what the pro
 
 | Shape | Drawing |
 |---|---|
-| A 1D array | One contiguous strip: joined cells with a line between neighbours and one rounded border around the array, the index under each cell, pointer tags under those. A cell that changed gets an inset `--attention` ring (`--success` when added), so its neighbours keep their shared line. Items past the new length are drawn faded at the end for one step |
+| A 1D array | One contiguous strip: joined cells, all one width (`cellWidth`: 40 px, or wide enough for the longest item, so Generate Parentheses' `"(())"` is not cut off) with a line between neighbours and one rounded border around the array, the index under each cell, pointer tags under those. A cell that changed gets an inset `--attention` ring (`--success` when added), so its neighbours keep their shared line. Items past the new length are drawn faded at the end for one step |
 | An array of arrays of plain values (numbers, strings, chars, booleans, null, tagged numbers), every row the same length | A **grid** (`array · 6 × 4`): column indexes on top, row indexes on the left, the cells sharing 1 px lines. A local that indexes the outer array (`indexes` pairs it with it) is a tag on its row, left of the row index. Only the cells that changed are ringed: the renderer compares each changed row with its previous value (`diff.prev`) |
 | The same, with rows of different lengths (an adjacency list), or no columns | **Rows** (`array · 4 rows`): one strip per row, all starting at the same place, row index and row tags to the left; an empty row is a dashed `empty` box |
 | Anything else (rows of containers or refs) | One strip, each cell the item's text |
@@ -205,6 +205,15 @@ The drawing comes from the value's shape alone, never from guessing what the pro
 Whether a 2D local is a grid or rows is decided **once per run** (`raggedLocals`, computed when the trace loads, like the layout of linked structures): a local whose rows differ at any step is drawn as rows at every step. Level Order's `result` is `[[3]]` before it is `[[3], [9, 20]]`; without this it would start as a 1 × 1 grid and then turn into rows.
 
 Column markers are not drawn: `indexes` pairs `i` with `dp` in `dp[i][j]` but records nothing for `j`, which indexes `dp[i]` ([trace-format.md §3, Indexes](trace-format.md#indexes)). What a line read is drawn instead ([Reads](#reads)).
+
+#### Strings
+A string local is a bare JSON string in the trace, and it is drawn like a 1D array of characters (`render/StringRenderer.tsx`): one joined strip, `string · 30` in the header, the index under each character, and the locals that `indexes` pairs with it as pointer tags under those, so Valid Palindrome's `left` and `right` walk in from both ends. Characters are bare letters (`R a c e`), since the card already says it is a string; a space is a dimmed `␣` (a tab `⇥`, a newline `↵`), so no cell looks empty. A `vector<char>` is an array and keeps its quotes (`'a'`).
+
+- **Narrow cells.** 26 px instead of 40, so Valid Palindrome's 30-character example fits most canvases. A longer string scrolls sideways inside its card, and the strip scrolls itself to keep the pointers and the characters read in view; when they do not all fit (`left` at 0, `right` at 29), the characters the line read win.
+- **Pointer tags do not overlap.** On cells this narrow, `left` and `right` one character apart would cover each other, so a tag goes on the first row where its pill is clear of the others (the same rule now places every array's tags).
+- **Changes.** A character added at the end is ringed `--success`, one that changed `--attention`, and characters removed from the end fade out for one step, compared with the previous string (`diff.prev`).
+- **Reads.** `s[left]` and `s[right]`, the two characters `tolower(s[left]) != tolower(s[right])` compares, are outlined like any read (trace format v0.11). In an array of strings, a read of a character (`words[1][2]`) outlines the string it is in.
+- **Which strings get a card.** A trace writes a `char` and a one-character string the same way (spec §4), so a bare string is drawn as a string when the trace shows it is one at some step of the run: its length is not 1, it is a parameter of type `string`, `indexes` pairs a local with it, or a `read` targets it (`stringLocals`, computed once when the trace loads, like `raggedLocals`). `char c` never is, and a result built from `""` to `"a"` to `"ab"` keeps one card the whole time. A local string that is one character long for the whole run and never indexed stays in the locals table only.
 
 #### Reads
 A cell or entry that the running line **read** gets a dashed `--accent` outline, for that step only. It comes from the top frame's `read` outcomes (trace format v0.10, spec §6), which `readsOf(frame)` groups by the local they read; `VisualPanel` hands each card its own (`ctx.reads`), and `render/reads.ts` turns them into lookups. Nothing is guessed from the code or the values.
@@ -512,3 +521,5 @@ Planned for later versions, not designed here:
 > **Q20. Why are the cards compact?** Recursion trees, DP tables and graphs need room, and at the first sizes (44 px cells, 46 px recursion boxes) a fib(5) tree or a 6 × 4 table did not fit the canvas. Everything shrank to about 75%, the same for every card so the canvas stays one system; text stays at 10.5 px or more. A density switch was considered and left out: one size that fits is simpler than a setting.
 
 > **Q21. Why are reads outlined on the canvas and not listed as chips?** A read says where a value came from, and a place is better shown than written: `dp[2][3]` as a chip makes the reader find row 2 and column 3, while an outline is already there. A chip row for LCS would also grow to three or four entries on every step and push out the conditions and stores, which are what the line *did*. The outline is dashed, and in the accent colour, so it does not look like a diff: amber and green mean changed and added, and a read changes nothing.
+
+> **Q22. Why draw a string as cells, when a trace writes it as one value?** The algorithms that use strings treat them as arrays: two pointers in Valid Palindrome, a window in Longest Substring, a character at a time in Generate Parentheses. Shown as one line of text, nothing points at anything and the reader cannot see which characters a line compares. The trace already pairs `left` and `right` with `s` (v0.9 `indexes`) and records the characters read (v0.11), so the string card only draws what the trace says. The cost is one rule for telling a string from a `char`, which the trace cannot say directly; the rule only adds cards, so at worst a short string stays in the locals table.

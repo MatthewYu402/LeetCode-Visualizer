@@ -10,6 +10,7 @@
 
 #include "leetcode_types.hpp"
 
+#include <cctype>
 #include <iostream>
 #include <map>
 #include <set>
@@ -104,6 +105,25 @@ int main() {
     trace::rd(9, "dp[i - 1]", "dp", dp, dp[i - 1]);
     check_true("a whole row is one index, its value the row",
                has(steps().back(), R"J({"kind": "read", "code": "dp[i - 1]", "target": "dp", "at": [0], "value": {"kind": "array", "items": [0, 0, 0]}})J"));
+  }
+
+  // ------------------------------------------------------------------
+  std::cout << "a string's character, and a character of a string in an array (v0.11)\n";
+  reset();
+  {
+    trace::Frame frame("isPalindrome");
+    std::string s = "Race, car!";
+    std::vector<std::string> words{"eat", "tea"};
+    int left = 0, right = 8;
+    record(8, var("s", s), var("words", words), var("left", left), var("right", right));
+    const bool same = std::tolower(trace::rd(8, "s[left]", "s", s, s[left])) == std::tolower(trace::rd(8, "s[right]", "s", s, s[right]));
+    check_true("hands the characters back", same);
+    check_true("records each character's position and value",
+               has(steps().back(), R"J({"kind": "read", "code": "s[left]", "target": "s", "at": [0], "value": "R"}, {"kind": "read", "code": "s[right]", "target": "s", "at": [8], "value": "r"})J"));
+    trace::rd(8, "words[1][2]", "words", words, words[1][2]);
+    check_true("a string inside an array is the last level", has(steps().back(), R"J({"kind": "read", "code": "words[1][2]", "target": "words", "at": [1, 2], "value": "a"})J"));
+    trace::rd(8, "s.at(1)", "s", s, s.at(1)) = 'A';
+    check_true("hands back the character itself", s[1] == 'A');
   }
 
   // ------------------------------------------------------------------

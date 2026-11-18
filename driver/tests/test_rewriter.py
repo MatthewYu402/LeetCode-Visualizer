@@ -665,6 +665,30 @@ public:
         })
         self.assertEqual(trace["result"], 3)
 
+    def test_strings(self):
+        """v0.11: a string's characters are read like an array's cells; its find is a search, not a read."""
+        src = """class Solution {
+public:
+    bool f(string s) {
+        int left = 0, right = s.size() - 1;
+        bool same = tolower(s[left]) == tolower(s[right]);
+        s[0] = 'x';
+        int where = s.find('c');
+        vector<string> words = {"eat", "tea"};
+        char c = words[1][2];
+        return same && where > 0 && c == 'a';
+    }
+};"""
+        trace, _ = run_source(src, 's = "Race, car"')
+        by_line = {}
+        for line, code, at in reads_of(trace):
+            by_line.setdefault(line, []).append((code, at))
+        self.assertEqual(sorted(by_line[5]), [("s[left]", [0]), ("s[right]", [8])])
+        self.assertNotIn(6, by_line)
+        self.assertNotIn(7, by_line)
+        self.assertEqual(by_line[9], [("words[1][2]", [1, 2])])
+        self.assertIs(trace["result"], True)
+
     def test_a_2d_table_and_a_row(self):
         src = """class Solution {
 public:

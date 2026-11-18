@@ -317,15 +317,16 @@ namespace rewriter {
     enum class Holds { Nothing, Indexed, Map, Set };
 
     // What a local's type is, for reads: indexed by position (vector, array, deque,
-    // a built-in array), a map, or a set. Strings and bitsets are not containers in
-    // a trace (a string is a value), so they hold Nothing here.
+    // a built-in array, a string), a map, or a set. A string's characters are read
+    // like an array's cells (s[l] in Valid Palindrome); its find and count are not
+    // lookups of an entry, so a string is never a Map or Set. Bitsets hold Nothing.
     Holds holds(QualType type) {
       type = type.getNonReferenceType().getCanonicalType();
       if (type->isConstantArrayType()) return Holds::Indexed;
       const CXXRecordDecl *record = type->getAsCXXRecordDecl();
       if (record == nullptr || !record->isInStdNamespace()) return Holds::Nothing;
       const std::string name = record->getNameAsString();
-      if (name == "vector" || name == "array" || name == "deque") return Holds::Indexed;
+      if (name == "vector" || name == "array" || name == "deque" || name == "basic_string") return Holds::Indexed;
       if (name == "map" || name == "unordered_map" || name == "multimap" || name == "unordered_multimap") return Holds::Map;
       if (name == "set" || name == "unordered_set" || name == "multiset" || name == "unordered_multiset") return Holds::Set;
       return Holds::Nothing;

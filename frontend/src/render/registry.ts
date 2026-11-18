@@ -4,6 +4,7 @@ import { FallbackRenderer } from "./FallbackRenderer";
 import { HeapRenderer } from "./HeapRenderer";
 import { MapRenderer, MultimapRenderer } from "./MapRenderer";
 import { ListRenderer, SetRenderer, StackRenderer, TubeRenderer, TupleRenderer } from "./SequenceRenderer";
+import { StringRenderer } from "./StringRenderer";
 import type { Renderer } from "./types";
 
 /** Renderers chosen by hint. Empty in this version: grid, graph, intervals, ... come later. */
@@ -35,5 +36,7 @@ export const fallback: Renderer = FallbackRenderer;
 export function selectRenderer(value: Value, hint?: Hint): Renderer {
   if (hint && byHint[hint]) return byHint[hint];
   if (isTagged(value) && byKind[value.kind]) return byKind[value.kind]!;
+  // A bare string reaches here only when VisualPanel decided it is a string local (stringLocals).
+  if (typeof value === "string") return StringRenderer;
   return fallback;
 }

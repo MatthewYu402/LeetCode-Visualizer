@@ -11,6 +11,7 @@ import { CallStackCard } from "./CallStackCard";
 import { callLayout, RecursionTree } from "./RecursionTree";
 import { RunningCanvas } from "./RunningCanvas";
 import { raggedLocals } from "../render/ArrayRenderer";
+import { stringLocals } from "../render/StringRenderer";
 
 interface Props {
   trace: Trace | null;
@@ -40,7 +41,7 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const views = useMemo(() => {
     if (!trace) return null;
     const calls = callTree(trace);
-    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls), ragged: raggedLocals(trace) };
+    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls), ragged: raggedLocals(trace), strings: stringLocals(trace) };
   }, [trace]);
 
   if (running) return <RunningCanvas />;
@@ -75,9 +76,11 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   // The running frame's containers. Refs and objects are drawn by LinkedCard, as nodes and pointer tags.
   const frame = topFrame(step);
   const { locals } = frame;
-  // An iterator is a pointer marker on its container (rule 7), not a card of its own.
-  const drawnHere = (v: Value) => isContainer(v) && v.kind !== "ref" && v.kind !== "object" && v.kind !== "iterator";
-  const current = Object.entries(locals).filter(([, v]) => drawnHere(v));
+  // An iterator is a pointer marker on its container (rule 7), not a card of its own. A string is
+  // drawn when the trace shows it is a string, not a char (stringLocals).
+  const drawnHere = (name: string, v: Value) =>
+    typeof v === "string" ? views.strings.has(`${frame.function}/${name}`) : isContainer(v) && v.kind !== "ref" && v.kind !== "object" && v.kind !== "iterator";
+  const current = Object.entries(locals).filter(([name, v]) => drawnHere(name, v));
   const last = step.step === trace.steps.length - 1;
   const resultId = last ? refId(trace.result) : null;
   const reads = readsOf(frame);

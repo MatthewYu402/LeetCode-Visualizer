@@ -77,7 +77,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.10"} ;
+  inline constexpr const char* VERSION  {"0.11"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -1282,10 +1282,19 @@ namespace trace {
     }
 
     // The path of indexes from `c` to the element at `addr`, through nested indexed
-    // containers: [3] for nums[3], [1, 2] for dp[1][2]. False when it is not in `c`.
+    // containers and strings: [3] for nums[3] or s[3], [1, 2] for dp[1][2] or words[1][2].
+    // False when it is not in `c`.
     template <typename C>
     bool locate(const C& c, const void* addr, std::vector<long long>& at) {
-      if constexpr (Indexed<C>) {
+      if constexpr (StringLike<C>) {
+        // a string's characters: s[3], or words[1][2] through an array of strings
+        for (std::size_t i = 0; i < c.size(); ++i) {
+          if (static_cast<const void*>(std::addressof(c[i])) == addr) {
+            at.push_back(static_cast<long long>(i));
+            return true;
+          }
+        }
+      } else if constexpr (Indexed<C>) {
         using E = std::remove_cvref_t<decltype(c[0])>;
         if constexpr (!std::is_same_v<C, std::vector<bool>>) {
           for (std::size_t i = 0; i < length(c); ++i) {
@@ -1293,7 +1302,7 @@ namespace trace {
               at.push_back(static_cast<long long>(i));
               return true;
             }
-            if constexpr (Indexed<E>) {
+            if constexpr (Indexed<E> || StringLike<E>) {
               at.push_back(static_cast<long long>(i));
               if (locate(c[i], addr, at)) return true;
               at.pop_back();

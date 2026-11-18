@@ -1,5 +1,5 @@
 {
-  "version": "0.10",
+  "version": "0.11",
   "language": "cpp",
   "problem": {"method": "subsets", "params": [{"name": "nums", "type": "array<int>"}], "returns": {"type": "array<array<int>>"}, "input": {"nums": [1, 2, 3]}},
   "indexes": {"backtrack": {"i": ["nums"]}},

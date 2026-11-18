@@ -127,7 +127,7 @@ describe("a deep recursion stays small", () => {
     steps.push({ step: steps.length, frames: [...frames], heap: {} });
   }
   // the helpers belong to the f above them: rebuild so each g is called from the f at its level
-  const trace: Trace = { version: "0.10", language: "x", problem: { method: "f", params: [], input: {} }, steps };
+  const trace: Trace = { version: "0.11", language: "x", problem: { method: "f", params: [], input: {} }, steps };
   const tree = callTree(trace);
   const lastStep = steps[steps.length - 1];
 
@@ -189,7 +189,7 @@ function dfsTrace(): Trace {
     { step: 4, frames: [{ id: "f1", function: "dfs", line: 4, locals: { node: ref("n1"), nb: ref("n2") } }, { id: "f2", function: "dfs", line: 6, locals: { node: ref("n2") }, return_value: null }], heap },
     { step: 5, frames: [{ id: "f1", function: "dfs", line: 6, locals: { node: ref("n1") }, return_value: null }], heap },
   ];
-  return { version: "0.10", language: "x", problem: { method: "dfs", params: [], input: {}, returns: { type: "void" } }, steps, result: null };
+  return { version: "0.11", language: "x", problem: { method: "dfs", params: [], input: {}, returns: { type: "void" } }, steps, result: null };
 }
 
 describe("calls: the recursion card or the call-stack card, by what the calls return", () => {

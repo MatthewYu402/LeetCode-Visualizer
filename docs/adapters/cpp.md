@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.8
+> **Status:** Draft v0.9
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -322,7 +322,7 @@ for (int i = ::trace::stored<int>(7, "int i = 0", "i", 0); ::trace::cond(7, "...
 
 ### 4.8 Reads: the cells a line used
 
-A `read` outcome (spec v0.10) says which cell of a local container the running line read: `dp[i - 1][j - 1]` in LCS, `nums[i]` in Subsets, the entry `numMap.find(complement)` found. The rewriter wraps each read in a call that returns the element itself, so the user's expression is evaluated once, as written:
+A `read` outcome (spec v0.10, strings since v0.11) says which cell of a local container, or character of a local string, the running line read: `dp[i - 1][j - 1]` in LCS, `nums[i]` in Subsets, `s[left]` in Valid Palindrome, the entry `numMap.find(complement)` found. The rewriter wraps each read in a call that returns the element itself, so the user's expression is evaluated once, as written:
 
 ```cpp
 dp[i][j] = ::trace::rd(9, "dp[i - 1][j - 1]", "dp", dp, dp[i - 1][j - 1]) + 1;
@@ -339,7 +339,8 @@ if (::trace::rc(4, "memo.count(n)", "memo", memo, (n), memo.count(n))) return ::
 
 - **A read, not a write.** Not wrapped: the left side of an assignment, the operand of `++`, `--`, or `&`, an argument bound to a non-const reference, the object of a non-const member call (`dp[i].push_back(x)`), and a binding to a non-const reference. Wrapped: an operand anywhere else, a `->` member, the object of a const method or a conversion (`used[i]` as a `bool`), and `return a[i]` unless the function returns a non-const reference.
 - **Where it goes.** Like every outcome (§4.7): on the frame's last step, when that step is on the read's line and is not a return step. A read after a call on the same line (`res = max(res, dfs(i) + nums[i])`) still lands on the caller's step. At most 16 reads per step; the rest are dropped.
-- **What is not recorded.** Strings (`s[i]` is a character, not a cell the frontend draws), bitsets, iterators and range-`for` (no position is named), `front`/`back`/`top`, and containers that are not locals of the running function.
+- **Strings.** `std::string` counts as indexed, so `s[left]` and `s.at(i)` are wrapped in `rd` and found by the character's address; so is `words[i][j]` in a `vector<string>`, a string being the last level. A string's `find` and `count` are searches, not lookups, and are not wrapped.
+- **What is not recorded.** Bitsets, iterators and range-`for` (no position is named), `front`/`back`/`top`, and containers that are not locals of the running function.
 
 ## 5. Normalization: C++ types to kinds
 
@@ -437,7 +438,7 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.10"`) |
+| `version` | Always | The `VERSION` constant (`"0.11"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `indexes` | Only when some function registered an entry | `tracer.indexes`: each function's entry, from its `Frame` (§8.1), keyed by function name |

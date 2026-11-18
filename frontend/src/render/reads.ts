@@ -7,14 +7,19 @@ export interface Reads {
   at(...index: number[]): boolean;
   /** A key of a map, or member of a set, that was read. */
   key(canonicalKey: string): boolean;
+  /** Something inside item `i` was read: `words[i][j]`, a character of a string in a 1D array of strings. */
+  within(i: number): boolean;
 }
 
 export function readsFrom(reads: readonly ReadAt[] | undefined): Reads {
   const at = new Set<string>();
+  const inside = new Set<number>();
   const keys = new Set<string>();
   for (const r of reads ?? []) {
-    if ("at" in r) at.add(r.at.join(","));
-    else keys.add(canonical(r.key));
+    if ("at" in r) {
+      at.add(r.at.join(","));
+      if (r.at.length > 1) inside.add(r.at[0]);
+    } else keys.add(canonical(r.key));
   }
-  return { at: (...index) => at.has(index.join(",")), key: (k) => keys.has(k) };
+  return { at: (...index) => at.has(index.join(",")), key: (k) => keys.has(k), within: (i) => inside.has(i) };
 }

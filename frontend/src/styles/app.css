@@ -1078,6 +1078,36 @@ kbd {
 
 .array-indexes .cell-index {
   width: var(--cell);
+  flex-shrink: 0;
+}
+
+/* ---- string (render/StringRenderer.tsx) ----
+   An array of characters with narrower cells. A long string scrolls sideways inside its card and
+   follows its pointers; the padding keeps the scrollbar off the pointer tags. */
+
+/* The strip scrolls, not the card, so it can follow the pointers. */
+.structure-string {
+  min-width: 0;
+}
+
+.string-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 6px;
+}
+
+.array.string {
+  width: max-content;
+}
+
+.string .cell {
+  height: 32px;
+  font-size: 13px;
+}
+
+.char-mark {
+  color: var(--fg-faint);
 }
 
 /* A grid: a 2D array whose rows have the same length (a DP table, a matrix, a board). The cells

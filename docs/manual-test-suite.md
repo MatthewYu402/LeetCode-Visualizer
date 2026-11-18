@@ -8,7 +8,7 @@ Solutions to paste into the sandbox page, one per data structure or behaviour, e
 2. Copy the whole **Example** block (both lines) into the **or paste a LeetCode example** box. Pasting fills the fields; the `Output:` line is ignored.
 3. Press **Run code**, then step through. Write what you notice under **Notes**.
 
-Every case was run with its pasted example through the pipeline on 2026-11-17 (`main` at `d352b95` plus the light-theme change), and its fields were filled through `/api/signature` the way the page does. Each `Output:` line is what the run returned. The step counts are from those runs. Rebuild the sandbox image first (`docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .`), since the old image writes trace v0.8.
+Every case was run with its pasted example through the pipeline on 2026-11-17 (`main` at `d352b95` plus the light-theme change), and its fields were filled through `/api/signature` the way the page does. Each `Output:` line is what the run returned. The step counts are from those runs. Rebuild the sandbox image first (`docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .`), since an image built before the v0.11 commit writes an older trace version, which the page rejects.
 
 ## Found while writing this
 
@@ -495,7 +495,7 @@ Output: null
 
 **Exercises:** scalars · **Steps:** 34 · **Ends:** returns
 
-**Watch for:** The trace pairs `left` and `right` with `s`, but a string is a primitive today: no card, so no markers. Note whether you want a string card.
+**Watch for:** The string card: `left` and `right` walking in from both ends, and the two characters each comparison reads outlined (v0.11). Try `s = "A man, a plan, a canal: Panama"` on a narrow window: the strip scrolls to follow the pointers.
 
 **Code**
 

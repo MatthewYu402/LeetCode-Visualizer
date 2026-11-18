@@ -49,16 +49,17 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
 
   const removed = diff?.removedItems ?? [];
   const pointers = pointersFor(ctx.locals, items.length, name, ctx.indexes);
+  const cell = cellWidth([...items, ...removed.map((r) => r.value)]);
   return (
     <section className="structure" aria-label={`${name}: array`}>
       <CardHeader name={name} meta={`array · ${items.length}`} op={ctx.op} />
       {items.length === 0 && removed.length === 0 ? (
         <Empty />
       ) : (
-        <div className="array" style={{ ["--cell" as string]: `${CELL_PX}px` }}>
+        <div className="array" style={{ ["--cell" as string]: `${cell}px` }}>
           <div className="array-strip">
             {items.map((v, i) => (
-              <div key={i} className={`cell ${diffClass(diff?.items?.[i])}${reads.at(i) ? " is-read" : ""}`} title={formatValue(v)}>
+              <div key={i} className={`cell ${diffClass(diff?.items?.[i])}${reads.at(i) || reads.within(i) ? " is-read" : ""}`} title={formatValue(v)}>
                 {formatValue(v)}
               </div>
             ))}
@@ -80,27 +81,45 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
               </span>
             ))}
           </div>
-          <PointerRow pointers={pointers} />
+          <PointerRow pointers={pointers} step={cell} />
         </div>
       )}
     </section>
   );
 }
 
-/** Pointer tags under a strip: tags on the same cell stack downwards, in trace order. */
-function PointerRow({ pointers }: { pointers: Pointer[] }) {
-  const depth = new Map<number, number>();
+/** Width of every cell of a 1D array, in px: CELL_PX, or wide enough for its longest item ("(())" in Generate Parentheses). One width for all cells, so pointer tags stay one step apart. */
+export function cellWidth(items: Value[]): number {
+  const longest = Math.max(0, ...items.map((v) => [...formatValue(v)].length));
+  return Math.max(CELL_PX, Math.ceil(longest * 8.2 + 14));
+}
+
+/** About how wide a pointer's pill is, in px: its name in the mono font plus padding and border. */
+const pillWidth = (name: string) => name.length * 7 + 14;
+
+/**
+ * Pointer tags under a strip of cells `step` px apart. A tag goes on the first row where its pill
+ * does not overlap one already placed, so tags on the same cell stack downwards in trace order, and
+ * so do tags on neighbouring narrow cells (a string's `left` and `right` meeting in the middle).
+ */
+export function PointerRow({ pointers, step = CELL_STEP_PX }: { pointers: Pointer[]; step?: number }) {
+  const taken: { lo: number; hi: number }[][] = [];
   const placed = pointers.map((p) => {
-    const d = depth.get(p.index) ?? 0;
-    depth.set(p.index, d + 1);
-    return { ...p, row: d };
+    const centre = p.index * step + step / 2;
+    const half = Math.max(pillWidth(p.name), step) / 2 + 2;
+    const lo = centre - half;
+    const hi = centre + half;
+    let row = 0;
+    while ((taken[row] ?? []).some((t) => lo < t.hi && t.lo < hi)) row++;
+    (taken[row] ??= []).push({ lo, hi });
+    return { ...p, row };
   });
   const rows = Math.max(0, ...placed.map((p) => p.row + 1));
   if (rows === 0) return null;
   return (
     <div className="pointers" style={{ height: rows * TAG_ROW_PX }}>
       {placed.map((p) => (
-        <div key={p.name} className="pointer" style={{ transform: `translate(${p.index * CELL_STEP_PX}px, ${p.row * TAG_ROW_PX}px)` }} title={`${p.name} = ${p.index}`}>
+        <div key={p.name} className="pointer" style={{ transform: `translate(${p.index * step}px, ${p.row * TAG_ROW_PX}px)` }} title={`${p.name} = ${p.index}`}>
           <svg className="pointer-arrow" aria-hidden="true" width="9" height="5" viewBox="0 0 10 6">
             <path d="M5 0 10 6H0z" />
           </svg>

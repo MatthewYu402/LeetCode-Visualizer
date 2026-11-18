@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.10
+> **Status:** Draft v0.11
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.10",
+  "version": "0.11",
   "language": "cpp",
   "problem": { ... },
   "indexes": { ... },
@@ -411,7 +411,7 @@ Each outcome has a `kind`, the `code` it describes as written in the user's sour
 |---|---|---|---|
 | `condition` | The condition of an `if`, `while`, `do`-`while`, or `for`, and the condition of `?:` | `true` or `false`: which way the program went | None |
 | `store` | A declaration with an initializer, an assignment, a compound assignment (`+=`, ...), and `++` / `--` | The value the target holds after the store | `target`: the stored-to expression as written (`complement`, `numMap[nums[i]]`, `node->next`) |
-| `read` | A cell or entry of a local container that the line read for its value: an element (`nums[i]`, `dp[i - 1][j - 1]`, `v.at(k)`), a whole row (`dp[i - 1]`), a map's value (`memo[n]`, `m.at(k)`), or the entry a lookup found (`m.count(k)`, `m.contains(k)`, `m.find(k)`, the same on a set) | The value read: the element, the row, the map's value, or the set's member | `target`: the container local's name, one of the frame's locals. Then exactly one of `at`, for a container indexed by position: the index at each level (`[1, 2]` for `dp[1][2]`, `[1]` for a row or a 1D array); or `key`, for a map or set: the entry's key (a set's member) |
+| `read` | A cell or entry of a local container that the line read for its value: an element (`nums[i]`, `dp[i - 1][j - 1]`, `v.at(k)`), a character of a string (`s[left]`, `words[i][j]`), a whole row (`dp[i - 1]`), a map's value (`memo[n]`, `m.at(k)`), or the entry a lookup found (`m.count(k)`, `m.contains(k)`, `m.find(k)`, the same on a set) | The value read: the element, the row, the map's value, or the set's member | `target`: the container local's name, one of the frame's locals. Then exactly one of `at`, for a container indexed by position: the index at each level (`[1, 2]` for `dp[1][2]`, `[1]` for a row, a 1D array, or a string's character; a string is always the last level); or `key`, for a map or set: the entry's key (a set's member) |
 
 ```json
 "outcomes": [
@@ -433,9 +433,10 @@ Rules:
 - **A `value` is a value** ([Section 5](#5-the-value-model)), and a `ref` in one names an object in the step's heap, like a `ref` in `locals`.
 - **Present only when it says something**, like `return_value`: a step whose line evaluated nothing that is recorded has no `outcomes`, never an empty list. A return step has none: its `return_value` already says what the line produced.
 - **A read is a cell the line used, not one it changed.** An element that is the target of a store (`dp[i] = ...`, `count[c]++`), handed to something that may change it (`swap(nums[i], nums[j])`, a non-const reference), or the object of a call (`groups[key].push_back(s)`) is not a read; a store says what changed, and the step's diff shows it. `dp[i] = min(dp[i], dp[i - coin] + 1)` reads `dp[i]` and `dp[i - coin]`. A lookup that found nothing (`count` is 0, `find` is `end()`) records nothing: there is no entry to point at, and a condition around it already says it missed.
+- **A string is read like an array.** A string local stays a bare JSON string in `locals`, but `s[i]` reads its character `i`, so `"target": "s", "at": [i]` with the character as `value`. Positions count the characters the string holds as the adapter serializes it (bytes in C++, so non-ASCII text can be off); LeetCode's strings are ASCII. A string's `find` or `count` is a search, not a lookup of an entry, and is not a read.
 - **Reads come in the order the program evaluated them**, which a language may leave to the compiler. In C++ the arguments of `max(dp[1], nums[2])` can be evaluated in either order, and GCC and Clang differ, so two traces of one program can list a line's reads in different orders. Nothing may depend on the order of reads within a step: the frontend outlines them all at once.
 - **Reads, at most 16 per step.** A line that reads more (a loop on one line) keeps its first 16; the rest are left out. Conditions and stores have no such limit.
-- **What is not recorded yet:** the results of calls (`numMap.count(x) → 1`), the parts of a condition that `&&` and `||` evaluated, and conditions of `switch`. The frontend shows such a line without a result. Reads of strings (a string is a value, not a container), reads through iterators (`*it`) and range-`for` loops, and `front()`, `back()`, and `top()` (the drawings already mark those ends) are not recorded as reads.
+- **What is not recorded yet:** the results of calls (`numMap.count(x) → 1`), the parts of a condition that `&&` and `||` evaluated, and conditions of `switch`. The frontend shows such a line without a result. Reads through iterators (`*it`) and range-`for` loops, and `front()`, `back()`, and `top()` (the drawings already mark those ends) are not recorded as reads.
 
 ### Snapshots, not events
 Each step is the **full state**, not a description of what happened.
@@ -462,7 +463,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.10",
+  "version": "0.11",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -523,7 +524,7 @@ Adapters must:
 16. End every call that returns with a return step, with `return_value` on the top frame only ([Return steps](#return-steps)).
 17. Write an iterator as its container's local name and a position ([Positions in a container](#positions-in-a-container-iterators)), only directly in `locals`. Leave it out when its container is not a local of the same frame.
 18. Write `indexes` from what the source subscripts, never from names or values ([Indexes](#indexes)). Leave it out when no function indexes a container.
-19. Write a `read` outcome for each cell or entry of a local container the line read for its value ([Outcomes](#outcomes)), with the position (`at`) or key (`key`) it was read at, at most 16 per step. Never re-evaluate the user's code to find out where: if the position cannot be known without that, leave the read out.
+19. Write a `read` outcome for each cell or entry of a local container, or character of a local string, the line read for its value ([Outcomes](#outcomes)), with the position (`at`) or key (`key`) it was read at, at most 16 per step. Never re-evaluate the user's code to find out where: if the position cannot be known without that, leave the read out.
 
 ### What is a bug and what is not
 Two adapters running the same algorithm may legitimately produce different traces
@@ -563,6 +564,9 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.11**:
+  - A `read` may be of a string's character: `at` names its position, as the last level (`s[left]`, `words[i][j]`). v0.10 left strings out.
+  - Every valid v0.10 trace is still valid once its `version` is changed.
 - **v0.10**:
   - Adds the outcome kind `read`: a cell or entry of a local container that a line read, with its position (`at`) or key (`key`) and its value.
   - Every valid v0.9 trace is still valid once its `version` is changed.
@@ -680,4 +684,6 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q25. Why record reads, when a diff already shows what changed?** A DP line `dp[i][j] = dp[i - 1][j - 1] + 1` changes one cell, and the diff shows it; the cells it was computed from are why it holds that value, and nothing on the canvas said which they were. A lookup is the same: in Two Sum, `numMap.find(complement)` finding an entry is the moment the answer appears. The frontend could not work this out: it would have to read `dp[i - 1][j - 1]` in the source and evaluate it. The adapter sees the element as it is read, so it records where.
 
 > **Q26. Why find a read's position from the element, instead of evaluating its indexes again?** Evaluating `nums[f()]` a second time could run `f` twice and change what the program does; a trace must never change behaviour. The C++ adapter instead looks up where the element it was handed sits in its container (its address among the container's elements, or among a map's values). Only an element with no address of its own, a bit of `vector<bool>`, needs its indexes, and those are passed only when evaluating them again can change nothing (`used[i]`). Otherwise the read is left out.
+
+> **Q27. Why record reads of a string when a string is a value, not a container?** Because the reader asks the same question of `s[left]` as of `nums[i]`: which one is the line looking at? Valid Palindrome is two pointers walking in from both ends of a string, and without reads its card could show where `left` and `right` are but not that the line compares those two characters. The string stays a bare JSON string, so no trace grows a new kind and every v0.10 trace is still valid; only `read` learns that a string has positions.
 
