@@ -6,7 +6,7 @@ Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and 
 
 ## What this is
 
-The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). It has a dark theme and a light one (`theme.ts`, `docs/frontend.md` §11). While a run is going, the canvas shows `RunningCanvas`. When the program printed something, the state panel has an Output tab. A 2D array can be drawn as a graph or as intervals, from the parameter's hint or the card's View menu (`docs/frontend.md` §5.1). There is no home page yet.
+The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). It has a dark theme and a light one (`theme.ts`, `docs/frontend.md` §11). While a run is going, the canvas shows `RunningCanvas`. When the program printed something, the state panel has an Output tab. There is no home page or "view as" override yet.
 
 The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000.
 
@@ -49,10 +49,7 @@ src/
 │   ├── playback.ts      pure reducer: index, cameFrom, playing; restart
 │   └── usePlayer.ts     reducer + Run timer (1x = 700 ms)
 ├── render/
-│   ├── registry.ts      hint (when it fits the value) -> kind -> fallback
-│   ├── views.ts         "view as": which drawings fit a 2D array, the auto view, the menu's options
-│   ├── GraphRowsRenderer.tsx  a 2D array as a graph: adjacency list, edge list (with a direction), adjacency matrix
-│   ├── IntervalsRenderer.tsx  a 2D array of [start, end] as bars on one number line shared by the step's intervals cards
+│   ├── registry.ts      hint -> kind -> fallback
 │   ├── Card.tsx         the header every card shares: name, kind · size, operation chip
 │   ├── ops.ts           operation(value, diff, heap): "push 3", "dequeue 1", "erase key 3", from the diff alone
 │   ├── ArrayRenderer.tsx  array by shape: a contiguous strip, a grid (equal rows of plain values), or rows; raggedLocals (once per trace)
@@ -63,7 +60,7 @@ src/
 │   ├── pointers.ts      pointer markers: integer locals the trace's `indexes` pairs with an array, and iterators
 │   ├── reads.ts         readsFrom(ctx.reads): the cells and keys the running line read, for the dashed outline
 │   └── types.ts         Renderer, RendererProps, RenderContext
-├── components/          Toolbar (top bar), PlaybackBar, CodePanel, PasteHint (the info button beside the Code title), ViewMenu (a card's "View as" button and menu), InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
+├── components/          Toolbar (top bar), PlaybackBar, CodePanel, PasteHint (the info button beside the Code title), InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -88,8 +85,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 14. **Refs and objects are drawn by `LinkedCard` (`render/HeapView.tsx`), not per local.** A `ref` local is a pointer label on its node; a `ref` inside a container shows its node's value (`itemText`). Shapes come from field names (`left`/`right`, `next`, anything else is a graph), never from the language.
 15. **Reads come from `read` outcomes only.** `VisualPanel` passes each card its local's reads (`ctx.reads`, from `readsOf(frame)`); a renderer outlines exactly those cells, rows, entries, or members with `is-read`, for that step, with or without a diff. Never infer a read from the code or from the values.
 16. **Members are drawn once, not per frame.** A step's `members` (the Solution's memo, visited) are cards after the running call's own, with the `member` tag (`MemberCard` context in `render/Card.tsx`), diffed through `diff.members`, and listed under "Members of Solution" in the state panel. A local of the running call hides a member of the same name.
-17. **"View as" is UI state, not a step.** `VisualPanel` keeps the reader's pick per local name for the current trace and passes the chosen hint down as `ctx.hint` (and an edge list's `ctx.direction`); a renderer never reads the pick itself. A hint or pick is used only when `fits` says the value has that shape at this step. Locals start on the drawing by kind: never guess a hint in the frontend.
-18. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
+17. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
 
 ## Theme tokens
 

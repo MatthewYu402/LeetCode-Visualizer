@@ -241,6 +241,50 @@ namespace rewriter {
     return var;
   }
 
+  // A member variable of the Solution named in a method's body, `memo` or
+  // `this->memo` (a field), or a static data member: what trace-format.md calls
+  // a member. Null for anything else, and for a member whose name a local or
+  // parameter of `fn` also has, since a trace names a read's target by name
+  // and the local would win (trace-format.md, Members).
+  struct MemberTarget {
+    std::string name;   // as the trace names it: memo
+    std::string access; // how the rewritten code reaches it whatever is in scope: this->memo, Solution::count
+    QualType type;
+  };
+
+  static std::set<std::string> localNames(const FunctionDecl *fn) {
+    std::set<std::string> names;
+    for (const ParmVarDecl *p : fn->parameters()) names.insert(p->getNameAsString());
+    std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
+      if (node == nullptr) return;
+      if (const auto *decls = dyn_cast<DeclStmt>(node))
+        for (const Decl *d : decls->decls())
+          if (const auto *v = dyn_cast<VarDecl>(d)) names.insert(v->getNameAsString());
+      for (const Stmt *child : node->children()) walk(child);
+    };
+    walk(fn->getBody());
+    return names;
+  }
+
+  static std::optional<MemberTarget> memberTarget(const Expr *expr, const std::set<std::string> &locals) {
+    expr = expr->IgnoreParenImpCasts();
+    if (const auto *member = dyn_cast<MemberExpr>(expr)) {
+      const auto *field = dyn_cast<FieldDecl>(member->getMemberDecl());
+      if (field == nullptr || !isa<CXXThisExpr>(member->getBase()->IgnoreParenImpCasts())) return std::nullopt;
+      const auto *owner = dyn_cast<CXXRecordDecl>(field->getParent());
+      if (owner == nullptr || owner->getName() != "Solution" || field->getName().empty() || locals.count(field->getNameAsString())) return std::nullopt;
+      return MemberTarget{field->getNameAsString(), "this->" + field->getNameAsString(), field->getType()};
+    }
+    if (const auto *ref = dyn_cast<DeclRefExpr>(expr)) {
+      const auto *var = dyn_cast<VarDecl>(ref->getDecl());
+      if (var == nullptr || !var->isStaticDataMember()) return std::nullopt;
+      const auto *owner = dyn_cast<CXXRecordDecl>(var->getDeclContext());
+      if (owner == nullptr || owner->getName() != "Solution" || locals.count(var->getNameAsString())) return std::nullopt;
+      return MemberTarget{var->getNameAsString(), "Solution::" + var->getNameAsString(), var->getType()};
+    }
+    return std::nullopt;
+  }
+
   // A container local to the function, named directly: the `nums` of nums[i].
   // grid[r] is not one, so in grid[r][c] only r indexes grid.
   static const VarDecl *containerLocal(const Expr *expr) {
@@ -251,10 +295,14 @@ namespace rewriter {
   }
 
   // Every subscript of a local container in the body, `v[expr]` or `v.at(expr)`,
-  // pairs each integer local named anywhere in `expr` with `v`: nums[i], nums[i + 1],
-  // nums[n - 1 - i]. Lambdas are skipped, like everything else the rewriter
-  // does not instrument. Locals and their containers keep the order of first use.
+  // pairs an integer local with `v` when `expr` is that local, or that local plus or
+  // minus a constant: nums[i], nums[i + 1], nums[i - 1], nums[1 + i]. Anything else
+  // pairs nothing, because the position is not where the local points: dp[i - coin]
+  // (coin is a value), count[s[i] - 'a'] (i walks s), nums[n - 1 - i]. Lambdas are
+  // skipped, like everything else the rewriter does not instrument. Locals and their
+  // containers keep the order of first use.
   std::string Instrumenter::indexesOf(const FunctionDecl *fn) const {
+    const std::set<std::string> locals = localNames(fn);
     std::vector<std::pair<std::string, std::vector<std::string>>> uses;
     auto pair = [&](const std::string &index, const std::string &container) {
       auto found = std::find_if(uses.begin(), uses.end(), [&](const auto &use) { return use.first == index; });
@@ -265,15 +313,21 @@ namespace rewriter {
       }
     };
 
-    // Every integer local named in an index expression.
-    std::function<void(const Stmt *, const std::string &)> indexesIn = [&](const Stmt *node, const std::string &container) {
-      if (node == nullptr || isa<LambdaExpr>(node)) return;
-      if (const auto *expr = dyn_cast<Expr>(node))
-        if (const VarDecl *var = integerLocal(expr); var && isa<DeclRefExpr>(expr->IgnoreParenImpCasts())) {
-          pair(var->getNameAsString(), container);
-          return;
-        }
-      for (const Stmt *child : node->children()) indexesIn(child, container);
+    // The integer local an index expression points with: `i`, or `i + K`, `K + i`, `i - K`
+    // for an integer constant K (a literal, a constexpr, `i + 1 - 1` again), else none.
+    std::function<const VarDecl *(const Expr *)> pointerOf = [&](const Expr *expr) -> const VarDecl * {
+      if (expr == nullptr) return nullptr;
+      expr = expr->IgnoreParenImpCasts();
+      if (isa<DeclRefExpr>(expr)) return integerLocal(expr);
+      const auto *op = dyn_cast<BinaryOperator>(expr);
+      if (op == nullptr || (op->getOpcode() != BO_Add && op->getOpcode() != BO_Sub)) return nullptr;
+      const auto constant = [&](const Expr *e) { return !e->isValueDependent() && e->isIntegerConstantExpr(context_); };
+      if (constant(op->getRHS())) return pointerOf(op->getLHS());
+      if (op->getOpcode() == BO_Add && constant(op->getLHS())) return pointerOf(op->getRHS());
+      return nullptr;
+    };
+    auto indexesIn = [&](const Expr *index, const std::string &container) {
+      if (const VarDecl *var = pointerOf(index)) pair(var->getNameAsString(), container);
     };
 
     std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
@@ -293,6 +347,7 @@ namespace rewriter {
       }
       if (base != nullptr) {
         if (const VarDecl *container = containerLocal(base)) indexesIn(index, container->getNameAsString());
+        else if (const auto member = memberTarget(base, locals); member && indexable(member->type)) indexesIn(index, member->name);
       }
       for (const Stmt *child : node->children()) walk(child);
     };
@@ -369,6 +424,18 @@ namespace rewriter {
   }
 
   void Instrumenter::wrapReads(const FunctionDecl *fn) {
+    const std::set<std::string> locals = localNames(fn);
+    // The container a read is of: a local named directly (nums), or a member of the
+    // Solution (memo), with how the inserted call reaches it.
+    struct Container {
+      std::string name, access;
+      Holds kind = Holds::Nothing;
+    };
+    auto containerOf = [&](const Expr *expr) -> std::optional<Container> {
+      if (const VarDecl *var = localVar(expr)) return Container{var->getNameAsString(), var->getNameAsString(), holds(var->getType())};
+      if (const auto member = memberTarget(expr, locals)) return Container{member->name, member->access, holds(member->type)};
+      return std::nullopt;
+    };
     const QualType returns = fn->getReturnType();
     const bool returns_ref = returns->isLValueReferenceType() && !returns.getNonReferenceType().isConstQualified();
 
@@ -470,16 +537,16 @@ namespace rewriter {
             indexes.insert(indexes.begin(), bi);
             b = bb;
           }
-          const VarDecl *var = localVar(b);
-          const Holds kind = var ? holds(var->getType()) : Holds::Nothing;
+          const auto target = containerOf(b);
+          const Holds kind = target ? target->kind : Holds::Nothing;
           const std::string code = sourceText(expr->getSourceRange());
           const bool chained_map = kind == Holds::Map && indexes.size() > 1;
-          if (var && !code.empty() && !chained_map && (kind == Holds::Indexed || kind == Holds::Map) && readForValue(expr, up)) {
-            const std::string name = var->getNameAsString();
+          if (target && !code.empty() && !chained_map && (kind == Holds::Indexed || kind == Holds::Map) && readForValue(expr, up)) {
+            const std::string name = target->name, access = target->access;
             if (kind == Holds::Map) {
-              wrap(expr, "::trace::rk(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", ")");
+              wrap(expr, "::trace::rk(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", ", ")");
             } else if (!expr->isPRValue()) {
-              wrap(expr, "::trace::rd(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", ")");
+              wrap(expr, "::trace::rd(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", ", ")");
             } else {
               // An element with no address (vector<bool>): its indexes, when evaluating them again changes nothing.
               std::string extra;
@@ -489,23 +556,23 @@ namespace rewriter {
                 if (text.empty() || i->HasSideEffects(context_, /*IncludePossibleEffects=*/true)) pure = false;
                 extra += ", (" + text + ")";
               }
-              if (pure) wrap(expr, "::trace::rd(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", extra + ")");
+              if (pure) wrap(expr, "::trace::rd(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", ", extra + ")");
             }
           }
         } else if (const auto *call = dyn_cast<CXXMemberCallExpr>(expr); call && call->getNumArgs() == 1 && call->getMethodDecl()) {
           // A lookup in a map or set: count, contains, or find.
           const std::string method = call->getMethodDecl()->getNameAsString();
-          const VarDecl *var = localVar(call->getImplicitObjectArgument());
-          const Holds kind = var ? holds(var->getType()) : Holds::Nothing;
+          const auto target = containerOf(call->getImplicitObjectArgument());
+          const Holds kind = target ? target->kind : Holds::Nothing;
           const std::string code = sourceText(expr->getSourceRange());
-          if (var && !code.empty() && (kind == Holds::Map || kind == Holds::Set)) {
-            const std::string name = var->getNameAsString();
+          if (target && !code.empty() && (kind == Holds::Map || kind == Holds::Set)) {
+            const std::string name = target->name, access = target->access;
             const Expr *key = call->getArg(0);
             const std::string key_text = sourceText(key->getSourceRange());
             if (method == "find") {
-              wrap(expr, "::trace::rf(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", ")");
+              wrap(expr, "::trace::rf(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", ", ")");
             } else if ((method == "count" || method == "contains") && !key_text.empty() && !key->HasSideEffects(context_, /*IncludePossibleEffects=*/true)) {
-              wrap(expr, "::trace::rc(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", (" + key_text + "), ", ")");
+              wrap(expr, "::trace::rc(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", (" + key_text + "), ", ")");
             }
           }
         }
@@ -515,6 +582,31 @@ namespace rewriter {
       up.pop_back();
     };
     walk(fn->getBody());
+  }
+
+  // trace-format.md, Members: in a non-static method of the Solution, a call that
+  // hands the runtime the Solution's member variables, " ::trace::members(this,
+  // ::trace::var("memo", this->memo), ...);", or "" when it has none. Every member
+  // that is not const (a constant is not state) and not a bit-field (no reference
+  // binds to one), the fields in declaration order, then the static ones. Each is
+  // reached through this-> or Solution::, so a parameter with the same name does
+  // not hide it here.
+  std::string Instrumenter::membersOf(const FunctionDecl *fn) const {
+    const auto *method = dyn_cast<CXXMethodDecl>(fn);
+    if (method == nullptr || method->isStatic()) return "";
+    const CXXRecordDecl *owner = method->getParent();
+    std::string vars;
+    for (const FieldDecl *field : owner->fields()) {
+      if (field->getName().empty() || field->isBitField() || field->getType().isConstQualified()) continue;
+      const std::string name = field->getNameAsString();
+      vars += ", ::trace::var(\"" + name + "\", this->" + name + ")";
+    }
+    for (const Decl *d : owner->decls())
+      if (const auto *var = dyn_cast<VarDecl>(d); var && var->isStaticDataMember() && !var->getType().isConstQualified() && !var->isConstexpr()) {
+        const std::string name = var->getNameAsString();
+        vars += ", ::trace::var(\"" + name + "\", Solution::" + name + ")";
+      }
+    return vars.empty() ? "" : " ::trace::members(this" + vars + ");";
   }
 
   bool Instrumenter::traverseFunction(FunctionDecl *fn, const std::function<bool()> &walk_normally) {
@@ -548,7 +640,7 @@ namespace rewriter {
     auto *body = cast<CompoundStmt>(fn->getBody());
     const std::string indexes = indexesOf(fn);
     insert(body->getLBracLoc().getLocWithOffset(1), " ::trace::Frame trace_frame_(\"" + fn->getNameAsString() + "\"" +
-                                                       (indexes.empty() ? "" : ", " + literal(indexes)) + ");");
+                                                       (indexes.empty() ? "" : ", " + literal(indexes)) + ");" + membersOf(fn));
 
     const bool keep_going = traverseBlock(body, /*guard_line=*/0, [&] {
       // A void function that runs off its end returns here: give that its return step.

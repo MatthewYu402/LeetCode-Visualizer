@@ -80,6 +80,8 @@ namespace rewriter {
     // this function's body, as the JSON object the runtime writes ({"i": ["nums"]}),
     // or "" when none do.
     std::string indexesOf(const clang::FunctionDecl *fn) const;
+    // trace-format.md, Members: the ::trace::members(...) call for a Solution method, or "".
+    std::string membersOf(const clang::FunctionDecl *fn) const;
     // trace-format.md, Outcomes (read): wraps each read of a local container in the
     // body in ::trace::rd, rk, rc, or rf. Runs after the rest of the function is
     // instrumented, so its text nests inside any wrapper already at the same place.

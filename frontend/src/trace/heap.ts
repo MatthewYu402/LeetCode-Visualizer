@@ -108,13 +108,18 @@ export function pointersOf(step: Step, pointerNames: ReadonlySet<string> = new S
       else if (v === null && depth === 0 && pointerNames.has(name)) out.push({ name, id: null, running: true, fn: f.function });
     }
   });
+  // A member pointer (the Solution's `head`) is seen by every call, so it is drawn like the running call's.
+  for (const [name, v] of Object.entries(step.members ?? {})) if (isRef(v)) out.push({ name, id: v.id, running: true, fn: "" });
   return out;
 }
 
 /** Every local name that holds a ref in some frame of some step: the trace's pointer variables. */
 export function pointerNamesOf(steps: Step[]): Set<string> {
   const names = new Set<string>();
-  for (const s of steps) for (const f of s.frames) for (const [n, v] of Object.entries(f.locals)) if (isRef(v)) names.add(n);
+  for (const s of steps) {
+    for (const f of s.frames) for (const [n, v] of Object.entries(f.locals)) if (isRef(v)) names.add(n);
+    for (const [n, v] of Object.entries(s.members ?? {})) if (isRef(v)) names.add(n);
+  }
   return names;
 }
 

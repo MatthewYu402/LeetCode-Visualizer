@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.11
+> **Status:** Draft v0.12
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.11",
+  "version": "0.12",
   "language": "cpp",
   "problem": { ... },
   "indexes": { ... },
@@ -141,7 +141,7 @@ An `array` card can show where a loop is: a marker for `i` under `nums[i]`. Whic
 
 It maps a function's name (the `function` of its frames) to that function's locals, and each local to the containers it indexes, in the order of first use.
 
-- **What counts as indexing:** a local container named directly, subscripted with an expression that names the local: `nums[i]`, `nums[i + 1]`, `nums[n - 1 - i]`, `nums.at(mid)`. The local is an integer (not a boolean or a character). The container is one a position counts into: an `array`, a `deque`, or a string.
+- **What counts as indexing:** a local container named directly, subscripted with the local itself or the local plus or minus a constant: `nums[i]`, `nums[i + 1]`, `nums[i - 1]`, `nums[1 + i]`, `nums.at(mid)`. Any other index pairs nothing, because the position is not where the local points: `dp[i - coin]` (`coin` is a value), `count[s[i] - 'a']` (`i` walks `s`, not `count`), `nums[n - 1 - i]` (a mirrored position). Since v0.12; before, every integer local named anywhere in the index was paired. The local is an integer (not a boolean or a character). The container is one a position counts into: an `array`, a `deque`, or a string.
 - **Only the container named directly.** In `grid[r][c]`, `r` indexes `grid`, but `c` indexes `grid[r]`, which is not a local, so `c` is not recorded.
 - **A local only used as a bound is not an index.** `start` in `for (int i = start; ...)` is never inside brackets, so it has no entry.
 - **Per function, for the whole run.** The pairing comes from the source, so it does not change between steps, and it is written once instead of on every frame. Two variables of one function with the same name (a shadowed `i`) share one entry, which lists every container either indexes.
@@ -346,7 +346,8 @@ A step is one snapshot of program state: the call stack, and the objects every f
 |---|---|
 | `step` | Zero-based index |
 | `frames` | The call stack: one frame per function call in progress, **bottom to top**, so the last frame is the one running. Never empty |
-| `heap` | Objects referenced by `ref`s anywhere in this step: in any frame's `locals` or `return_value` (may be empty) |
+| `members` | Optional. The [member variables](#members) of the object whose methods are traced (the `Solution`), name to value: written once per step, shared by every frame |
+| `heap` | Objects referenced by `ref`s anywhere in this step: in any frame's `locals` or `return_value`, or in `members` (may be empty) |
 
 ### Frames
 
@@ -379,6 +380,37 @@ Here `maxDepth` was called on `n1`, and on line 7 it called itself on `n2`. That
 - **Every frame shows its live state.** A caller's `locals` are its variables as they are *now*, not when it made the call. A callee that changes a vector the caller passed by reference changes the caller's frame too, because it is one vector.
 
 > **Key Insight 7: frame ids are to calls what object ids are to objects.** Depth alone cannot tell two calls apart: in `f(a) + f(b)` the first call returns and the second begins at the same depth, between two steps. With ids, the frontend sees one frame pop and a new one push, instead of one frame that changed.
+
+### Members
+A `Solution` can keep state on itself instead of in a call: a memo table, a visited set, a result list that every recursive call appends to.
+
+```cpp
+class Solution {
+    unordered_map<int, int> memo;
+public:
+    int fib(int n) { ... memo[n] ... }
+};
+```
+
+`memo` is no call's local, so a frame cannot hold it, and every call of `fib` sees the same one. A step therefore has one `members` object beside `frames`, with the object's member variables as they are at that step:
+
+```json
+{
+  "step": 12,
+  "frames": [
+    {"id": "f1", "function": "fib", "line": 9, "locals": {"n": 4}},
+    {"id": "f2", "function": "fib", "line": 7, "locals": {"n": 3}}
+  ],
+  "members": {"memo": {"kind": "map", "entries": [[2, 1]]}},
+  "heap": {}
+}
+```
+
+- **Values, like locals.** A member is serialized like a local of the same type, into the step's one `heap`. An iterator is never a member.
+- **State, not constants.** A member that cannot change (`const int MOD = 1e9 + 7;`) is left out; one that can, static or not, is written. A member with no serializer is left out, as a local would be.
+- **Every step, or none.** Once a method of the object has been called, every step has `members`, even one taken in a helper function outside the class. A trace whose object has no members writes no `members` anywhere, never `{}`.
+- **One object.** The object whose method the driver calls. Objects of other classes the solution creates are values like any other (an `object` in the heap, through a `ref`).
+- **A local hides a member of the same name.** A `read` outcome and `indexes` name their container by name, so either may name a member (`memo[n]` reads the member `memo`, `dp[i]` pairs `i` with the member `dp`) when no local of that frame has the name. A read of a member that a local of the same name hides (`this->nums[1]` beside a parameter `nums`) is left out, since its target would name the local.
 
 ### Return steps
 Every step is taken before its line runs, so a value being returned would never be seen: the frame is gone by the next step, and the caller's variable has silently changed. Each call therefore ends with one **return step**:
@@ -463,7 +495,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.11",
+  "version": "0.12",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -524,7 +556,8 @@ Adapters must:
 16. End every call that returns with a return step, with `return_value` on the top frame only ([Return steps](#return-steps)).
 17. Write an iterator as its container's local name and a position ([Positions in a container](#positions-in-a-container-iterators)), only directly in `locals`. Leave it out when its container is not a local of the same frame.
 18. Write `indexes` from what the source subscripts, never from names or values ([Indexes](#indexes)). Leave it out when no function indexes a container.
-19. Write a `read` outcome for each cell or entry of a local container, or character of a local string, the line read for its value ([Outcomes](#outcomes)), with the position (`at`) or key (`key`) it was read at, at most 16 per step. Never re-evaluate the user's code to find out where: if the position cannot be known without that, leave the read out.
+19. Write a `read` outcome for each cell or entry of a local container or member, or character of a local string, the line read for its value ([Outcomes](#outcomes)), with the position (`at`) or key (`key`) it was read at, at most 16 per step. Never re-evaluate the user's code to find out where: if the position cannot be known without that, leave the read out.
+20. Write the traced object's mutable member variables as the step's `members`, at every step once one of its methods has been called, or nowhere when it has none ([Members](#members)).
 
 ### What is a bug and what is not
 Two adapters running the same algorithm may legitimately produce different traces
@@ -564,6 +597,10 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.12**:
+  - Adds the optional `members` on a step: the traced object's member variables, written once per step beside the frames. A `read`'s target and the containers in `indexes` may name a member.
+  - `indexes` pairs a local with a container only when the index is the local or the local plus or minus a constant (`nums[i + 1]`); before, any integer local named in the index was paired (`dp[i - coin]` paired `coin`).
+  - Every valid v0.11 trace is still valid once its `version` is changed (its `indexes` may list pairs a v0.12 adapter would not write).
 - **v0.11**:
   - A `read` may be of a string's character: `at` names its position, as the last level (`s[left]`, `words[i][j]`). v0.10 left strings out.
   - Every valid v0.10 trace is still valid once its `version` is changed.
@@ -686,4 +723,8 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q26. Why find a read's position from the element, instead of evaluating its indexes again?** Evaluating `nums[f()]` a second time could run `f` twice and change what the program does; a trace must never change behaviour. The C++ adapter instead looks up where the element it was handed sits in its container (its address among the container's elements, or among a map's values). Only an element with no address of its own, a bit of `vector<bool>`, needs its indexes, and those are passed only when evaluating them again can change nothing (`used[i]`). Otherwise the read is left out.
 
 > **Q27. Why record reads of a string when a string is a value, not a container?** Because the reader asks the same question of `s[left]` as of `nums[i]`: which one is the line looking at? Valid Palindrome is two pointers walking in from both ends of a string, and without reads its card could show where `left` and `right` are but not that the line compares those two characters. The string stays a bare JSON string, so no trace grows a new kind and every v0.10 trace is still valid; only `read` learns that a string has positions.
+
+> **Q28. Why one `members` object per step, instead of copying the members into every frame's `locals`?** Every call shares the one object, so a copy per frame would write the same memo table once per call on the stack, and a reader would have to know that ten `memo`s are one. A name like `this.memo` or `self.memo` would also put a language's syntax in the trace. One object beside the frames says what is true: the state belongs to the object, and every frame sees it.
+
+> **Q29. Why pair a local with a container only when the index is the local plus or minus a constant?** A marker says "this local points here", and that is true only when the position is where the local's value says. `nums[i + 1]` is one past `i`, so `i` still points into `nums`. In `dp[i - coin]` the position is neither `i` nor `coin`, and drawing `coin` at `dp[coin]` (the first rule) put a marker on a cell the code never used. The narrower rule misses some real pointers (`nums[n - 1 - i]` mirrors `i`), but a missing marker misleads less than a wrong one.
 

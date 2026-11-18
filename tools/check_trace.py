@@ -25,7 +25,8 @@ Every file is always:
       reads: a read outcome names a local of its frame, of a kind that is read
         that way: `at` on an array or deque at every level, or a string at the
         last level (`s[i]`, `words[i][j]`), `key` on a map, multimap, set, or
-        multiset. Positions and keys are not checked against the
+        multiset. The target is a local of the frame or, when no local has its
+        name, one of the step's members. Positions and keys are not checked against the
         step's locals, which are from before the line ran: a line can read a cell
         it made (`m[k]` inserts a missing key)
       indexes: every function named in "indexes" ran (a frame has that
@@ -166,7 +167,7 @@ def check_refs(doc):
                 raise CheckError(f'{where}: ref "{ref}" names no object in {"its heap" if heap else "any heap (there is none)"}')
 
     for i, step in enumerate(doc["steps"]):
-        missing(step["frames"], step["heap"], f"$.steps[{i}]")
+        missing([step["frames"], step.get("members", {})], step["heap"], f"$.steps[{i}]")
     if "result" in doc:
         missing(doc["result"], doc.get("result_heap", {}), "$.result")
 
@@ -264,10 +265,12 @@ def check_reads(doc):
                 if outcome["kind"] != "read":
                     continue
                 where = f"$.steps[{s}].frames[{f}].outcomes[{o}]"
-                target = frame["locals"].get(outcome["target"])
+                # a local of the frame, else a member (since v0.12): a local hides a member of the same name
+                name = outcome["target"]
+                target = frame["locals"][name] if name in frame["locals"] else step.get("members", {}).get(name)
                 is_string = isinstance(target, str)
                 if not is_string and (not isinstance(target, dict) or "kind" not in target):
-                    raise CheckError(f"{where}: {json.dumps(outcome['target'])} is not a container or string local of its frame")
+                    raise CheckError(f"{where}: {json.dumps(name)} is not a container or string local of its frame, or a member")
                 if "at" in outcome:
                     value = target
                     last = len(outcome["at"]) - 1

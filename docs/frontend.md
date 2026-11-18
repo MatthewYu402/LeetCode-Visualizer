@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.14 (reads trace format v0.12)
+> **Status:** Draft v0.13 (reads trace format v0.12)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -20,8 +20,8 @@ POST /api/run ──► loader ──► step player ──► code panel
 | One sandbox page at `/` | The home page |
 | Replaying the trace of each run | |
 | An inputs panel: one field per parameter, Run code through the API | Design problems (LRU Cache, Min Stack) |
-| Monaco code panel with the current line highlighted | |
-| Renderers for every container kind, and a fallback for unknown kinds; a 2D array as a graph (adjacency list, edge list, adjacency matrix) or as intervals, from a hint or the card's View menu ([Section 5.1](#51-view-as)) | |
+| Monaco code panel with the current line highlighted | Hint renderers (grid, adjacency list, intervals, ...) |
+| Renderers for every container kind, and a fallback for unknown kinds | The "view as" override UI |
 | Linked lists, trees, and graphs drawn from `heap`, with pointer labels | Objects that are not nodes (no `val`/`next`/`left`/`neighbors` shape) drawn as more than a node |
 | The calls: a recursion card (tree or stack) when calls return values, a call-stack card when they return nothing | |
 | Diff highlighting between adjacent steps, and motion (fade, glide, draw-in) | |
@@ -158,32 +158,14 @@ It is a **pure function of its props**. It holds no state, never reads earlier s
 The registry is two maps and a fallback:
 
 ```ts
-byHint: Partial<Record<Hint, Renderer>>   // adjacency-list, edge-list, adjacency-matrix, intervals
+byHint: Partial<Record<Hint, Renderer>>   // empty in this version
 byKind: Partial<Record<Kind, Renderer>>   // every container kind
 fallback: Renderer                        // object, and any kind from a future version
 ```
 
-**Selection order:** the reader's pick in the card's View menu, then the param's hint (from `problem.params`, if the local is a parameter and has one), then the value's `kind`, then the fallback. The first match wins, and a pick or a hint counts only when it fits the value at this step (`fits` in `render/views.ts`), so a hint that does not fit draws by kind instead of breaking. An unknown or future kind lands on the fallback instead of crashing (spec §9: "draw an unknown kind with a generic fallback").
+**Selection order:** the param's hint (from `problem.params`, if the local is a parameter and has one), then the value's `kind`, then the fallback. The first match wins. An unknown or future kind lands on the fallback instead of crashing (spec §9: "draw an unknown kind with a generic fallback").
 
-The README's full order is "view as override, hint, kind, object shape, fallback". Object shape is how linked structures are drawn, by `LinkedCard`, outside the registry.
-
-### 5.1 View as
-A 2D array of numbers can mean several structures, and only the problem knows which (spec §4). Each one gets a drawing, and a card whose value more than one of them fits has a **View** button at the end of its header:
-
-| View | Fits when | Drawing |
-|---|---|---|
-| By kind (`Grid` or `Rows`) | Always | The array as it is ([Arrays](#arrays)) |
-| Graph (adjacency list) | Every value is the index of a row | Node `i` for each row, an edge `i → v` for each `v` in row `i`; one listed both ways is a plain line |
-| Graph (edge list) | Every row is `[u, v]`, or `[u, v, w]`, of node numbers | A node for each number used, an edge per row, the weight beside it |
-| Graph (adjacency matrix) | A square of 0s and 1s | An edge `i → j` for each 1 off the diagonal; a symmetric matrix has plain lines |
-| Intervals | Every row is `[start, end]` with `start ≤ end` | One bar per row on a number line, the index on the left |
-
-- **Where a card starts ("auto").** A parameter with a hint the adapter wrote (`edges` → edge list, `intervals` → intervals, `isConnected` → adjacency matrix, `graph` → adjacency list) starts on that view, and the header says "auto, from the name". Everything else, locals included, starts on the drawing by kind. Locals have no hints in the trace (`docs/hint-inference.md` §4.1), and the frontend does not guess one: the menu is how a reader turns a local `adj` into a graph.
-- **The menu** lists every view, the ones that do not fit dimmed with the reason ("Needs a square of 0s and 1s"), so a reader learns why. It is fixed to the window under the button, since a card scrolls sideways and would clip it, and closes on Escape, Tab, a click outside, or a scroll. Arrow keys move between the views that fit.
-- **An edge list's direction** is the problem's: Course Schedule's `[a, b]` means `b` before `a`, Number of Connected Components' pairs have none. The graph starts with no direction, and the menu adds a choice of `a → b`, `b → a`, or none.
-- **A pick lasts for the run.** It is kept by the local's name in `VisualPanel` for the current trace and dropped when a new trace loads. It is UI state, not part of a step, so renderers stay pure; a pick that does not fit the value at some step draws that step by kind.
-- **Highlights carry over.** A graph from rows rings the node a local points at (`u` in `graph[u]`) and lights the edge a read used (`graph[u][k]`, a pair `edges[i]`, a cell `isConnected[i][j]`); edges added since the previous step are green. Intervals take the diff colours per row, a local that indexes the array is a tag beside its row, and a read row is dashed. Every intervals card of a step shares one number line, so `merged` lines up under `intervals`.
-- **Layout.** A graph from rows is placed from the value alone, in layers by distance from the smallest node of each connected part, so the same rows always give the same picture.
+The README's full order is "view as override, hint, kind, object shape, fallback". This version drops the first and fourth steps because both are out of scope. They slot in without changing the other three.
 
 > **Key insight 1: a step's picture is a pure function of its own snapshot.** The renderer receives one step's value. The diff only decides which boxes get a colour. Remove the diff and the picture is still correct, which is what makes jump, rewind, and the scrubber free.
 
@@ -500,7 +482,8 @@ Planned for later versions, not designed here:
 - The home page, and any routing.
 - Design problems (LRU Cache, Min Stack), whose example is a sequence of calls.
 - Several examples at once (one run and one trace each).
-- Hints for locals, and a "view as" for structures other than 2D arrays of numbers (a `vector<vector<pair<int, int>>>` weighted graph).
+- Hint renderers (grid, adjacency list, intervals, ...). The registry slot exists and is empty.
+- The "view as" override.
 - Laying out graphs larger than about 30 nodes well. Layers by distance are readable, not pretty.
 
 ## 13. Design questions
@@ -550,7 +533,3 @@ Planned for later versions, not designed here:
 > **Q22. Why draw a string as cells, when a trace writes it as one value?** The algorithms that use strings treat them as arrays: two pointers in Valid Palindrome, a window in Longest Substring, a character at a time in Generate Parentheses. Shown as one line of text, nothing points at anything and the reader cannot see which characters a line compares. The trace already pairs `left` and `right` with `s` (v0.9 `indexes`) and records the characters read (v0.11), so the string card only draws what the trace says. The cost is one rule for telling a string from a `char`, which the trace cannot say directly; the rule only adds cards, so at worst a short string stays in the locals table.
 
 > **Q23. Why a tag on a member's card instead of a separate "Solution" section?** A memo table is a map, and the reader already knows how a map card reads; a section around it would add a frame and a heading for one or two cards, and push the running call's own cards apart from the calls card they belong with. The tag says the one thing that differs, that every call shares this one, and the state panel, which has room for words, groups the members under a heading.
-
-> **Q24. Why does a dimmed view stay in the menu instead of being hidden?** A menu that shows three options for one array and two for the next looks broken, and the reader cannot tell whether "Graph (adjacency matrix)" exists. Keeping it, dimmed, with "Needs a square of 0s and 1s", says both that it exists and why this value is not one, which is also a small lesson about the shapes.
-
-> **Q25. Why do locals start on the drawing by kind instead of following a hinted parameter?** Course Schedule's `adj` looks like an adjacency list because of how the code fills it, which the frontend cannot see; a rule like "a local whose rows look like a hinted parameter's gets its view" would be a guess made where guesses are not allowed (CLAUDE.md invariant 11). The kind drawing is always true, and one click turns it into a graph. Hints for locals, inferred by the adapter, are the clean way if this proves too many clicks.

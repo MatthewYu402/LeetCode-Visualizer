@@ -68,7 +68,7 @@ describe("PointerRow", () => {
 
 function trace(steps: Record<string, Value>[], extra: Partial<Trace> = {}): Trace {
   return {
-    version: "0.11",
+    version: "0.12",
     language: "cpp",
     problem: { method: "f", params: [{ name: "s", type: "string" }], returns: { type: "bool" }, input: { s: "ab" } },
     steps: steps.map((locals, i): Step => ({ step: i, frames: [{ id: "f1", function: "f", line: 3 + i, locals }], heap: {} })),

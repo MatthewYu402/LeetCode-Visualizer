@@ -115,6 +115,13 @@ function FollowScroll({ focus, read, children }: { focus: number[]; read: number
  */
 export function stringLocals(trace: Trace): Set<string> {
   const out = new Set<string>();
+  // Members are keyed "#members/name": a member string is a string by the same rules, minus the parameter one.
+  for (const step of trace.steps) {
+    const indexed = new Set(step.frames.flatMap((f) => Object.values(trace.indexes?.[f.function] ?? {}).flat()));
+    const read = new Set(step.frames.flatMap((f) => [...readsOf(f).keys()]));
+    for (const [name, v] of Object.entries(step.members ?? {}))
+      if (typeof v === "string" && ([...v].length !== 1 || indexed.has(name) || read.has(name))) out.add(`#members/${name}`);
+  }
   const stringParams = new Set(trace.problem.params.filter((p) => p.type === "string").map((p) => p.name));
   for (const step of trace.steps) {
     for (const frame of step.frames) {

@@ -202,7 +202,7 @@ Planned approach: **Python via `sys.settrace`, C++ via Clang instrumentation**, 
 ## 8. Open questions
 These are gaps in `trace-format.md` that native tracers expose. They should be resolved in a minor version.
 1. **Aliasing of containers.** Only `object`s have ids. If two variables refer to the *same* container, the trace shows two separate copies. That is acceptable for most problems, but hides in-place mutation through aliases.
-2. **Member variables.** LeetCode solutions often use fields on the `Solution` instance (memo tables, visited sets). The sketch above skips `self`. The tracer should surface these, either as extra locals or in a separate `members` field.
+2. **Member variables.** *Resolved in v0.12.* LeetCode solutions often use fields on the `Solution` instance (memo tables, visited sets). A step now has a separate `members` field, written once beside the frames ([trace-format.md, Members](trace-format.md#members)). A Python tracer would read them from `self` in the method's frame.
 3. **Pointers that do not point at a live object.** A native tracer in a language with manual memory (C++) can be handed a dangling or uninitialized pointer, and the trace has no way to say "this points at nothing valid". Today that is a documented limit of the C++ adapter ([`adapters/cpp.md` §3.7](adapters/cpp.md#37-limits-of-address-identity)).
 
 Resolved in v0.2: tuples, which used to flatten to `list`, now have their own `tuple` kind.

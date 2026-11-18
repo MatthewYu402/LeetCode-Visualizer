@@ -136,6 +136,16 @@ export function StatePanel({ trace, step, index, diff, source, output, running =
                 {removed.map(([n, d]) => (
                   <Row key={`removed-${n}`} name={n} value={d.prev ?? null} cls="diff-removed" node={name} note="out of scope" />
                 ))}
+                {step.members && Object.keys(step.members).length > 0 && (
+                  <tr className="state-section">
+                    <th colSpan={3} scope="rowgroup">
+                      Members of Solution
+                    </th>
+                  </tr>
+                )}
+                {Object.entries(step.members ?? {}).map(([n, v]) => (
+                  <Row key={`member-${n}`} name={n} value={v} cls={rowClass(diff?.members[n]?.status)} node={name} note={n in top.locals ? "hidden by a local" : undefined} />
+                ))}
                 {index === last &&
                   (end !== "returned" ? (
                     <NoResultRow end={end} />

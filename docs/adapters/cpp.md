@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.9
+> **Status:** Draft v0.10
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -342,6 +342,20 @@ if (::trace::rc(4, "memo.count(n)", "memo", memo, (n), memo.count(n))) return ::
 - **Strings.** `std::string` counts as indexed, so `s[left]` and `s.at(i)` are wrapped in `rd` and found by the character's address; so is `words[i][j]` in a `vector<string>`, a string being the last level. A string's `find` and `count` are searches, not lookups, and are not wrapped.
 - **What is not recorded.** Bitsets, iterators and range-`for` (no position is named), `front`/`back`/`top`, and containers that are not locals of the running function.
 
+### 4.9 Members: the Solution's own state
+
+A step's `members` (spec v0.12) holds the `Solution`'s member variables. `::trace::members(this, vars...)` stores them in the `Tracer` the first time any method is called, as references to the live fields, the way a frame keeps its locals (§4.3); later calls change nothing, since every method sees the same object. `push_step` serializes them after every frame, into the step's one heap, so adding members changes no id a frame's values get, and writes `"members"` between `"frames"` and `"heap"`. A member with no serializer is left out, and an object whose members all are writes no `members` field.
+
+```cpp
+::trace::Frame trace_frame_("climbStairs"); ::trace::members(this, ::trace::var("memo", this->memo));
+...
+if (::trace::rc(6, "memo.count(n)", "memo", this->memo, (n), memo.count(n))) return ::trace::ret<int>(6, ::trace::rk(6, "memo[n]", "memo", this->memo, memo[n]), ...);
+```
+
+- **Constants are not members.** A `const` field or a `static constexpr` is not state, so `MOD` never shows.
+- **The object outlives every step.** The driver's `main` creates the `Solution` before calling its method, and nothing is recorded after the call returns, so the stored references never dangle.
+- **Not yet:** members of other classes the solution defines (a `DSU` struct's `parent`): such an object has no serializer, so it is left out like any other value without one.
+
 ## 5. Normalization: C++ types to kinds
 
 | C++ type | Kind |
@@ -438,7 +452,7 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.11"`) |
+| `version` | Always | The `VERSION` constant (`"0.12"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `indexes` | Only when some function registered an entry | `tracer.indexes`: each function's entry, from its `Frame` (§8.1), keyed by function name |
@@ -533,9 +547,11 @@ The scope is a stack of name lists: the parameters, then one list per block, and
 
 **Iterators are paired with a container.** For each variable declared or assigned (`auto it = m.find(x);`, `it = s.lower_bound(v);`), the walk looks for the container in the initializer: the object of a `begin`, `end`, `cbegin`, `cend`, `find`, `lower_bound`, `upper_bound`, `erase`, `insert`, `emplace`, or `emplace_hint` call, or the argument of a free `begin`/`end`. If exactly one visible variable is found, the variable's later `var(...)` becomes `var_iter("it", it, "m", m)`. An assignment with no container (`it = f();`) clears the pairing. The runtime decides whether the type really is that container's iterator (§5.1), so `int i = v.size();`-like lookalikes that pass the syntax check (`auto n = m.find(x)->second;`) are written as ordinary locals.
 
-**Indexes are read before the body is walked.** `indexesOf` looks at every subscript in the function's body, `v[expr]` (a built-in array, or an `operator[]` call) and `v.at(expr)`, where `v` names a local container that a position counts into: `std::vector`, `std::array`, `std::deque`, `std::basic_string`, `std::bitset`, or a built-in array. Every integer local named anywhere in `expr` (not a `bool`, a character, or an enum) is paired with `v`. Only a container named directly counts, so `grid[r][c]` pairs `r` with `grid` and nothing with `c`. Lambdas are skipped, like everything the rewriter does not instrument. The result goes into the function's `Frame` as the JSON text of its entry ([`trace-format.md` §3, Indexes](../trace-format.md#indexes)), so it costs nothing per step.
+**Indexes are read before the body is walked.** `indexesOf` looks at every subscript in the function's body, `v[expr]` (a built-in array, or an `operator[]` call) and `v.at(expr)`, where `v` names a local container, or a member of the `Solution` that no local's name hides, that a position counts into: `std::vector`, `std::array`, `std::deque`, `std::basic_string`, `std::bitset`, or a built-in array. An integer local (not a `bool`, a character, or an enum) is paired with `v` when `expr` is that local, or that local plus or minus an integer constant expression (`i + 1`, `i - 1`, `1 + i`, `mid + K` for a `constexpr K`); any other `expr` pairs nothing (`dp[i - coin]`, `count[s[i] - 'a']`, `nums[n - 1 - i]`, spec v0.12). Only a container named directly counts, so `grid[r][c]` pairs `r` with `grid` and nothing with `c`. Lambdas are skipped, like everything the rewriter does not instrument. The result goes into the function's `Frame` as the JSON text of its entry ([`trace-format.md` §3, Indexes](../trace-format.md#indexes)), so it costs nothing per step.
 
-**Reads are wrapped after the body is walked.** `wrapReads` walks the function again and finds every subscript chain, `at`, `find`, `count`, and `contains` whose object is a local container (§4.8), and decides from the expression's parent whether it is read or written. It runs last so that its openings nest inside the outcome calls already inserted at the same position (`InsertText` with `InsertAfter` for openings, before for closings). Lambdas are skipped. The line is the line where the expression starts.
+**Members are handed over with the frame.** In a non-static method of `Solution`, `membersOf` appends ` ::trace::members(this, ::trace::var("memo", this->memo), ...);` right after the `Frame`, on the same line: every field that is not `const` and not a bit-field, in declaration order, then the static data members that are not `const` or `constexpr` (as `Solution::name`). Reaching them through `this->` means a parameter named like a member does not hide it. The runtime keeps the first call's set for the whole run (§4.9).
+
+**Reads are wrapped after the body is walked.** `wrapReads` walks the function again and finds every subscript chain, `at`, `find`, `count`, and `contains` whose object is a local container, or a member that no local or parameter of the function's name hides (§4.8), and decides from the expression's parent whether it is read or written. It runs last so that its openings nest inside the outcome calls already inserted at the same position (`InsertText` with `InsertAfter` for openings, before for closings). Lambdas are skipped. The line is the line where the expression starts.
 
 **A `switch` body** gets records but no `Scope`: a jump to a `case` label may not skip a variable's initialization, and the guard is a variable. The `record` for `case 1: x = 2;` goes after the label, so it stays in that case.
 
@@ -543,7 +559,6 @@ The scope is a stack of name lists: the parameters, then one list per block, and
 
 - **Lambdas are not instrumented.** A lambda's body runs as its own call, with its own captures and parameters. Listing the enclosing function's variables inside it would name variables it may not capture. Recursive lambdas (`function<void(int)> dfs = [&](...)`) therefore get no frames yet.
 - **Code from macros is not edited**, and neither are other classes' methods or operators.
-- **Member variables of `Solution` are not listed** (roadmap Phase 5).
 - **Uninitialized variables are listed**, so `int x;` shows a garbage value until assigned, and an uninitialized pointer can crash the serializer (§3.7).
 - **`return expr;` in a `void` function** gets its return step before `expr` runs. Rare.
 - **A function returning `auto` that is not yet deduced** (a template) gets no `ret`: its returns are recorded but not shown as return steps.

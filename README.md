@@ -38,8 +38,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | Python adapter | Planned |
 | Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.12: a dark and a light theme, a canvas that shows the sandbox at work during a run, an Output tab for what the program printed, a renderer for every container kind, pointer markers under an array for the locals the code indexes it with (v0.9 `indexes`), linked lists, trees, and graphs drawn from the heap with pointer tags and highlights, a dashed outline on the cells and entries the running line read (`read` outcomes), strings as strips of characters with their pointers, the `Solution`'s members as cards tagged `member`, a recursion card (tree or stack view) that folds large runs, a call-stack card for void recursion, a state panel with the running statement and what it produced (from v0.8 outcomes), and motion throughout |
 | Frontend: input form and real runs | Done, redesigned. The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
-| Frontend: hint renderers and "view as" | Done: a 2D array as a graph (adjacency list, edge list, adjacency matrix) or as intervals, from the parameter's hint or the card's View menu |
-| Frontend: home page | Planned |
+| Frontend: home page, hint renderers (grid, intervals, ...), "view as" | Planned |
 | API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
 
 ---
@@ -482,7 +481,6 @@ Items marked *(planned)* do not exist yet.
 ├── driver/                    LeetCode's harness, rebuilt (Python): python3 -m driver
 │   ├── example.py             example text -> neutral JSON (every language)
 │   ├── shapes.py              LeetCode's notations for lists, trees, graphs (every language)
-│   ├── hints.py               a 2D-array parameter's hint, from its name and the example's shape (every language)
 │   ├── cpp/                   signature, node comments, prelude and main for C++
 │   └── tests/                 unit tests, compile-and-run tests, golden fixtures
 ├── adapters/
@@ -564,8 +562,7 @@ Tentative. The architecture does not depend on these choices.
 - [x] Input page: one field per parameter, Run code, replay (functional; visual design later)
 - [ ] Design problems (LRU Cache, Min Stack): a trace over a sequence of calls
 - [ ] Python adapter, proving the schema is truly language-neutral
-- [x] "View as": graphs from an adjacency list, an edge list, or a matrix, and intervals
-- [ ] More renderers (union-find, trie)
+- [ ] More renderers (union-find, trie), diff animations, "view as" override
 
 ## Getting started
 

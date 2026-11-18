@@ -35,6 +35,8 @@ export interface StepDiff {
   heap: HeapDiff;
   /** Frame ids on the stack now that were not on it before: calls that just began. */
   pushed: Set<string>;
+  /** The step's members (the Solution's member variables), each against its value in the previous step. */
+  members: Record<string, ValueDiff>;
 }
 
 /**
@@ -57,7 +59,10 @@ export function diff(prev: Step, curr: Step): StepDiff {
   }
   const wasOn = new Set(prev.frames.map((f) => f.id));
   const pushed = new Set(curr.frames.map((f) => f.id).filter((id) => !wasOn.has(id)));
-  return { locals, heap: heapDiff(prev, curr), pushed };
+  const members: Record<string, ValueDiff> = {};
+  const was = prev.members ?? {};
+  for (const [name, value] of Object.entries(curr.members ?? {})) members[name] = name in was ? diffValue(was[name], value) : { status: "added" };
+  return { locals, heap: heapDiff(prev, curr), pushed, members };
 }
 
 /** Diff one value against its previous version. Goes one level into containers. */

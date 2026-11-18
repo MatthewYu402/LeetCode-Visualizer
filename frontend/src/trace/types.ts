@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.11).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.12).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -161,6 +161,8 @@ export interface Step {
   step: number;
   /** The call stack, bottom to top: the last frame is the one running. Never empty. */
   frames: Frame[];
+  /** The traced object's member variables (the Solution's memo, visited, ...), shared by every frame. Absent when it has none. */
+  members?: Record<string, Value>;
   heap: Record<string, ObjectValue>;
 }
 

@@ -77,7 +77,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.11"} ;
+  inline constexpr const char* VERSION  {"0.12"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -696,6 +696,7 @@ namespace trace {
   // is rebuilt from this whenever an outcome is added.
   struct StepSource {
     Json frames_open;           // the "frames" array up to the top frame's closing "}"
+    Json members;               // the "members" object, or empty when there are none
     Heap heap;                  // its heap: an outcome's value may add objects to it
     int line = 0;               // the top frame's line
     bool returning = false;     // a return step takes no outcomes
@@ -733,6 +734,12 @@ namespace trace {
     // function's Frame registers it on its first call; the rewriter reads it
     // from the source.
     std::map<std::string, Json> indexes;
+
+    // trace-format.md, Members: the traced object's member variables, written
+    // beside the frames at every step. members() sets them on the first call of
+    // one of the object's methods; members_of is that object.
+    std::function<Json(Ctx&)> members;
+    const void* members_of = nullptr;
 
     // The call stack, bottom to top. Frame pushes and pops it (below).
     std::vector<FrameState> frames;
@@ -1061,6 +1068,8 @@ namespace trace {
       frames += "]";
     }
     frames += "}]";
+    if (!source.members.empty())
+      return std::format(R"({{"step": {}, "frames": {}, "members": {}, "heap": {}}})", index, frames, source.members, write_heap(source.heap));
     return std::format(R"({{"step": {}, "frames": {}, "heap": {}}})", index, frames, write_heap(source.heap));
   }
 
@@ -1071,7 +1080,8 @@ namespace trace {
   // ref in any frame points into this step's heap.
   //
   // Order fixes which object gets which new id: frames bottom to top, each
-  // frame's locals in the order they were passed, then the return value.
+  // frame's locals in the order they were passed, then the return value, then
+  // the members.
   // `return_value`, when given, serializes the top frame's return value.
   inline void push_step(const std::function<Json(Ctx&)>& return_value = nullptr) {
     Heap heap{};
@@ -1094,9 +1104,17 @@ namespace trace {
       }
     }
 
+    // The members, after every frame, so adding them changes no id a frame gets.
+    // An object with no member that serializes writes none ("{}" is left out).
+    Json members;
+    if (tracer.members) {
+      members = tracer.members(ctx);
+      if (members == "{}") members.clear();
+    }
+
     FrameState& top = tracer.frames.back();
     top.last_step = tracer.steps.size();
-    tracer.sources.push_back(StepSource{std::move(frames), std::move(heap), top.line, return_value != nullptr, {}});
+    tracer.sources.push_back(StepSource{std::move(frames), std::move(members), std::move(heap), top.line, return_value != nullptr, {}});
     tracer.steps.push_back(render_step(tracer.steps.size()));
   }
 
@@ -1111,6 +1129,22 @@ namespace trace {
   void set_frame(FrameState& frame, int line, const Vs&... vars) {
     frame.line = line;
     frame.locals = [vars...](Ctx& ctx) { return write_locals(ctx, vars...); };
+  }
+
+  // The traced object's member variables (trace-format.md, Members). The
+  // rewriter writes it right after the Frame of each of the Solution's methods:
+  //
+  //   ::trace::Frame trace_frame_("fib"); ::trace::members(this, ::trace::var("memo", this->memo));
+  //
+  // Only the first call sets them, and only for one object: every method sees
+  // the same members, and the object outlives every step (it is created in main
+  // before the method is called). Like a frame, it keeps references to the live
+  // members and serializes them at every later step.
+  template <RecordedVar... Vs>
+  void members(const void* self, const Vs&... vars) {
+    if (tracer.members_of != nullptr) return;
+    tracer.members_of = self;
+    tracer.members = [vars...](Ctx& ctx) { return write_locals(ctx, vars...); };
   }
 
   // Records one pre-execution snapshot: the running frame is about to execute

@@ -180,7 +180,7 @@ describe("arrays: a contiguous strip, a grid when rows match, rows when they do 
 
   it("a local whose rows differ at some step of the run is drawn as rows at every step", () => {
     const steps = [[a([3])], [a([3]), a([9, 20])]].map((rows, k) => ({ step: k, frames: [{ id: "f1", function: "levelOrder", line: 1, locals: { result: a(rows) } }], heap: {} }));
-    const ragged = raggedLocals({ version: "0.11", language: "cpp", problem: { method: "levelOrder", params: [], input: {} }, steps } as Trace);
+    const ragged = raggedLocals({ version: "0.12", language: "cpp", problem: { method: "levelOrder", params: [], input: {} }, steps } as Trace);
     expect([...ragged]).toEqual(["levelOrder/result"]);
     const R = selectRenderer(a([a([3])]));
     const html = renderToStaticMarkup(<R name="result" value={a([a([3])])} diff={null} ctx={{ locals: {}, ragged: true }} />);

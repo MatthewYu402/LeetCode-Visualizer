@@ -3,16 +3,12 @@ import { createContext, useContext, type ReactNode } from "react";
 /** True inside a card that draws one of the step's members (the Solution's memo), so its header says "member". */
 export const MemberCard = createContext(false);
 
-/** Drawn at the end of a card's header when set: the card's "View as" menu (components/ViewMenu.tsx). */
-export const CardControls = createContext<ReactNode>(null);
-
 /**
  * The header every structure's card shares: the variable's name, a muted kind label with its
  * size, and, when this step changed it in one clear way, a chip naming the operation.
  */
 export function CardHeader({ name, meta, op, end }: { name: string; meta: string; op?: string | null; end?: ReactNode }) {
   const member = useContext(MemberCard);
-  const controls = useContext(CardControls);
   return (
     <header className="card-header">
       <h3 className="card-name">{name}</h3>
@@ -22,7 +18,7 @@ export function CardHeader({ name, meta, op, end }: { name: string; meta: string
         </span>
       )}
       <span className="card-meta">{meta}</span>
-      {(op || end || controls) && (
+      {(op || end) && (
         <span className="card-header-end">
           {op && (
             <span key={op} className="op-chip">
@@ -30,7 +26,6 @@ export function CardHeader({ name, meta, op, end }: { name: string; meta: string
             </span>
           )}
           {end}
-          {controls}
         </span>
       )}
     </header>

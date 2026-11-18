@@ -561,6 +561,66 @@ public:
 
 @needs_rewriter
 @needs_compiler
+class Members(unittest.TestCase):
+    """trace-format.md, Members: the Solution's member variables, once per step."""
+
+    def test_members_reads_and_indexes(self):
+        src = """class Solution {
+    unordered_map<int, int> memo;
+    vector<int> dp;
+    const int MOD = 1000000007;
+    static int made;
+public:
+    int fib(int n) {
+        if (dp.empty()) dp.assign(n + 1, -1);
+        if (n <= 1) return n;
+        if (memo.count(n)) return memo[n];
+        if (dp[n] >= 0) return dp[n];
+        int r = (fib(n - 1) + fib(n - 2)) % MOD;
+        memo[n] = r;
+        made++;
+        return r;
+    }
+};
+int Solution::made = 0;"""
+        trace, _ = run_source(src, "n = 4")
+        last = trace["steps"][-1]["members"]
+        self.assertEqual(sorted(last), ["dp", "made", "memo"])        # MOD is a constant: not state
+        self.assertEqual(sorted(map(tuple, last["memo"]["entries"])), [(2, 1), (3, 2), (4, 3)])
+        self.assertEqual(last["made"], 3)
+        self.assertTrue(all("members" in step for step in trace["steps"]))
+        self.assertTrue(all("members" not in f for step in trace["steps"] for f in step["frames"]))
+        reads = {(o["code"], o["target"]) for step in trace["steps"] for o in step["frames"][-1].get("outcomes", []) if o["kind"] == "read"}
+        self.assertIn(("dp[n]", "dp"), reads)              # a member's cell, named by the member
+        self.assertIn(("memo.count(n)", "memo"), reads)   # fib(2) the second time: found
+        self.assertIn(("memo[n]", "memo"), reads)
+        self.assertEqual(trace["indexes"], {"fib": {"n": ["dp"]}})
+
+    def test_a_parameter_with_a_members_name_hides_it(self):
+        src = """class Solution {
+    vector<int> nums;
+public:
+    int f(vector<int>& nums) {
+        this->nums = nums;
+        return nums[0] + this->nums[1];
+    }
+};"""
+        trace, _ = run_source(src, "nums = [4,5]")
+        self.assertEqual(trace["steps"][-1]["members"], {"nums": {"kind": "array", "items": [4, 5]}})
+        # nums[0] reads the parameter; this->nums[1] is not recorded, since a read names its target by name
+        self.assertEqual([(code, at) for _, code, at in reads_of(trace)], [("nums[0]", [0])])
+
+    def test_no_members_no_field(self):
+        src = """class Solution {
+public:
+    int f(int n) { return n + 1; }
+};"""
+        trace, _ = run_source(src, "n = 1")
+        self.assertTrue(all("members" not in step for step in trace["steps"]))
+
+
+@needs_rewriter
+@needs_compiler
 class Indexes(unittest.TestCase):
     """trace-format.md section 3, Indexes: which integer locals index which containers."""
 
@@ -577,8 +637,26 @@ public:
     }
 };"""
         trace, _ = run_source(src, 'nums = [1,2,3], s = "abc"')
-        self.assertEqual(trace["indexes"], {"f": {"i": ["nums", "copy"], "idx": ["nums"], "mid": ["s", "nums"]}})
-        # start and total are never inside brackets; x and a literal 0 index nothing
+        self.assertEqual(trace["indexes"], {"f": {"i": ["nums", "copy"], "mid": ["s", "nums"]}})
+        # start and total are never inside brackets; x and a literal 0 index nothing; idx in
+        # nums[nums.size() - 1 - idx] is not where it points (see the next test)
+
+    def test_only_the_local_or_the_local_plus_or_minus_a_constant(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& coins, string s) {
+        const int K = 2;
+        vector<int> dp(8, 0), count(26, 0), nums(8, 1);
+        int coin = 1, i = 3, j = 4, k = 2, m = 1, n = 8, t = 0;
+        t += dp[i - coin];                       // coin is a value, i is not where this points
+        count[s[0] - 'a']++;                     // a character, not a local
+        t += nums[j - 1] + nums[1 + k] + nums[m + K] + nums[(i + 1) - 1];
+        t += nums[n - 1 - i];                    // a reversed position: nothing
+        return t;
+    }
+};"""
+        trace, _ = run_source(src, 'coins = [1], s = "ab"')
+        self.assertEqual(trace["indexes"], {"f": {"j": ["nums"], "k": ["nums"], "m": ["nums"], "i": ["nums"]}})
 
     def test_only_the_first_subscript_of_a_named_container(self):
         src = """class Solution {
