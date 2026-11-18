@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from .. import shapes
 from ..errors import DriverError
 from ..example import parse_example
+from ..hints import infer_hint
 from .nodes import node_types
 from .signature import choose_method, read_methods
 from .types import clean, declared_type, neutral, parse_neutral
@@ -73,6 +74,10 @@ def generate(source, example, method_name=None):
             raise DriverError(f"parameter {p['name']!r} cannot have type void.")
 
     by_param = {mapping[name]: value for name, value in values.items() if name in mapping}
+    for p in params:  # trace-format.md §4: a hint only where the type cannot say what the value is
+        hint = infer_hint(p["name"], p["type"], by_param.get(p["name"]))
+        if hint:
+            p["hint"] = hint
     pos = values.get("pos", -1) if "pos" in values and "pos" not in mapping else -1
     problem = {"method": method.name, "params": params, "returns": {"type": returns},
                "input": {p["name"]: by_param[p["name"]] for p in params}}

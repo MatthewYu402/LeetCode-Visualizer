@@ -23,6 +23,7 @@ The driver does not produce the trace. It produces a program that, when run, wri
 |---|---|---|---|---|
 | **Parse the example** (Stage 1) | The example text | `{name: value}` in neutral JSON | `driver/example.py` | **No** |
 | **Decode linked structures** | A value in LeetCode's notation | Node records with links | `driver/shapes.py` | **No** |
+| **Hint 2D arrays** | A parameter's name, neutral type, and example value | `hint` on the parameter, or none | `driver/hints.py` | **No** |
 | **Read the signature** | The `Solution` source | The method to call, its parameters and return type, neutral types | `driver/cpp/signature.py`, `types.py` | Yes |
 | **Read node definitions** | Comments in the source | Node classes and their `Fields` tables | `driver/cpp/nodes.py` | Yes |
 | **Generate** (Stage 2) | All of the above | `problem`, the prelude, and `main` | `driver/cpp/generate.py` | Yes |
@@ -81,6 +82,8 @@ References, `const`, and `std::` are removed first. The table, decided for every
 | `void` (return type only) | `void` |
 
 Arguments inside a type name are separated by `", "`. A type with no neutral name (`optional<int>`, a struct the driver does not know) is an error that names the parameter.
+
+A 2D-array parameter (`array<array<int>>` and the like) can also get a **hint** (spec §4): `driver/hints.py` writes `grid`, `adjacency-list`, `adjacency-matrix`, `edge-list`, or `intervals` when the name is one LeetCode uses for that structure (`grid`, `graph`, `isConnected`, `edges`, `prerequisites`, `intervals`, ...) and the example has its shape (rows of equal length, values that index the rows, a square of 0s and 1s, pairs, `[start, end]` with start ≤ end). A name without the shape, or a shape without a known name, writes no hint: the frontend's drawing by kind is always right, and its View menu switches the rest ([`hint-inference.md`](hint-inference.md)).
 
 ### Which method is called
 
@@ -263,6 +266,7 @@ The driver runs **outside** the sandbox: it only reads text and writes text. The
 |---|---|
 | `test_example.py` | Stage 1: names, nesting, strings with commas and brackets, pasted `Input:`/`Output:` blocks, every error |
 | `test_shapes.py` | Each notation, including empty structures, trailing nulls, cycles, and out-of-range indices |
+| `test_hints.py` | A hint when the name and the example's shape agree, none when either disagrees or the type is not 2D, and the hint written on `problem.params` |
 | `test_signature.py`, `test_nodes.py` | Reading declarations past comments, strings, nested types, and initializers; the method rule; the type table; node classes from comments |
 | `test_describe.py` | `describe()`: methods, neutral types, `pos`, the preselected method, unreadable methods, the design-problem error; `example_fields` and `example_text`, each way a field can be wrong, and a round trip that gives the same `problem` |
 | `test_generate.py` | Compiles and runs a plain Solution for each input kind (strings and chars with escapes, a char grid, bools and doubles, 64-bit integers, `void`, trees, a cycle with `pos`, an array of lists, a graph, a random list, an N-ary tree, a tree with `next`). Each Solution computes something from its input, so a right result proves the input was built right |

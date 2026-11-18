@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.12 (reads trace format v0.11)
+> **Status:** Draft v0.14 (reads trace format v0.12)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -20,8 +20,8 @@ POST /api/run ──► loader ──► step player ──► code panel
 | One sandbox page at `/` | The home page |
 | Replaying the trace of each run | |
 | An inputs panel: one field per parameter, Run code through the API | Design problems (LRU Cache, Min Stack) |
-| Monaco code panel with the current line highlighted | Hint renderers (grid, adjacency list, intervals, ...) |
-| Renderers for every container kind, and a fallback for unknown kinds | The "view as" override UI |
+| Monaco code panel with the current line highlighted | |
+| Renderers for every container kind, and a fallback for unknown kinds; a 2D array as a graph (adjacency list, edge list, adjacency matrix) or as intervals, from a hint or the card's View menu ([Section 5.1](#51-view-as)) | |
 | Linked lists, trees, and graphs drawn from `heap`, with pointer labels | Objects that are not nodes (no `val`/`next`/`left`/`neighbors` shape) drawn as more than a node |
 | The calls: a recursion card (tree or stack) when calls return values, a call-stack card when they return nothing | |
 | Diff highlighting between adjacent steps, and motion (fade, glide, draw-in) | |
@@ -109,10 +109,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.11"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.12"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.11 only.
+Unsupported trace version "0.2". This frontend reads version 0.12 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
@@ -158,14 +158,32 @@ It is a **pure function of its props**. It holds no state, never reads earlier s
 The registry is two maps and a fallback:
 
 ```ts
-byHint: Partial<Record<Hint, Renderer>>   // empty in this version
+byHint: Partial<Record<Hint, Renderer>>   // adjacency-list, edge-list, adjacency-matrix, intervals
 byKind: Partial<Record<Kind, Renderer>>   // every container kind
 fallback: Renderer                        // object, and any kind from a future version
 ```
 
-**Selection order:** the param's hint (from `problem.params`, if the local is a parameter and has one), then the value's `kind`, then the fallback. The first match wins. An unknown or future kind lands on the fallback instead of crashing (spec §9: "draw an unknown kind with a generic fallback").
+**Selection order:** the reader's pick in the card's View menu, then the param's hint (from `problem.params`, if the local is a parameter and has one), then the value's `kind`, then the fallback. The first match wins, and a pick or a hint counts only when it fits the value at this step (`fits` in `render/views.ts`), so a hint that does not fit draws by kind instead of breaking. An unknown or future kind lands on the fallback instead of crashing (spec §9: "draw an unknown kind with a generic fallback").
 
-The README's full order is "view as override, hint, kind, object shape, fallback". This version drops the first and fourth steps because both are out of scope. They slot in without changing the other three.
+The README's full order is "view as override, hint, kind, object shape, fallback". Object shape is how linked structures are drawn, by `LinkedCard`, outside the registry.
+
+### 5.1 View as
+A 2D array of numbers can mean several structures, and only the problem knows which (spec §4). Each one gets a drawing, and a card whose value more than one of them fits has a **View** button at the end of its header:
+
+| View | Fits when | Drawing |
+|---|---|---|
+| By kind (`Grid` or `Rows`) | Always | The array as it is ([Arrays](#arrays)) |
+| Graph (adjacency list) | Every value is the index of a row | Node `i` for each row, an edge `i → v` for each `v` in row `i`; one listed both ways is a plain line |
+| Graph (edge list) | Every row is `[u, v]`, or `[u, v, w]`, of node numbers | A node for each number used, an edge per row, the weight beside it |
+| Graph (adjacency matrix) | A square of 0s and 1s | An edge `i → j` for each 1 off the diagonal; a symmetric matrix has plain lines |
+| Intervals | Every row is `[start, end]` with `start ≤ end` | One bar per row on a number line, the index on the left |
+
+- **Where a card starts ("auto").** A parameter with a hint the adapter wrote (`edges` → edge list, `intervals` → intervals, `isConnected` → adjacency matrix, `graph` → adjacency list) starts on that view, and the header says "auto, from the name". Everything else, locals included, starts on the drawing by kind. Locals have no hints in the trace (`docs/hint-inference.md` §4.1), and the frontend does not guess one: the menu is how a reader turns a local `adj` into a graph.
+- **The menu** lists every view, the ones that do not fit dimmed with the reason ("Needs a square of 0s and 1s"), so a reader learns why. It is fixed to the window under the button, since a card scrolls sideways and would clip it, and closes on Escape, Tab, a click outside, or a scroll. Arrow keys move between the views that fit.
+- **An edge list's direction** is the problem's: Course Schedule's `[a, b]` means `b` before `a`, Number of Connected Components' pairs have none. The graph starts with no direction, and the menu adds a choice of `a → b`, `b → a`, or none.
+- **A pick lasts for the run.** It is kept by the local's name in `VisualPanel` for the current trace and dropped when a new trace loads. It is UI state, not part of a step, so renderers stay pure; a pick that does not fit the value at some step draws that step by kind.
+- **Highlights carry over.** A graph from rows rings the node a local points at (`u` in `graph[u]`) and lights the edge a read used (`graph[u][k]`, a pair `edges[i]`, a cell `isConnected[i][j]`); edges added since the previous step are green. Intervals take the diff colours per row, a local that indexes the array is a tag beside its row, and a read row is dashed. Every intervals card of a step shares one number line, so `merged` lines up under `intervals`.
+- **Layout.** A graph from rows is placed from the value alone, in layers by distance from the smallest node of each connected part, so the same rows always give the same picture.
 
 > **Key insight 1: a step's picture is a pure function of its own snapshot.** The renderer receives one step's value. The diff only decides which boxes get a colour. Remove the diff and the picture is still correct, which is what makes jump, rewind, and the scrubber free.
 
@@ -214,6 +232,14 @@ A string local is a bare JSON string in the trace, and it is drawn like a 1D arr
 - **Changes.** A character added at the end is ringed `--success`, one that changed `--attention`, and characters removed from the end fade out for one step, compared with the previous string (`diff.prev`).
 - **Reads.** `s[left]` and `s[right]`, the two characters `tolower(s[left]) != tolower(s[right])` compares, are outlined like any read (trace format v0.11). In an array of strings, a read of a character (`words[1][2]`) outlines the string it is in.
 - **Which strings get a card.** A trace writes a `char` and a one-character string the same way (spec §4), so a bare string is drawn as a string when the trace shows it is one at some step of the run: its length is not 1, it is a parameter of type `string`, `indexes` pairs a local with it, or a `read` targets it (`stringLocals`, computed once when the trace loads, like `raggedLocals`). `char c` never is, and a result built from `""` to `"a"` to `"ab"` keeps one card the whole time. A local string that is one character long for the whole run and never indexed stays in the locals table only.
+
+#### Members
+A step's `members` (trace format v0.12) are the `Solution`'s member variables: a memo table, a visited set, a result every call appends to. Every call sees the same ones, so they are drawn once, not per frame.
+
+- **Cards.** A member container gets the same card as a local of its kind, after the running call's own cards and before the calls card, with a neutral `member` tag after its name. Its diff compares it with the previous step's members (`diff.members`), so `memo` filling as calls return is ringed like any map; a `read` whose target is a member (`memo[n]`, `memo.count(n)`) outlines the entry it found, and `indexes` can pair a local with a member array, so `dp[i]` draws `i` under the member `dp`.
+- **A local hides a member.** When the running call has a local with a member's name, only the local is drawn, as in C++. A member string follows the string rule ([Strings](#strings)), minus the parameter case.
+- **The state panel** lists every member, plain ones too (`int calls`), under a "Members of Solution" heading after the locals, with the same diff colours. One the running call hides is marked "hidden by a local".
+- **Member pointers** (`ListNode* head` as a member) are pointer tags on their node like the running call's.
 
 #### Reads
 A cell or entry that the running line **read** gets a dashed `--accent` outline, for that step only. It comes from the top frame's `read` outcomes (trace format v0.10, spec §6), which `readsOf(frame)` groups by the local they read; `VisualPanel` hands each card its own (`ctx.reads`), and `render/reads.ts` turns them into lookups. Nothing is guessed from the code or the values.
@@ -474,8 +500,7 @@ Planned for later versions, not designed here:
 - The home page, and any routing.
 - Design problems (LRU Cache, Min Stack), whose example is a sequence of calls.
 - Several examples at once (one run and one trace each).
-- Hint renderers (grid, adjacency list, intervals, ...). The registry slot exists and is empty.
-- The "view as" override.
+- Hints for locals, and a "view as" for structures other than 2D arrays of numbers (a `vector<vector<pair<int, int>>>` weighted graph).
 - Laying out graphs larger than about 30 nodes well. Layers by distance are readable, not pretty.
 
 ## 13. Design questions
@@ -523,3 +548,9 @@ Planned for later versions, not designed here:
 > **Q21. Why are reads outlined on the canvas and not listed as chips?** A read says where a value came from, and a place is better shown than written: `dp[2][3]` as a chip makes the reader find row 2 and column 3, while an outline is already there. A chip row for LCS would also grow to three or four entries on every step and push out the conditions and stores, which are what the line *did*. The outline is dashed, and in the accent colour, so it does not look like a diff: amber and green mean changed and added, and a read changes nothing.
 
 > **Q22. Why draw a string as cells, when a trace writes it as one value?** The algorithms that use strings treat them as arrays: two pointers in Valid Palindrome, a window in Longest Substring, a character at a time in Generate Parentheses. Shown as one line of text, nothing points at anything and the reader cannot see which characters a line compares. The trace already pairs `left` and `right` with `s` (v0.9 `indexes`) and records the characters read (v0.11), so the string card only draws what the trace says. The cost is one rule for telling a string from a `char`, which the trace cannot say directly; the rule only adds cards, so at worst a short string stays in the locals table.
+
+> **Q23. Why a tag on a member's card instead of a separate "Solution" section?** A memo table is a map, and the reader already knows how a map card reads; a section around it would add a frame and a heading for one or two cards, and push the running call's own cards apart from the calls card they belong with. The tag says the one thing that differs, that every call shares this one, and the state panel, which has room for words, groups the members under a heading.
+
+> **Q24. Why does a dimmed view stay in the menu instead of being hidden?** A menu that shows three options for one array and two for the next looks broken, and the reader cannot tell whether "Graph (adjacency matrix)" exists. Keeping it, dimmed, with "Needs a square of 0s and 1s", says both that it exists and why this value is not one, which is also a small lesson about the shapes.
+
+> **Q25. Why do locals start on the drawing by kind instead of following a hinted parameter?** Course Schedule's `adj` looks like an adjacency list because of how the code fills it, which the frontend cannot see; a rule like "a local whose rows look like a hinted parameter's gets its view" would be a guess made where guesses are not allowed (CLAUDE.md invariant 11). The kind drawing is always true, and one click turns it into a graph. Hints for locals, inferred by the adapter, are the clean way if this proves too many clicks.

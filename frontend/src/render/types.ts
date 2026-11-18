@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import type { ValueDiff } from "../trace/diff";
 import type { Hint, ObjectValue, ReadAt, Value } from "../trace/types";
+import type { Direction } from "./views";
 
 export interface RenderContext {
   /** Every local in the step being drawn. Used for pointer markers. */
@@ -9,8 +10,12 @@ export interface RenderContext {
   indexes?: Readonly<Record<string, readonly string[]>>;
   /** The step's heap, so an item that is a ref can show its node's value. */
   heap?: Record<string, ObjectValue>;
-  /** The hint for this local, if it is a parameter that has one. */
+  /** The drawing chosen for this value: the parameter's hint, or what the reader picked in the View menu (render/views.ts). */
   hint?: Hint;
+  /** An edge list's direction, from the View menu: [a, b] as a → b, b → a, or no direction. */
+  direction?: Direction;
+  /** The number line every intervals card shares at this step, so their bars line up. */
+  scale?: { lo: number; hi: number };
   /** What this step did to the value ("push 3"), from its diff, for the header's chip (render/ops.ts). */
   op?: string | null;
   /**

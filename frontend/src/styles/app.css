@@ -945,6 +945,19 @@ kbd {
   white-space: nowrap;
 }
 
+/* A card for one of the Solution's members (memo, visited): the same drawing, with this tag. */
+.member-tag {
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-inset);
+  color: var(--fg-soft);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
 .card-header-end {
   margin-left: auto;
   display: flex;
@@ -1969,6 +1982,16 @@ kbd {
   width: 18%;
 }
 
+/* "Members of Solution": a heading row between the running call's locals and the members. */
+.state-table .state-section th {
+  padding-top: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  width: auto;
+}
+
 .state-table td {
   padding: 7px 14px;
   border-bottom: 1px solid var(--border-subtle);
@@ -2935,5 +2958,281 @@ select.field-input {
 .state-empty-text {
   margin: 0;
   font-size: 13px;
+  color: var(--fg-muted);
+}
+
+/* ---- View as (components/ViewMenu.tsx, docs/frontend.md §5.3) ----
+   The header's View button, shown only when a value has more than one drawing, and its menu,
+   fixed to the viewport so the card's sideways scroll never clips it. */
+
+.view-auto {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.view-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-inset);
+  color: var(--fg-soft);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 150ms ease-out;
+}
+
+.view-button:hover,
+.view-button[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.view-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.view-button-label {
+  color: var(--fg-muted);
+}
+
+.view-button-value {
+  color: var(--fg);
+  font-weight: 500;
+}
+
+.view-button svg path {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.view-menu {
+  position: fixed;
+  z-index: 40;
+  width: 300px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  box-shadow: var(--card-shadow);
+  animation: view-menu-in 160ms ease-out both;
+}
+
+@keyframes view-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.view-menu-title {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.view-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.view-item[aria-checked="true"] {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.view-item:hover:not([aria-disabled="true"]),
+.view-item:focus-visible {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  outline: none;
+}
+
+.view-item[aria-disabled="true"] {
+  color: var(--fg-faint);
+  cursor: default;
+}
+
+.view-item-check {
+  width: 14px;
+  flex-shrink: 0;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.view-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.view-item-label {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.view-item-auto,
+.view-item-note {
+  color: var(--fg-muted);
+  font-weight: 400;
+}
+
+.view-item-note {
+  font-size: 11.5px;
+}
+
+.view-item[aria-disabled="true"] .view-item-note {
+  color: var(--fg-faint);
+}
+
+/* ---- A 2D array as a graph (render/GraphRowsRenderer.tsx) ---- */
+
+.rows-graph {
+  display: block;
+  overflow: visible;
+}
+
+.rows-graph-edge {
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  fill: none;
+  transition: stroke 300ms ease-out;
+}
+
+.rows-graph-edge.is-added {
+  stroke: var(--success);
+  stroke-width: 2;
+}
+
+.rows-graph-edge.is-on {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.rows-graph-head {
+  fill: var(--edge);
+}
+
+.rows-graph-node circle {
+  fill: var(--bg-inset);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  transition: stroke 300ms ease-out, fill 300ms ease-out;
+}
+
+.rows-graph-node text {
+  fill: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.rows-graph-node.is-on circle {
+  stroke: var(--accent);
+  fill: color-mix(in srgb, var(--accent) 12%, var(--bg-inset));
+}
+
+.rows-graph-node text.rows-graph-tag {
+  fill: var(--accent-fg);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.rows-graph-weight {
+  fill: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ---- A 2D array as intervals (render/IntervalsRenderer.tsx) ---- */
+
+.intervals {
+  position: relative;
+}
+
+.intervals-index {
+  position: absolute;
+  left: 0;
+  width: 18px;
+  text-align: right;
+}
+
+.interval {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+  transition: left 380ms cubic-bezier(0.2, 0.8, 0.2, 1), width 380ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 300ms ease-out, border-color 300ms ease-out;
+  animation: fade-in 260ms ease-out both;
+}
+
+.interval.diff-added {
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-inset));
+}
+
+.interval.diff-changed {
+  border-color: var(--attention);
+  background: color-mix(in srgb, var(--attention) 12%, var(--bg-inset));
+}
+
+.interval.diff-removed {
+  border-style: dashed;
+  opacity: 0.45;
+}
+
+.interval.is-read {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.intervals-tag {
+  position: absolute;
+}
+
+.intervals-axis {
+  position: absolute;
+  height: 18px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.intervals-tick {
+  position: absolute;
+  top: 3px;
+  width: 24px;
+  margin-left: -12px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
   color: var(--fg-muted);
 }

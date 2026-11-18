@@ -12,7 +12,7 @@ Every case was run with its pasted example through the pipeline on 2026-11-17 (`
 
 ## Found while writing this
 
-- **`indexes` over-marks** when a local appears inside a computed index. `count[s[i] - 'a']` pairs `i` with `count` (case 13), `dp[i - coin]` pairs `coin` with `dp` (case 51), and `dp[m][n]` pins `m` on `dp` (case 53). A tighter rule would pair a local only when the index is the local itself or the local plus or minus a constant.
+- **`indexes` over-marked** when a local appeared inside a computed index (`count[s[i] - 'a']`, `dp[i - coin]`). Fixed in v0.12: a local is paired only when the index is the local, or the local plus or minus a constant. A local that is itself the index still pairs, so `dp[m][n]` in case 53 still pins `m` on `dp`'s last row.
 - **Strings get no markers.** The trace pairs `left`/`right` with `s` in Valid Palindrome (case 11), but a string has no card to draw them on.
 - **Two methods with the same parameter names** (Pow, case 57) need the Method picker; the command-line pipeline refuses to guess.
 
@@ -92,6 +92,9 @@ Every case was run with its pasted example through the pipeline on 2026-11-17 (`
 | 65 | [Compile error](#65-compile-error) | — | — | compile error |
 | 66 | [Example names that do not match](#66-example-names-that-do-not-match) | — | — | input error |
 | 67 | [Long single line (statement cut with an ellipsis)](#67-long-single-line-statement-cut-with-an-ellipsis) | array | 12 | returns |
+| 68 | [Climbing Stairs (memo as a member)](#68-climbing-stairs-memo-as-a-member) | map (member), recursion | 28 | returns |
+| 69 | [Merge Intervals (intervals hint)](#69-merge-intervals-intervals-hint) | array (intervals view) | 17 | returns |
+| 70 | [Number of Provinces (adjacency matrix hint)](#70-number-of-provinces-adjacency-matrix-hint) | array (graph view), recursion | 44 | returns |
 
 ---
 
@@ -573,7 +576,7 @@ Output: 3
 
 **Exercises:** array · **Steps:** 78 · **Ends:** returns
 
-**Watch for:** A wide 26-cell array. Known flaw in v0.9 `indexes`: `count[s[i] - 'a']` pairs `i` with `count`, so an `i` marker shows under `count` at the wrong cell.
+**Watch for:** A wide 26-cell array. Since v0.12 `count[s[i] - 'a']` no longer pairs `i` with `count`, so no marker shows under `count`.
 
 **Code**
 
@@ -2064,7 +2067,7 @@ Output: 2
 
 **Exercises:** array, queue · **Steps:** 56 · **Ends:** returns
 
-**Watch for:** `adj` is a local `vector<vector<int>>` that is really a graph: drawn as nested arrays (the "View as" and hints gap).
+**Watch for:** `prerequisites` starts as a graph ("auto, from the name"); open its View menu to set the direction to `[a, b] is b → a`. `adj` is a local, so it starts as rows: pick "Graph (adjacency list)" in its menu and watch the arrows fill in.
 
 **Code**
 
@@ -2112,7 +2115,7 @@ Output: true
 
 **Exercises:** array, heap, pair · **Steps:** 56 · **Ends:** returns
 
-**Watch for:** Weighted adjacency of pairs, a min-heap of (distance, node), and `dist` with `INT_MAX` values.
+**Watch for:** `times` drawn as a weighted graph from its edge list (each weight beside its edge); weighted adjacency of pairs, a min-heap of (distance, node), and `dist` with `INT_MAX` values.
 
 **Code**
 
@@ -2165,7 +2168,7 @@ Output: 2
 
 **Exercises:** array, recursion (9 calls) · **Steps:** 52 · **Ends:** returns
 
-**Watch for:** `parent` array changing as sets merge; a recursive `find` that returns values (recursion card).
+**Watch for:** `edges` drawn as a graph from its pairs; `parent` array changing as sets merge; a recursive `find` that returns values (recursion card).
 
 **Code**
 
@@ -2314,7 +2317,7 @@ Output: 13
 
 **Exercises:** array · **Steps:** 110 · **Ends:** returns
 
-**Watch for:** `dp` filled left to right, `amount + 1` as infinity, `i` under `dp`. Known flaw: `dp[i - coin]` also gives `coin` a marker under `dp`, and `dp[amount]` pins `amount` there.
+**Watch for:** `dp` filled left to right, `amount + 1` as infinity, `i` under `dp`. Since v0.12 `dp[i - coin]` gives `coin` no marker; `dp[amount]` still pins `amount` on `dp`'s last cell, since that index is `amount` itself.
 
 **Code**
 
@@ -2940,3 +2943,120 @@ Output: 42
 **Notes**
 
 -
+
+
+# Member variables
+
+## 68 Climbing Stairs (memo as a member)
+
+**Exercises:** map (member), recursion (9 calls) · **Steps:** 28 · **Ends:** returns
+
+**Watch for:** `memo` is a member of `Solution`, not a local: one card with a `member` tag, the same at every depth of the recursion, filling as calls return. `memo.count(n)` and `memo[n]` outline the entry they found (v0.12). The state panel lists `memo` under "Members of Solution".
+
+**Code**
+
+```cpp
+class Solution {
+    unordered_map<int, int> memo;
+public:
+    int climbStairs(int n) {
+        if (n <= 2) return n;
+        if (memo.count(n)) return memo[n];
+        memo[n] = climbStairs(n - 1) + climbStairs(n - 2);
+        return memo[n];
+    }
+};
+```
+
+**Example**
+
+```text
+Input: n = 5
+Output: 8
+```
+
+**Notes**
+
+- 
+
+
+# View as
+
+## 69 Merge Intervals (intervals hint)
+
+**Exercises:** array (intervals view) · **Steps:** 17 · **Ends:** returns
+
+**Watch for:** `intervals` drawn as bars on a number line ("auto, from the name"), with `i` beside the row it is on and the row each line reads dashed. `merged` is a local, so it starts as a grid: pick "Intervals" in its View menu and the two cards share one number line. The bar that grows turns amber.
+
+**Code**
+
+```cpp
+class Solution {
+public:
+    vector<vector<int>> merge(vector<vector<int>>& intervals) {
+        sort(intervals.begin(), intervals.end());
+        vector<vector<int>> merged;
+        for (int i = 0; i < (int)intervals.size(); i++) {
+            if (merged.empty() || merged.back()[1] < intervals[i][0]) {
+                merged.push_back(intervals[i]);
+            } else {
+                merged.back()[1] = max(merged.back()[1], intervals[i][1]);
+            }
+        }
+        return merged;
+    }
+};
+```
+
+**Example**
+
+```text
+Input: intervals = [[1,3],[2,6],[8,10],[15,18]]
+Output: [[1,6],[8,10],[15,18]]
+```
+
+**Notes**
+
+- 
+
+
+## 70 Number of Provinces (adjacency matrix hint)
+
+**Exercises:** array (graph view), recursion · **Steps:** 44 · **Ends:** returns
+
+**Watch for:** `isConnected` drawn as a graph from its matrix (0 and 1 joined, 2 alone); the edge `isConnected[u][v]` lights up when it is read. Switch it to Grid and back in its View menu; the dimmed options say why they do not fit.
+
+**Code**
+
+```cpp
+class Solution {
+public:
+    int findCircleNum(vector<vector<int>>& isConnected) {
+        int n = isConnected.size(), count = 0;
+        vector<bool> seen(n, false);
+        for (int i = 0; i < n; i++) {
+            if (seen[i]) continue;
+            count++;
+            visit(isConnected, seen, i);
+        }
+        return count;
+    }
+    void visit(vector<vector<int>>& isConnected, vector<bool>& seen, int u) {
+        seen[u] = true;
+        for (int v = 0; v < (int)isConnected.size(); v++) {
+            if (isConnected[u][v] == 1 && !seen[v]) visit(isConnected, seen, v);
+        }
+    }
+};
+```
+
+**Example**
+
+```text
+Input: isConnected = [[1,1,0],[1,1,0],[0,0,1]]
+Output: 2
+```
+
+**Notes**
+
+- 

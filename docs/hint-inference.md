@@ -1,6 +1,6 @@
 # Hint Inference
 
-> **Status:** Proposal. Nothing here is implemented, and the trace format has not changed for it.
+> **Status:** Partly implemented. The driver writes hints for 2D-array parameters from their name and the example's shape (sources 2 and 4, `driver/hints.py`), and the frontend draws them and has a "view as" menu. Hints for locals (§4.1) are still open; the trace format has not changed for any of it.
 > **Related:** [`trace-format.md`](trace-format.md) §4 (problem metadata and hints) and §5 (kinds), [`adapters/cpp.md`](adapters/cpp.md) (the C++ adapter), [`frontend.md`](frontend.md) (how a renderer is chosen)
 
 This document parks an idea so it is not lost: how an adapter works out **which data structure a value is meant to be** when its type does not say. It records what is decided, what is open, and when the work is planned.
@@ -33,9 +33,9 @@ The **hint** is the field that says which one it is. Hints are inferred by the a
 |---|---|
 | The `hint` field on a problem parameter | In the spec and the schema |
 | The list of allowed hints | In the spec and the schema |
-| An adapter that writes hints | **None.** The C++ adapter writes no hints, and the Two Sum fixture has none |
-| The frontend's fallback | Draws by kind alone when there is no hint, so an `array` of `array`s is nested arrays |
-| A "view as" control to override a hint | Planned in the frontend |
+| An adapter that writes hints | **The driver, for every language**: `driver/hints.py` writes `grid`, `adjacency-list`, `adjacency-matrix`, `edge-list`, or `intervals` on a 2D-array parameter when its name is one LeetCode uses for that structure **and** the example has that shape. No hint otherwise (§4.3). The golden fixtures have none, since none has such a parameter |
+| The frontend's fallback | Draws by kind alone when there is no hint, so an `array` of `array`s is a grid or rows |
+| A "view as" control to override a hint | **Done**: a card's View menu ([`frontend.md` §5.1](frontend.md#51-view-as)). Locals start on the drawing by kind and are switched there (option C below, for now) |
 | Hints for local variables | **Not possible in the format.** See §4.1 |
 
 ## 3. Where a hint can come from
