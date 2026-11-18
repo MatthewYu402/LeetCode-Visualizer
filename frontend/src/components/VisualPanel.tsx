@@ -10,6 +10,7 @@ import { isContainer, isReturning, topFrame, type Hint, type Step, type Trace, t
 import { CallStackCard } from "./CallStackCard";
 import { callLayout, RecursionTree } from "./RecursionTree";
 import { RunningCanvas } from "./RunningCanvas";
+import { raggedLocals } from "../render/ArrayRenderer";
 
 interface Props {
   trace: Trace | null;
@@ -39,7 +40,7 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const views = useMemo(() => {
     if (!trace) return null;
     const calls = callTree(trace);
-    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls) };
+    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls), ragged: raggedLocals(trace) };
   }, [trace]);
 
   if (running) return <RunningCanvas />;
@@ -115,7 +116,7 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
             const R = selectRenderer(value, hints.get(name));
             return (
               <Card key={name} added={d?.status === "added"}>
-                <R name={name} value={value} diff={own} ctx={{ ...ctxBase, hint: hints.get(name), op: operation(value, own, step.heap) }} />
+                <R name={name} value={value} diff={own} ctx={{ ...ctxBase, hint: hints.get(name), op: operation(value, own, step.heap), ragged: views?.ragged.has(`${frame.function}/${name}`) }} />
               </Card>
             );
           })}

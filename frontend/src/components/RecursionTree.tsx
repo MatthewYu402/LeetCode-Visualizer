@@ -15,11 +15,14 @@ export const STACK_VIEW_WHOLE = 8;
 const STACK_TOP = 5;
 const STACK_BOTTOM = 2;
 
-/** A call's box: two lines (the call, then "→ value" once it has returned). */
-const BOX_H = 46;
-const ROW = BOX_H + 48;
-const CHAR = 7;
-const PAD = 16;
+/** A call's box: one line, the call and, once it has returned, "→ value" after it. */
+const BOX_H = 28;
+const ROW = BOX_H + 26;
+const CHAR = 6.7;
+const PAD = 12;
+/** The return arrow's head: a filled triangle this long, its tip on the caller's box. The line stops at its base. */
+const HEAD_L = 7;
+const HEAD_W = 4.5;
 const EASE = { duration: 0.45, ease: [0.22, 1, 0.36, 1] } as const;
 
 export type CallsView = "tree" | "stack";
@@ -87,7 +90,8 @@ export function RecursionTree({
           <span key={s} className={`legend-item call-${s}`}>
             {s === "return-arrow" ? (
               <svg aria-hidden="true" width="12" height="14" viewBox="0 0 12 14">
-                <path d="M6 13V2M2 6l4-4 4 4" />
+                <path d="M6 13V6" />
+                <path className="legend-head" d="M1.5 6.5 6 1l4.5 5.5z" />
               </svg>
             ) : (
               <i />
@@ -142,8 +146,11 @@ export function StackIcon() {
 
 function TreeView({ tree, layout, step, index }: { tree: CallTree; layout: Map<string, { x: number; y: number }> | null; step: Step; index: number }) {
   const nodes = layout ? fullTree(tree, layout, step, index) : focusedTree(tree, step, index);
-  const width = Math.max(...nodes.map((n) => n.x + n.width / 2)) + PAD;
-  const height = Math.max(...nodes.map((n) => n.y)) + BOX_H + 8;
+  // A small run is sized for its whole tree, not the calls drawn so far, so it is centred once and
+  // nothing slides sideways as calls appear. A focused tree is laid out per step anyway.
+  const extent = layout ? layoutExtent(tree, layout) : null;
+  const width = extent?.width ?? Math.max(...nodes.map((n) => n.x + n.width / 2)) + PAD;
+  const height = extent?.height ?? Math.max(...nodes.map((n) => n.y)) + BOX_H + 8;
   const byKey = new Map(nodes.map((n) => [n.key, n]));
   const running = topFrame(step).id;
   const scroller = useRef<HTMLDivElement>(null);
@@ -172,11 +179,6 @@ function TreeView({ tree, layout, step, index }: { tree: CallTree; layout: Map<s
   return (
     <div className="recursion-scroll" ref={scroller}>
       <svg className="recursion-svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Recursion tree">
-        <defs>
-          <marker id="call-return" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M 1 1 L 9 5 L 1 9" className="call-return-head" />
-          </marker>
-        </defs>
         <AnimatePresence>
           {nodes
             .filter((n) => n.parent && byKey.has(n.parent))
@@ -188,14 +190,21 @@ function TreeView({ tree, layout, step, index }: { tree: CallTree; layout: Map<s
                 <motion.path
                   key={`edge-${n.key}`}
                   className={`call-edge ${tone}`}
-                  initial={{ opacity: 0, d: link(p, n) }}
-                  animate={{ opacity: 1, d: link(p, n) }}
+                  initial={{ opacity: 0, d: link(p, n, back) }}
+                  animate={{ opacity: 1, d: link(p, n, back) }}
                   exit={{ opacity: 0 }}
                   transition={EASE}
-                  markerStart={back ? "url(#call-return)" : undefined}
                 />
               );
             })}
+        </AnimatePresence>
+        {/* The return arrow's head, drawn as its own filled shape: the edge stops at its base, so no line runs through it. */}
+        <AnimatePresence>
+          {nodes
+            .filter((n) => (n.state === "returning" || n.state === "base") && n.parent && byKey.has(n.parent))
+            .map((n) => (
+              <motion.path key={`head-${n.key}`} className="call-return-head" d={head(byKey.get(n.parent!)!)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EASE} />
+            ))}
         </AnimatePresence>
         <AnimatePresence>
           {nodes.map((n) => (
@@ -208,17 +217,11 @@ function TreeView({ tree, layout, step, index }: { tree: CallTree; layout: Map<s
               exit={{ opacity: 0, scale: 0.7 }}
               transition={EASE}
             >
-              <rect x={-n.width / 2} y={0} width={n.width} height={BOX_H} rx={8} />
-              <motion.text className="call-label" initial={false} animate={{ y: n.value === null ? BOX_H / 2 : 16 }} transition={EASE} dy="0.35em">
+              <rect x={-n.width / 2} y={0} width={n.width} height={BOX_H} rx={7} />
+              <text className="call-label" y={BOX_H / 2} dy="0.35em">
                 {n.label}
-              </motion.text>
-              <AnimatePresence>
-                {n.value !== null && (
-                  <motion.text key="value" className="call-value" y={32} dy="0.35em" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EASE}>
-                    → {n.value}
-                  </motion.text>
-                )}
-              </AnimatePresence>
+                {n.value !== null && <tspan className="call-value">{` → ${n.value}`}</tspan>}
+              </text>
             </motion.g>
           ))}
         </AnimatePresence>
@@ -269,11 +272,35 @@ function StackView({ tree, step, index }: { tree: CallTree; step: Step; index: n
   );
 }
 
-function link(p: CallNode, n: CallNode): string {
-  const y1 = p.y + BOX_H + 3;
+/**
+ * The edge from a caller's bottom centre to a call's top centre. Both ends leave vertically, so on a
+ * return step the head's axis is the line's own direction; the line then starts at the head's base.
+ */
+function link(p: CallNode, n: CallNode, back = false): string {
+  const y1 = p.y + BOX_H + (back ? HEAD_L + 1 : 2);
   const y2 = n.y;
   const my = (y1 + y2) / 2;
   return `M ${p.x} ${y1} C ${p.x} ${my}, ${n.x} ${my - 4}, ${n.x} ${y2}`;
+}
+
+/** A filled triangle under the caller's box, pointing up at it: the head of the return arrow. */
+function head(p: CallNode): string {
+  const tip = p.y + BOX_H + 1;
+  const base = tip + HEAD_L;
+  return `M ${p.x - HEAD_W} ${base} L ${p.x} ${tip} L ${p.x + HEAD_W} ${base} Z`;
+}
+
+/** A small run's whole drawing: wide and tall enough for every call it will make. */
+function layoutExtent(tree: CallTree, layout: Map<string, { x: number; y: number }>): { width: number; height: number } {
+  let right = 0;
+  let bottom = 0;
+  for (const c of tree.calls.values()) {
+    const p = layout.get(c.id);
+    if (!p) continue;
+    right = Math.max(right, p.x + callWidth(c) / 2);
+    bottom = Math.max(bottom, p.y + BOX_H);
+  }
+  return { width: right + PAD, height: bottom + 8 };
 }
 
 function callLabel(c: Call): string {
@@ -282,7 +309,13 @@ function callLabel(c: Call): string {
 }
 
 function boxWidth(label: string): number {
-  return Math.max(96, Math.ceil(label.length * CHAR) + 24);
+  return Math.max(52, Math.ceil(label.length * CHAR) + 18);
+}
+
+/** A call's box, wide enough for "fib(3) → 2" with the value it will return, so it never resizes. */
+function callWidth(c: Call): number {
+  const label = callLabel(c);
+  return c.returned === undefined ? boxWidth(label) : boxWidth(`${label} → ${c.returned}`);
 }
 
 function valueAt(c: Call, index: number): string | null {
@@ -296,7 +329,7 @@ function valueAt(c: Call, index: number): string | null {
  */
 export function callLayout(tree: CallTree): Map<string, { x: number; y: number }> | null {
   if (tree.calls.size > FULL_LIMIT) return null;
-  const col = Math.max(...[...tree.calls.values()].map((c) => boxWidth(callLabel(c)))) + 14;
+  const col = Math.max(...[...tree.calls.values()].map(callWidth)) + 10;
   const pos = new Map<string, { x: number; y: number }>();
   let leaf = 0;
   const place = (id: string): number => {
@@ -319,7 +352,7 @@ function fullTree(tree: CallTree, layout: Map<string, { x: number; y: number }>,
     if (!state) continue;
     const label = callLabel(c);
     const p = layout.get(id)!;
-    out.push({ key: id, label, value: valueAt(c, index), state, parent: c.parent, x: p.x, y: p.y, width: boxWidth(label) });
+    out.push({ key: id, label, value: valueAt(c, index), state, parent: c.parent, x: p.x, y: p.y, width: callWidth(c) });
   }
   return out;
 }
@@ -369,9 +402,9 @@ export function focusedTree(tree: CallTree, step: Step, index: number): CallNode
   const valueWidth = (s: { id: string; folded?: number }) => {
     if (s.id === "fold:middle") return 0;
     const v = valueAt(tree.calls.get(s.id)!, index);
-    return v === null ? 0 : Math.ceil((v.length + 2 + (s.folded ? ` · ${s.folded + 1} calls`.length : 0)) * CHAR) + 24;
+    return v === null ? 0 : boxWidth(`${labels.get(s.id)} → ${v}${s.folded ? ` · ${s.folded + 1} calls` : ""}`);
   };
-  const col = Math.max(...shown.map((s) => Math.max(boxWidth(labels.get(s.id)!), valueWidth(s)))) + 14;
+  const col = Math.max(...shown.map((s) => Math.max(boxWidth(labels.get(s.id)!), valueWidth(s)))) + 10;
   const pos = new Map<string, { x: number; y: number }>();
   let leaf = 0;
   const place = (id: string, depth: number): number => {

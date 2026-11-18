@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.9 (reads trace format v0.9)
+> **Status:** Draft v0.10 (reads trace format v0.9)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -47,7 +47,7 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 │                              │   here." and how to run it                │
 │                              │   while a run is going: the trace line    │
 │                              │   drawing itself, "Running your code in   │
-│                              │   the sandbox", the seconds so far        │
+│                              │   the sandbox"                            │
 ├──────────────────────────────┼───────────────────────────────────────────┤
 │ INPUTS PANEL                 │ STATE PANEL                               │
 │   method (when several)      │   Step N of M   [truncated]               │
@@ -87,7 +87,7 @@ Every split is resizable by dragging the border between panels: the left / right
 | `components/PlaybackBar.tsx` | The bottom bar: Restart, previous, play/pause, next, last, the counter, the scrubber with a tick per step, speed | Player state |
 | `components/CodePanel.tsx` | Monaco with the line decoration; rebuilds the editor theme when the page's theme changes | Source, `step.line`, theme |
 | `components/VisualPanel.tsx` | The line strip, then one card per linked structure, one per other container local, and the calls card at the bottom, or a notice / error; while a run is going, `RunningCanvas` instead | One step, its diff, the per-trace layout and call tree, the call-stack switch, whether a run is going |
-| `components/RunningCanvas.tsx` | The canvas while the sandbox makes a trace: a line of trace points drawing itself, what the sandbox is doing, and the seconds since Run code | Nothing: its own one-second timer |
+| `components/RunningCanvas.tsx` | The canvas while the sandbox makes a trace: a line of trace points drawing itself, and what the sandbox is doing | Nothing |
 | `components/StatePanel.tsx` | "Step N of M" with a progress bar, the running line (its statement and what it produced), and the running frame's locals as a table, plus `result` on the last step, and an Output tab when the program printed ([Section 9](#9-state-panel)) | One step, its diff, the code the run was made from, the run's output |
 | `components/Split.tsx` | A draggable split between two panels | Pointer events |
 | `editor/monaco.ts` | Bundles Monaco locally and builds its theme from the CSS variables, again after each theme change | `theme.css` |
@@ -174,7 +174,7 @@ The canvas is a dot grid. At its top, a full-width strip reads "Line N runs next
 
 | Kind | Renderer | Drawing |
 |---|---|---|
-| `array` | `ArrayRenderer` | A row of rounded cells, the index under each, pointer tags under those ([Section 6.2](#62-pointer-markers)) |
+| `array` | `ArrayRenderer` | Drawn by the value's shape ([Arrays](#arrays)): one contiguous strip of joined cells, the index under each and pointer tags under those ([Section 6.2](#62-pointer-markers)); a **grid** when it is an array of rows of plain values whose rows match; **rows** when they do not |
 | `map` | `MapRenderer` | One row per entry, `key → value`. Header `hash map · N` |
 | `multimap` | `MultimapRenderer` | One row per key, in order of first appearance, with that key's values side by side as chips |
 | `stack` | `StackRenderer` | A vertical container open at the top, the top item first with a `top` tag beside it. Up to 6 items drawn whole; deeper, the top 3, a "⋮ N more" row, and the bottom 2 |
@@ -186,6 +186,22 @@ The canvas is a dot grid. At its top, a full-width strip reads "Line N runs next
 | `object`, `ref` | `LinkedCard` | Not drawn per local: each linked structure of the step's heap is one card, and a local holding a `ref` becomes a pointer tag on its node ([Section 6.5](#65-linked-structures-drawing)) |
 | an unknown kind | `FallbackRenderer` | The value as indented data in an inset box, with "There is no view for this kind yet, so it is shown as data." |
 | primitives | none | Not drawn on the canvas. They appear in the state panel |
+
+Everything on the canvas is **compact**: cells 34 px tall (40 px wide in an array, 36 × 30 in a grid), tree and graph nodes 34 px across, list nodes 58 × 32, recursion boxes 28 px tall, card padding 12 × 16, 13 to 13.5 px values. Text never goes under 10.5 px. The point is to fit more of a run on the screen at once.
+
+#### Arrays
+The drawing comes from the value's shape alone, never from guessing what the problem is (a DP problem cannot be told from its signature: `coinChange(vector<int>& coins, int amount)` looks like any array problem, and its table is a local):
+
+| Shape | Drawing |
+|---|---|
+| A 1D array | One contiguous strip: joined cells with a line between neighbours and one rounded border around the array, the index under each cell, pointer tags under those. A cell that changed gets an inset `--attention` ring (`--success` when added), so its neighbours keep their shared line. Items past the new length are drawn faded at the end for one step |
+| An array of arrays of plain values (numbers, strings, chars, booleans, null, tagged numbers), every row the same length | A **grid** (`array · 6 × 4`): column indexes on top, row indexes on the left, the cells sharing 1 px lines. A local that indexes the outer array (`indexes` pairs it with it) is a tag on its row, left of the row index. Only the cells that changed are ringed: the renderer compares each changed row with its previous value (`diff.prev`) |
+| The same, with rows of different lengths (an adjacency list), or no columns | **Rows** (`array · 4 rows`): one strip per row, all starting at the same place, row index and row tags to the left; an empty row is a dashed `empty` box |
+| Anything else (rows of containers or refs) | One strip, each cell the item's text |
+
+Whether a 2D local is a grid or rows is decided **once per run** (`raggedLocals`, computed when the trace loads, like the layout of linked structures): a local whose rows differ at any step is drawn as rows at every step. Level Order's `result` is `[[3]]` before it is `[[3], [9, 20]]`; without this it would start as a 1 × 1 grid and then turn into rows.
+
+Column markers are not drawn: `indexes` pairs `i` with `dp` in `dp[i][j]` but records nothing for `j`, which indexes `dp[i]` ([trace-format.md §3, Indexes](trace-format.md#indexes)).
 
 The canvas draws, top to bottom: one card per linked structure of the step's heap, one card per other **container local** of the running frame (a tagged kind other than `int`, `float`, `ref`, and `object`) in the order the trace lists them, and, at the bottom, the calls card when one call made another ([Section 6.6](#66-calls)). A `ref` inside a container (a queue of nodes, a map from node to clone) shows its node's value, with the id on hover.
 
@@ -263,7 +279,7 @@ A function that returns a null pointer every time looks like one that returns no
 #### The recursion card
 Titled `calls`, with a Tree / Stack segmented toggle (a tree icon and a stack icon) at the top right and a legend under the header.
 
-The **Tree view** draws every call that has begun as a rounded box labelled `f(args)`, with what it returned inside the box under the name (`→ 3`) from its return step on. Calls not yet begun are not drawn, so the tree grows as the run goes. The colour says where the call stands:
+The **Tree view** draws every call that has begun as a compact rounded box (28 px tall) labelled `f(args)`, with what it returned after the name on the same line (`fib(3) → 2`) from its return step on. A box is as wide as its label and the value it will return, so it never resizes. Calls not yet begun are not drawn, so the tree grows as the run goes. The colour says where the call stands:
 
 | State | Meaning | Look |
 |---|---|---|
@@ -273,9 +289,9 @@ The **Tree view** draws every call that has begun as a rounded box labelled `f(a
 | base case | The running frame at its return step, having made no call | `--attention` border and tint |
 | returned | Finished | muted |
 
-On the step a call returns, the edge to its caller turns `--done` with an arrowhead at the caller's end: **return to caller**. Edges down to calls on the stack are blue; edges to finished calls are muted.
+On the step a call returns, the edge to its caller turns `--done` with an arrowhead at the caller's end: **return to caller**. The head is a filled triangle drawn as its own shape, its tip on the caller's box, and the edge stops at its base; both ends of an edge leave vertically, so the head's axis is the line's own direction. (A stroked chevron as an SVG marker, with the line running to its tip, showed the line cutting through the head.) Edges down to calls on the stack are blue; edges to finished calls are muted.
 
-A run of up to 80 calls is drawn whole, every call in a fixed place. A larger run is drawn **focused on the running call**: the calls on the stack, the calls each of them has made so far, and every finished branch folded into one box (`fib(7)` with `→ 13 · 41 calls` inside). A stack deeper than 14 keeps its top 3 and bottom 10 calls and folds the middle into one box (`⋮ 40 calls`). Either way the number of boxes stays small however deep the recursion goes. The tree scrolls inside the card, which scrolls to keep the running call in view.
+A run of up to 80 calls is drawn whole, every call in a fixed place, and the drawing is sized for the run's whole tree from the first step, so the tree is centred in the card once and nothing slides sideways as calls appear. A lopsided tree (fib's `n - 1` side is the larger) has its root right of centre; that is the tree's real shape. A larger run is drawn **focused on the running call**: the calls on the stack, the calls each of them has made so far, and every finished branch folded into one box (`fib(7)` with `→ 13 · 41 calls` inside). A stack deeper than 14 keeps its top 3 and bottom 10 calls and folds the middle into one box (`⋮ 40 calls`). Either way the number of boxes stays small however deep the recursion goes. The tree scrolls inside the card, which scrolls to keep the running call in view.
 
 The **Stack view** lists the calls on the stack, running on top, each as a row: the function, its arguments with their names (`root = 3`), `returns 0` on its return step, and its state at the right. No arrows. Deeper than 8, it shows the top 5, a `⋮ N more calls` row, and the bottom 2.
 
@@ -379,7 +395,7 @@ The inputs panel turns the pasted Solution into a form ([`backend.md`](backend.m
 1. **The signature.** 400 ms after the source stops changing, `POST /api/signature` returns the public methods, each parameter's name and neutral type, and the method to preselect. A request still in flight when the source changes again is cancelled. If the new source cannot be read, the last good fields stay, with the error above them, so typing does not make the form flicker.
 2. **The fields.** One per parameter of the chosen method, labeled with its name and neutral type (`nums array<int>`), with LeetCode's notation for that type as the placeholder (`[1,2,3]`, `[3,9,20,null,null,15,7]`). For the starter's own method, `twoSum`, the placeholders are Two Sum's example (`[2,7,11,15]`, `9`), ghost text that goes as the user types. An extra such as `pos` is an optional field. A method picker appears only when the Solution has several public methods. A value typed earlier is kept when the signature changes but the field still exists.
 3. **Paste a LeetCode example.** Pasting the whole example block from the problem page (`Input: ... Output: ...`) into the box under the fields fills them at once: by name, or in order when none of the names match (Clone Graph's `adjList` for the parameter `node`), as the driver does. A note says which fields were filled. "Fill fields" under the box does the same for an example edited by hand.
-4. **Run code** is in the top bar (and Cmd/Ctrl + Enter). Disabled until every required field has a value; the inputs panel says why ("Fill in target."). It sends the source, the method, and the fields to `POST /api/run`, and shows a spinner meanwhile. The canvas shows the run is going (`RunningCanvas`): a line of trace points drawing itself on a loop, "Running your code in the sandbox", "Compiling it, tracing every step, and checking the trace", and the whole seconds since the press, from 1 s on. The run is one request, so no stage is named as the current one. With reduced motion the line is drawn whole and still. A trace that comes back goes through the loader and replaces the last one in the player, which restarts at step 0. A failure shows a red card in the inputs panel with its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. A successful run adds nothing to the inputs panel: the canvas shows it.
+4. **Run code** is in the top bar (and Cmd/Ctrl + Enter). Disabled until every required field has a value; the inputs panel says why ("Fill in target."). It sends the source, the method, and the fields to `POST /api/run`, and shows a spinner meanwhile. The canvas shows the run is going (`RunningCanvas`): a line of trace points drawing itself on a loop, "Running your code in the sandbox", and "Compiling it, tracing every step, and checking the trace". The run is one request, so no stage is named as the current one. With reduced motion the line is drawn whole and still. A trace that comes back goes through the loader and replaces the last one in the player, which restarts at step 0. A failure shows a red card in the inputs panel with its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. A successful run adds nothing to the inputs panel: the canvas shows it.
 
 ## 11. Theme tokens
 Two themes, dark (the default) and light, with the same tokens and meanings. Every colour is a CSS variable in `src/styles/theme.css`, and components use only the variables. The theme is the `data-theme` attribute on `<html>`: `:root` holds the dark values and `:root[data-theme="light"]` the light ones, so switching is one attribute and nothing re-renders to change colour.
@@ -473,3 +489,8 @@ Planned for later versions, not designed here:
 > **Q17. Why does the Output tab show the whole run's output instead of what was printed up to the step?** The API returns the program's output once, for the whole run, and the trace says nothing about when each line was printed. Showing it per step would mean guessing. The tab says so in plain words. Per-step output would need the trace to record prints, a format change that can come later if it is wanted.
 
 > **Q18. Why are light cards white on a grey canvas, when the light theme mirrors the dark one?** The decision was to mirror lightness and keep hue. Done literally for surfaces, the canvas (darkest in the dark theme) becomes the lightest, and cards become darker than the page they sit on, so a raised card looks sunk. Surfaces keep their meaning instead: the nearer something is, the lighter it is in the light theme, as cards are in most light interfaces. Text, lines, and accents keep the mirror's intent (same hue, contrast reversed).
+
+> **Q19. Why is a 2D array a grid by its shape, when the frontend must not guess a view (invariant 11)?** A hint says what a value *means* (an adjacency list is a graph), and that is the adapter's to infer. A grid is not a meaning: an array of equal rows of plain values is a table whatever the problem is, a DP table, a matrix, a board, the rows of an edge list. Drawing it as a grid only lays out what the value already is, the way a 1D array is a strip. Rows that differ are drawn as rows, so nothing is padded or invented. Turning the same value into a graph, or a list of intervals, still needs a hint.
+
+> **Q20. Why are the cards compact?** Recursion trees, DP tables and graphs need room, and at the first sizes (44 px cells, 46 px recursion boxes) a fib(5) tree or a 6 × 4 table did not fit the canvas. Everything shrank to about 75%, the same for every card so the canvas stays one system; text stays at 10.5 px or more. A density switch was considered and left out: one size that fits is simpler than a setting.
+

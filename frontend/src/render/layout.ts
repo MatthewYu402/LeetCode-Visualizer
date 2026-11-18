@@ -14,25 +14,25 @@ import { edgesFrom, edgesOf, pointerNamesOf, shapeOf, type Shape } from "../trac
 import type { ObjectValue, Trace } from "../trace/types";
 
 /** A tree or graph node is a circle of this radius. */
-export const NODE_R = 22;
+export const NODE_R = 17;
 /** A list node is a value cell plus a narrow next cell: this wide and this tall in all. */
-export const LIST_W = 72;
-export const LIST_H = 40;
+export const LIST_W = 58;
+export const LIST_H = 32;
 /** The next cell's width, at the node's right end; arrows leave the dot at its centre. */
-export const NEXT_W = 22;
+export const NEXT_W = 18;
 /** A dashed "null" box, the size of a small cell. */
-export const NULL_W = 44;
-const LIST_GAP_X = 128;
-const LIST_GAP_Y = 104;
-const TREE_GAP_X = 60;
-const TREE_GAP_Y = 84;
-const GRAPH_GAP_X = 104;
-const GRAPH_GAP_Y = 90;
+export const NULL_W = 36;
+const LIST_GAP_X = 102;
+const LIST_GAP_Y = 84;
+const TREE_GAP_X = 46;
+const TREE_GAP_Y = 66;
+const GRAPH_GAP_X = 82;
+const GRAPH_GAP_Y = 72;
 /** Room around the nodes: pointer tags above, tags shifted to the side, curves and nulls below. */
-const MARGIN_X = 64;
-const MARGIN_TOP = 52; // a list's tags stack upwards; a tree's or graph's sit side by side
-const MARGIN_TOP_ONE_ROW = 34;
-const MARGIN_BOTTOM = 40; // a list's reversed links curve under it
+const MARGIN_X = 52;
+const MARGIN_TOP = 46; // a list's tags stack upwards; a tree's or graph's sit side by side
+const MARGIN_TOP_ONE_ROW = 30;
+const MARGIN_BOTTOM = 34; // a list's reversed links curve under it
 const MARGIN_BOTTOM_TREE = 12;
 const MARGIN_BOTTOM_GRAPH = 32; // a graph's tags can sit under a node
 

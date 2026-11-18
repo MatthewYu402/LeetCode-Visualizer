@@ -16,7 +16,7 @@ const TAG_CHAR = 7;
 const VALUE_FULL = 3;
 const VALUE_MAX = 6;
 /** The gap between a list node and the null box it points at. */
-const NULL_GAP = 40;
+const NULL_GAP = 32;
 
 export const SHAPE_NAME: Record<Shape, string> = { list: "linked list", tree: "binary tree", graph: "graph" };
 

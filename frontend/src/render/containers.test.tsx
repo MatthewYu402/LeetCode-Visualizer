@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { diffValue, matchInOrder } from "../trace/diff";
-import type { Value } from "../trace/types";
+import type { Trace, Value } from "../trace/types";
+import { raggedLocals } from "./ArrayRenderer";
 import { FallbackRenderer } from "./FallbackRenderer";
 import { HeapRenderer, HEAP_TREE_MAX } from "./HeapRenderer";
 import { operation } from "./ops";
@@ -136,5 +137,53 @@ describe("cards", () => {
     expect(html).toContain("There is no view for this kind yet");
     expect(html.match(/data-line is-changed/g)).toHaveLength(2);
     expect(renderToStaticMarkup(<HeapRenderer name="p" value={pq([])} diff={null} ctx={{ locals: {} }} />)).toContain("empty");
+  });
+});
+
+describe("arrays: a contiguous strip, a grid when rows match, rows when they do not", () => {
+  const a = (items: Value[]): Value => ({ kind: "array", items });
+
+  it("a 1D array is one strip of joined cells, its indexes under it", () => {
+    const html = draw(a([4, 7, 2]));
+    expect(html).toContain('class="array-strip"');
+    expect(html.match(/class="cell /g)).toHaveLength(3);
+    expect(html).toContain("array · 3");
+  });
+
+  it("a 2D array of plain values with equal rows is a grid: row and column indexes, one cell per value", () => {
+    const html = draw(a([a([0, 0, 0]), a([0, 1, 1])]));
+    expect(html).toContain('role="table"');
+    expect(html).toContain("array · 2 × 3");
+    expect(html.match(/role="cell"/g)).toHaveLength(6);
+    expect(html).not.toContain("0, 1, 1"); // never a whole row as text in one cell
+  });
+
+  it("in a grid only the cell that changed is marked, not its whole row", () => {
+    const html = draw(a([a([0, 0]), a([0, 1])]), a([a([0, 0]), a([0, 0])]));
+    expect(html.match(/grid-cell diff-changed/g)).toHaveLength(1);
+    expect(html).toContain('title="x[1][1] = 1"');
+  });
+
+  it("rows of different lengths are drawn as rows, each its own strip", () => {
+    const html = draw(a([a([1, 2]), a([3]), a([])]));
+    expect(html).toContain('class="ragged"');
+    expect(html).toContain("array · 3 rows");
+    expect(html).toContain("empty");
+    expect(html).not.toContain('role="table"');
+  });
+
+  it("rows holding containers are not a grid: they stay one strip of text cells", () => {
+    const html = draw(a([a([a([1])]), a([a([2])])]));
+    expect(html).not.toContain('role="table"');
+    expect(html).toContain('class="array-strip"');
+  });
+
+  it("a local whose rows differ at some step of the run is drawn as rows at every step", () => {
+    const steps = [[a([3])], [a([3]), a([9, 20])]].map((rows, k) => ({ step: k, frames: [{ id: "f1", function: "levelOrder", line: 1, locals: { result: a(rows) } }], heap: {} }));
+    const ragged = raggedLocals({ version: "0.9", language: "cpp", problem: { method: "levelOrder", params: [], input: {} }, steps } as Trace);
+    expect([...ragged]).toEqual(["levelOrder/result"]);
+    const R = selectRenderer(a([a([3])]));
+    const html = renderToStaticMarkup(<R name="result" value={a([a([3])])} diff={null} ctx={{ locals: {}, ragged: true }} />);
+    expect(html).toContain('class="ragged"'); // not a 1 × 1 grid
   });
 });

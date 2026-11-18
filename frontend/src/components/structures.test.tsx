@@ -207,7 +207,7 @@ describe("calls: the recursion card or the call-stack card, by what the calls re
     expect(html).toContain('aria-label="Tree"');
     expect(html).toContain('aria-label="Stack"');
     expect(html).toContain("call-edge-return");
-    expect(html).toContain('marker-start="url(#call-return)"');
+    expect(html).toContain('class="call-return-head"'); // the head is its own filled shape, the edge stops at its base
     const stack = renderToStaticMarkup(<RecursionTree tree={tree} layout={callLayout(tree)} step={maxDepth.steps[base.returnStep!]} index={base.returnStep!} initialView="stack" />);
     expect(stack).toContain("returns 0");
     expect(stack.indexOf("root = null")).toBeLessThan(stack.indexOf("root = 3")); // running on top

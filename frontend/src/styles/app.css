@@ -721,17 +721,6 @@ kbd {
   fill: var(--accent);
 }
 
-.running-seconds {
-  margin-left: 4px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--bg-control);
-  color: var(--fg-soft);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
 @keyframes running-draw {
   0% {
     stroke-dashoffset: 100;
@@ -826,14 +815,14 @@ kbd {
 .cards {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px 20px 24px;
+  gap: 12px;
+  padding: 12px 16px 20px;
 }
 
 .card {
   min-width: 0;
-  padding: 16px 20px 18px;
-  border-radius: 14px;
+  padding: 12px 16px 14px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--bg-raised);
   box-shadow: var(--card-shadow);
@@ -859,7 +848,7 @@ kbd {
 .structure {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   min-width: max-content;
 }
 
@@ -873,7 +862,7 @@ kbd {
 .card-name {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -908,17 +897,17 @@ kbd {
 /* ---- Cells, shared by every container ---- */
 
 .cell {
-  height: 44px;
-  min-width: 44px;
+  height: 34px;
+  min-width: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0 6px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1.5px solid var(--border-strong);
   background: var(--bg-inset);
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -932,7 +921,7 @@ kbd {
 
 .cell-index {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--fg-muted);
   text-align: center;
 }
@@ -967,23 +956,175 @@ kbd {
   flex-shrink: 0;
 }
 
-/* ---- array (render/ArrayRenderer.tsx) ---- */
+/* ---- array (render/ArrayRenderer.tsx) ----
+   One contiguous strip: cells are joined, with a line between neighbours and one rounded border
+   around the whole array. A changed cell gets an inset ring, so neighbours keep their shared line. */
 
-.array-cells {
+.array-strip {
   display: flex;
-  gap: var(--cell-gap, 6px);
+  width: max-content;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-inset);
 }
 
-.array-col {
+.array-strip .cell {
+  width: var(--cell);
+  min-width: var(--cell);
+  padding: 0 3px;
+  border: 0;
+  border-left: 1px solid var(--border-strong);
+  border-radius: 0;
+  transition: background-color 300ms ease-out, box-shadow 300ms ease-out, opacity 300ms ease-out;
+}
+
+.array-strip .cell:first-child {
+  border-left: 0;
+}
+
+.array-strip .cell.diff-added {
+  box-shadow: inset 0 0 0 2px var(--success);
+  animation: none;
+}
+
+.array-strip .cell.diff-changed {
+  box-shadow: inset 0 0 0 2px var(--attention);
+  animation: none;
+}
+
+.array-strip .cell.diff-removed {
+  border-style: solid;
+  opacity: 0.4;
+}
+
+.array-indexes {
+  display: flex;
+  margin-top: 4px;
+  padding-left: 1px;
+}
+
+.array-indexes .cell-index {
+  width: var(--cell);
+}
+
+/* A grid: a 2D array whose rows have the same length (a DP table, a matrix, a board). The cells
+   share 1px lines drawn by the gap over the border colour. */
+.grid {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  column-gap: 6px;
+  row-gap: 4px;
+  width: max-content;
+}
+
+.grid-col-indexes {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols), var(--grid-col));
+  column-gap: 1px;
+  padding: 0 1px;
+}
+
+.grid-row-heads {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  gap: 1px;
+  padding: 1px 0;
 }
 
-.array .array-col .cell {
-  width: var(--cell);
-  padding: 0 4px;
+.grid-row-head {
+  height: var(--grid-row, 34px);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.grid-row-tags {
+  display: flex;
+  gap: 2px;
+}
+
+.row-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.grid-cells {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols), var(--grid-col));
+  gap: 1px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--border-strong);
+}
+
+.grid-cell {
+  height: var(--grid-row);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color 300ms ease-out, box-shadow 300ms ease-out;
+}
+
+.grid-cell.diff-added {
+  box-shadow: inset 0 0 0 2px var(--success);
+  animation: none;
+}
+
+.grid-cell.diff-changed {
+  box-shadow: inset 0 0 0 2px var(--attention);
+  animation: none;
+}
+
+/* Rows of different lengths (an adjacency list): one strip per row, all starting at the left. */
+/* Two columns: row labels (tags and index), right-aligned, then the row's strip, so every strip
+   starts at the same place whatever tags a row has. */
+.ragged {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  column-gap: 6px;
+  row-gap: 6px;
+  align-items: center;
+  justify-items: start;
+}
+
+.ragged-row {
+  display: contents;
+}
+
+.ragged .grid-row-head {
+  justify-self: end;
+}
+
+.ragged .grid-row-head {
+  height: 34px;
+  min-width: 18px;
+}
+
+.ragged-row.is-added .array-strip {
+  border-color: var(--success);
+}
+
+.ragged-empty {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  color: var(--fg-muted);
+  font-size: 12px;
 }
 
 .pointers {
@@ -1003,7 +1144,7 @@ kbd {
 }
 
 .tag-pill {
-  padding: 0 7px;
+  padding: 0 6px;
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -1024,7 +1165,7 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 280px;
+  min-width: 220px;
   width: max-content;
 }
 
@@ -1043,12 +1184,12 @@ kbd {
 }
 
 .kv-row {
-  min-height: 40px;
-  border-radius: 10px;
+  min-height: 32px;
+  border-radius: 8px;
   border: 1.5px solid var(--border-strong);
   background: var(--bg-inset);
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 500;
   transition: background-color 300ms ease-out, border-color 300ms ease-out, opacity 300ms ease-out;
 }
@@ -1073,11 +1214,11 @@ kbd {
 }
 
 .kv-key {
-  height: 40px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1.5px solid var(--border-strong);
   background: var(--bg-inset);
 }
@@ -1089,17 +1230,17 @@ kbd {
 }
 
 .chip {
-  height: 40px;
-  min-width: 52px;
+  height: 32px;
+  min-width: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
-  border-radius: 10px;
+  padding: 0 10px;
+  border-radius: 8px;
   border: 1.5px solid var(--border-strong);
   background: var(--bg-inset);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   transition: background-color 300ms ease-out, border-color 300ms ease-out, opacity 300ms ease-out;
 }
@@ -1109,12 +1250,12 @@ kbd {
 /* stack: open at the top. */
 .stack {
   align-self: flex-start;
-  min-width: 96px;
+  min-width: 80px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 18px 12px 8px;
+  padding: 14px 10px 6px;
   border: 1.5px solid var(--border-strong);
   border-top: 0;
   border-radius: 0 0 12px 12px;
@@ -1127,8 +1268,8 @@ kbd {
 }
 
 .stack-item .cell {
-  min-width: 72px;
-  height: 36px;
+  min-width: 56px;
+  height: 30px;
 }
 
 .tag-side {
@@ -1139,13 +1280,13 @@ kbd {
 
 
 .stack-fold {
-  min-width: 72px;
-  height: 36px;
+  min-width: 56px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px dashed var(--border-strong);
   color: var(--fg-muted);
   font-size: 12px;
@@ -1173,11 +1314,11 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-width: 260px;
+  min-width: 200px;
 }
 
 .tube {
-  min-height: 52px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1187,7 +1328,7 @@ kbd {
 }
 
 .tube .cell {
-  height: 40px;
+  height: 32px;
 }
 
 .tube-empty,
@@ -1236,9 +1377,9 @@ kbd {
 .bracket {
   color: var(--edge);
   font-family: var(--font-mono);
-  font-size: 40px;
+  font-size: 32px;
   font-weight: 300;
-  line-height: 40px;
+  line-height: 32px;
 }
 
 .tuple {
@@ -1257,7 +1398,7 @@ kbd {
   color: var(--edge);
   font-family: var(--font-mono);
   font-size: 20px;
-  line-height: 44px;
+  line-height: 34px;
 }
 
 .tuple .bracket {
@@ -1273,17 +1414,17 @@ kbd {
 
 .set-member {
   position: relative;
-  height: 40px;
-  min-width: 48px;
+  height: 32px;
+  min-width: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
-  border-radius: 10px;
+  padding: 0 10px;
+  border-radius: 8px;
   border: 1.5px solid var(--border-strong);
   background: var(--bg-inset);
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 500;
   transition: background-color 300ms ease-out, border-color 300ms ease-out, opacity 300ms ease-out;
 }
@@ -1347,11 +1488,11 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1.5px solid var(--border-strong);
   background: var(--bg-inset);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   transition: background-color 300ms ease-out, border-color 300ms ease-out, box-shadow 300ms ease-out;
@@ -1359,7 +1500,7 @@ kbd {
 
 .heap-node.is-round {
   border-radius: 50%;
-  font-size: 14px;
+  font-size: 12.5px;
 }
 
 .heap-node.is-top {
@@ -1396,15 +1537,15 @@ kbd {
 
 .data-box {
   align-self: flex-start;
-  min-width: 280px;
+  min-width: 220px;
   margin: 0;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg-inset);
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 22px;
+  line-height: 20px;
   transition: border-color 300ms ease-out;
 }
 
@@ -1807,7 +1948,7 @@ tr.diff-removed td {
 .recursion-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 14px;
   font-size: 12px;
   color: var(--fg-muted);
 }
@@ -1837,6 +1978,11 @@ tr.diff-removed td {
   stroke-width: 1.75;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.legend-item svg path.legend-head {
+  fill: var(--done);
+  stroke-width: 1;
 }
 
 /* The Tree / Stack toggle. */
@@ -1923,15 +2069,21 @@ tr.diff-removed td {
 
 .call-label {
   fill: var(--call-text, var(--fg));
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 500;
   text-anchor: middle;
 }
 
+/* "→ 2", after the call on the same line, once it has returned. */
 .call-value {
   fill: var(--done-fg);
-  font-size: 11.5px;
-  text-anchor: middle;
+  animation: fade-in-plain 300ms ease-out both;
+}
+
+@keyframes fade-in-plain {
+  from {
+    opacity: 0;
+  }
 }
 
 .call-edge {
@@ -1952,11 +2104,11 @@ tr.diff-removed td {
   stroke-width: 2;
 }
 
+/* The return arrow's head: one filled triangle, the edge ending at its base. */
 .call-return-head {
-  fill: none;
+  fill: var(--done);
   stroke: var(--done);
-  stroke-width: 1.6;
-  stroke-linecap: round;
+  stroke-width: 1;
   stroke-linejoin: round;
 }
 
@@ -2016,21 +2168,21 @@ tr.diff-removed td {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .call-row {
-  min-height: 46px;
+  min-height: 34px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0 14px;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 8px;
   border: 1.5px solid var(--call-stroke, var(--border));
   background: var(--call-fill, var(--bg-inset));
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12.5px;
   white-space: nowrap;
   transition: background-color 300ms ease-out, border-color 300ms ease-out;
 }
@@ -2235,14 +2387,14 @@ tr.diff-removed td {
 
 .heap .node-value {
   fill: var(--fg);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
   text-anchor: middle;
   pointer-events: none;
 }
 
 .heap .node-value.is-small {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 /* The node the running call is working on. */

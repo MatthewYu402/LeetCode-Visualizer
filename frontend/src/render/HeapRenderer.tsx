@@ -10,10 +10,10 @@ import type { RendererProps } from "./types";
 export const HEAP_TREE_MAX = 31;
 /** Values up to this many characters fit in a circle; a wider value turns every node into a rounded rectangle. */
 const CIRCLE_CHARS = 3;
-const CIRCLE = 40;
-const RECT_H = 34;
-const LEVEL_DY = 70;
-const TOP_PAD = 30; // room for the `top` tag above the root
+const CIRCLE = 32;
+const RECT_H = 28;
+const LEVEL_DY = 56;
+const TOP_PAD = 26; // room for the `top` tag above the root
 
 /**
  * priority-queue: its items are the storage array (spec), so slot i's children are 2i+1 and

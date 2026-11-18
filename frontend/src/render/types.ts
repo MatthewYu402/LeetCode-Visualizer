@@ -13,6 +13,12 @@ export interface RenderContext {
   hint?: Hint;
   /** What this step did to the value ("push 3"), from its diff, for the header's chip (render/ops.ts). */
   op?: string | null;
+  /**
+   * Whether this local's 2D array has rows of different lengths at some step of the run
+   * (raggedLocals, computed once per trace): then it is drawn as rows the whole time, never
+   * switching between a grid and rows as it grows.
+   */
+  ragged?: boolean;
 }
 
 export interface RendererProps {

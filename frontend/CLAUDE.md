@@ -52,7 +52,8 @@ src/
 │   ├── registry.ts      hint -> kind -> fallback
 │   ├── Card.tsx         the header every card shares: name, kind · size, operation chip
 │   ├── ops.ts           operation(value, diff, heap): "push 3", "dequeue 1", "erase key 3", from the diff alone
-│   ├── ArrayRenderer.tsx, MapRenderer.tsx (map, multimap), SequenceRenderer.tsx (stack, queue/deque tube, list, tuple, set/multiset), HeapRenderer.tsx (priority queue), FallbackRenderer.tsx
+│   ├── ArrayRenderer.tsx  array by shape: a contiguous strip, a grid (equal rows of plain values), or rows; raggedLocals (once per trace)
+│   ├── MapRenderer.tsx (map, multimap), SequenceRenderer.tsx (stack, queue/deque tube, list, tuple, set/multiset), HeapRenderer.tsx (priority queue), FallbackRenderer.tsx
 │   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
 │   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
 │   ├── pointers.ts      pointer markers: integer locals the trace's `indexes` pairs with an array, and iterators
@@ -67,7 +68,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 ## Rules
 
 1. **Renderers are pure.** A renderer is a function of `(value, diff, ctx)` for one step. No state, no access to other steps, and it must draw correctly with `diff = null`.
-2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`) and the call tree (`callTree`). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
+2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`), the call tree (`callTree`), and which 2D locals are ever ragged (`raggedLocals`, so a local keeps one drawing). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
 3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `App.tsx` may use it, to pick the editor mode and the starter template. Renderers, diff, and the state panel never see it.
 4. **A diff is shown only after a one-step move forward** (`cameFrom === index - 1`). Step 0, jumps, and moving back draw with no diff.
 5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`.

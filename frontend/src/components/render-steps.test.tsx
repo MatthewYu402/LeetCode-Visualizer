@@ -45,7 +45,7 @@ describe("Two Sum renders every step in isolation", () => {
     expect(header).toContain('<span class="line-pill">Line 7</span>');
     // The header's outcomes: the increment, then the condition.
     expect(header).toMatch(/<span class="outcome-name">i = <\/span>1<\/span><span class="outcome-chip is-true"[^>]*>true</);
-    expect(renderStep(trace, 7, true)).toContain("translate(58px, 0px)"); // i = 1 → one cell and one gap to the right
+    expect(renderStep(trace, 7, true)).toContain("translate(40px, 0px)"); // i = 1 → one joined cell to the right
   });
 
   it("an iterator is a marker on its container, never a card of its own", () => {
@@ -167,7 +167,7 @@ describe("index markers come from the trace's indexes", () => {
     const locals = { nums: { kind: "array", items: [1, 2, 3] }, idx: 2 } as Record<string, Value>;
     const html = draw(frameWith(locals, { f: { idx: ["nums"] } }));
     expect(markers(html)).toEqual(["idx"]);
-    expect(html).toContain("translate(116px, 0px)");
+    expect(html).toContain("translate(80px, 0px)");
   });
 
   it("an index name the trace does not pair with that array draws nothing", () => {
@@ -213,7 +213,7 @@ describe("iterators", () => {
       0,
       false,
     );
-    expect(html).toContain("translate(116px, 0px)"); // index 2 → two cells and two gaps to the right
+    expect(html).toContain("translate(80px, 0px)"); // index 2 → two joined cells to the right
     expect(html).toMatch(/class="tag-pill pointer-name">it</);
     expect(html).toContain("→ nums[2]"); // and its row in the state panel
   });
