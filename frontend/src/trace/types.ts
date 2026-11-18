@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.9).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.10).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -125,7 +125,37 @@ export interface Frame {
 /** One thing a line evaluated (spec §6, Outcomes). `code` and `target` are the user's text, shown as they are and never parsed. */
 export type Outcome =
   | { kind: "condition"; code: string; value: boolean }
-  | { kind: "store"; code: string; target: string; value: Value };
+  | { kind: "store"; code: string; target: string; value: Value }
+  | ReadOutcome;
+
+/**
+ * A cell or entry of a local container that the line read (spec §6, Outcomes): `target` is the
+ * local's name; `at` is the position in an array or deque, one index per level (`[1, 2]` for
+ * dp[1][2], `[1]` for a row), or `key` is the entry's key in a map or set.
+ */
+export interface ReadOutcome {
+  kind: "read";
+  code: string;
+  target: string;
+  at?: number[];
+  key?: Value;
+  value: Value;
+}
+
+/** Where a line read a local container: what the canvas outlines on that local's card. */
+export type ReadAt = { at: number[] } | { key: Value };
+
+/** The running frame's reads, by the local they read. */
+export function readsOf(frame: Frame): Map<string, ReadAt[]> {
+  const out = new Map<string, ReadAt[]>();
+  for (const o of frame.outcomes ?? []) {
+    if (o.kind !== "read") continue;
+    const where: ReadAt | null = o.at ? { at: o.at } : "key" in o ? { key: o.key ?? null } : null;
+    if (!where) continue;
+    out.set(o.target, [...(out.get(o.target) ?? []), where]);
+  }
+  return out;
+}
 
 export interface Step {
   step: number;

@@ -1,4 +1,5 @@
 import { canonical } from "../trace/format";
+import { readsFrom } from "./reads";
 import type { Change } from "../trace/diff";
 import type { ObjectValue, Value } from "../trace/types";
 import { diffClass } from "./ArrayRenderer";
@@ -14,6 +15,7 @@ import type { RendererProps } from "./types";
 export function MapRenderer({ name, value, diff, ctx }: RendererProps) {
   if (typeof value !== "object" || value === null || value.kind !== "map") throw new Error(`MapRenderer got a non-map value for ${name}`);
   const removed = diff?.removedKeys ?? [];
+  const reads = readsFrom(ctx.reads);
   return (
     <section className="structure" aria-label={`${name}: map`}>
       <CardHeader name={name} meta={`hash map · ${value.entries.length}`} op={ctx.op} />
@@ -25,7 +27,7 @@ export function MapRenderer({ name, value, diff, ctx }: RendererProps) {
         </div>
         {value.entries.map(([k, v]) => {
           const key = canonical(k);
-          return <Row key={key} k={k} v={v} status={diff?.keys?.get(key)} heap={ctx.heap} />;
+          return <Row key={key} k={k} v={v} status={diff?.keys?.get(key)} heap={ctx.heap} read={reads.key(key)} />;
         })}
         {removed.map(({ key, value: v }) => (
           <Row key={`removed-${canonical(key)}`} k={key} v={v} status="removed" heap={ctx.heap} />
@@ -36,11 +38,11 @@ export function MapRenderer({ name, value, diff, ctx }: RendererProps) {
   );
 }
 
-function Row({ k, v, status, heap }: { k: Value; v: Value; status?: Change; heap?: Record<string, ObjectValue> }) {
+function Row({ k, v, status, heap, read = false }: { k: Value; v: Value; status?: Change; heap?: Record<string, ObjectValue>; read?: boolean }) {
   const key = itemText(k, heap);
   const val = itemText(v, heap);
   return (
-    <div className={`kv-row ${diffClass(status)}`} role="row">
+    <div className={`kv-row ${diffClass(status)}${read ? " is-read" : ""}`} role="row">
       <span role="cell" title={key.title}>
         {key.text}
       </span>
@@ -81,6 +83,7 @@ export function MultimapRenderer({ name, value, diff, ctx }: RendererProps) {
     r.chips.push({ v, status: diff?.entries?.[i], key: `e${i}` });
   });
   (diff?.removedKeys ?? []).forEach(({ key, value: v }, i) => row(key).chips.push({ v, status: "removed", key: `removed-${i}` }));
+  const reads = readsFrom(ctx.reads);
 
   return (
     <section className="structure" aria-label={`${name}: multimap`}>
@@ -94,7 +97,7 @@ export function MultimapRenderer({ name, value, diff, ctx }: RendererProps) {
         {[...rows.entries()].map(([c, r]) => {
           const key = itemText(r.k, ctx.heap);
           return (
-            <div key={c} className={`kv-row ${r.live ? "" : "diff-removed"}`} role="row">
+            <div key={c} className={`kv-row ${r.live ? "" : "diff-removed"}${reads.key(c) ? " is-read" : ""}`} role="row">
               <span role="cell" className="kv-key" title={key.title}>
                 {key.text}
               </span>

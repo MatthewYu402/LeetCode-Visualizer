@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { matchByCount, type Change } from "../trace/diff";
 import { canonical, formatValue } from "../trace/format";
+import { readsFrom } from "./reads";
 import { isRef, nodeLabel } from "../trace/heap";
 import { hasItems, type ObjectValue, type Value } from "../trace/types";
 import { diffClass } from "./ArrayRenderer";
@@ -280,6 +281,7 @@ export function SetRenderer({ name, value, diff, ctx }: RendererProps) {
   });
   const ghosts = before ? [...before.entries()].filter(([c]) => !now.has(c)).map(([c, { v }]) => ({ c, v })) : [];
   const size = value.items.length;
+  const reads = readsFrom(ctx.reads);
 
   return (
     <section className="structure" aria-label={`${name}: ${value.kind}`}>
@@ -295,7 +297,7 @@ export function SetRenderer({ name, value, diff, ctx }: RendererProps) {
               <motion.span
                 key={c}
                 layout
-                className={`set-member ${diffClass(status)}`}
+                className={`set-member ${diffClass(status)}${reads.key(c) ? " is-read" : ""}`}
                 title={title}
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}

@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { ValueDiff } from "../trace/diff";
-import type { Hint, ObjectValue, Value } from "../trace/types";
+import type { Hint, ObjectValue, ReadAt, Value } from "../trace/types";
 
 export interface RenderContext {
   /** Every local in the step being drawn. Used for pointer markers. */
@@ -19,6 +19,8 @@ export interface RenderContext {
    * switching between a grid and rows as it grows.
    */
   ragged?: boolean;
+  /** Where the running line read this local (its `read` outcomes): the cells, rows, or entries outlined, for this step only. */
+  reads?: ReadAt[];
 }
 
 export interface RendererProps {

@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.7
+> **Status:** Draft v0.8
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -320,6 +320,27 @@ for (int i = ::trace::stored<int>(7, "int i = 0", "i", 0); ::trace::cond(7, "...
 - **What is not recorded.** Stores inside larger expressions (`x = y = 0` records `x` only; `a[i++] = x` records `a[i++]`, not `i`); a value with no serializer (an iterator: the `Serializable` concept drops it, as for locals); `vector<bool>`'s elements, which are proxies, not references; conditions of `switch`, `if constexpr`, and constant `?:`; and the parts of `&&` and `||`.
 - **Loop headers.** For a loop's condition to have a step to go on, each check of a loop's header is a step on the header's line. A `for` loop's later steps are taken at the start of the increment, before it runs, so the step still shows `i = 0` while its outcomes say `i = 1` and `i < n: true`, like every other step: the state before the line, and what the line did.
 
+### 4.8 Reads: the cells a line used
+
+A `read` outcome (spec v0.10) says which cell of a local container the running line read: `dp[i - 1][j - 1]` in LCS, `nums[i]` in Subsets, the entry `numMap.find(complement)` found. The rewriter wraps each read in a call that returns the element itself, so the user's expression is evaluated once, as written:
+
+```cpp
+dp[i][j] = ::trace::rd(9, "dp[i - 1][j - 1]", "dp", dp, dp[i - 1][j - 1]) + 1;
+auto it = ::trace::rf(11, "numMap.find(complement)", "numMap", numMap, numMap.find(complement));
+if (::trace::rc(4, "memo.count(n)", "memo", memo, (n), memo.count(n))) return ::trace::rk(4, "memo[n]", "memo", memo, memo[n]);
+```
+
+| Helper | For | How the position is found |
+|---|---|---|
+| `rd` | `a[i]`, `a[i][j]`, `a.at(i)`, a row `a[i]` | By the element's address: the runtime looks for it in the container, level by level. `vector<bool>` has no addresses, so the rewriter also passes the indexes, but only when they have no side effects |
+| `rk` | `m[k]`, `m.at(k)` on a map | By the value's address among the entries |
+| `rf` | `m.find(k)`, `s.find(k)` | The iterator's entry, when it is not `end` |
+| `rc` | `m.count(k)`, `m.contains(k)`, and the same on sets | When the result is nonzero, the entry `find(k)` reaches; the key must have no side effects |
+
+- **A read, not a write.** Not wrapped: the left side of an assignment, the operand of `++`, `--`, or `&`, an argument bound to a non-const reference, the object of a non-const member call (`dp[i].push_back(x)`), and a binding to a non-const reference. Wrapped: an operand anywhere else, a `->` member, the object of a const method or a conversion (`used[i]` as a `bool`), and `return a[i]` unless the function returns a non-const reference.
+- **Where it goes.** Like every outcome (§4.7): on the frame's last step, when that step is on the read's line and is not a return step. A read after a call on the same line (`res = max(res, dfs(i) + nums[i])`) still lands on the caller's step. At most 16 reads per step; the rest are dropped.
+- **What is not recorded.** Strings (`s[i]` is a character, not a cell the frontend draws), bitsets, iterators and range-`for` (no position is named), `front`/`back`/`top`, and containers that are not locals of the running function.
+
 ## 5. Normalization: C++ types to kinds
 
 | C++ type | Kind |
@@ -416,7 +437,7 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.9"`) |
+| `version` | Always | The `VERSION` constant (`"0.10"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `indexes` | Only when some function registered an entry | `tracer.indexes`: each function's entry, from its `Frame` (§8.1), keyed by function name |
@@ -484,6 +505,7 @@ The file is parsed with the driver's prelude, the same flags the program is comp
 | After the `{` of every other block | `::trace::Scope trace_scope_(LINE);`, with the line of the `if`, `for`, or `while` that owns it |
 | Around an unbraced body (`if (x) y++;`, an `else if`) | `{ ` and ` }`, so it has a block for the above |
 | `return expr;` | `return ::trace::ret<T>(LINE, expr, vars...);`, with `T` the declared return type |
+| Around a read of a local container's cell or entry (§4.8) | `::trace::rd(LINE, "code", "dp", dp, dp[i][j])`, or `rk`, `rf`, `rc` for maps and sets |
 | `return;`, and the closing `}` of a `void` function | `::trace::ret_void(LINE, vars...);` before it |
 
 **Which functions:** the methods of class `Solution` and free functions, defined in the main file. Not constructors, destructors, operators (comparators), other classes' methods, or lambdas.
@@ -511,6 +533,8 @@ The scope is a stack of name lists: the parameters, then one list per block, and
 **Iterators are paired with a container.** For each variable declared or assigned (`auto it = m.find(x);`, `it = s.lower_bound(v);`), the walk looks for the container in the initializer: the object of a `begin`, `end`, `cbegin`, `cend`, `find`, `lower_bound`, `upper_bound`, `erase`, `insert`, `emplace`, or `emplace_hint` call, or the argument of a free `begin`/`end`. If exactly one visible variable is found, the variable's later `var(...)` becomes `var_iter("it", it, "m", m)`. An assignment with no container (`it = f();`) clears the pairing. The runtime decides whether the type really is that container's iterator (§5.1), so `int i = v.size();`-like lookalikes that pass the syntax check (`auto n = m.find(x)->second;`) are written as ordinary locals.
 
 **Indexes are read before the body is walked.** `indexesOf` looks at every subscript in the function's body, `v[expr]` (a built-in array, or an `operator[]` call) and `v.at(expr)`, where `v` names a local container that a position counts into: `std::vector`, `std::array`, `std::deque`, `std::basic_string`, `std::bitset`, or a built-in array. Every integer local named anywhere in `expr` (not a `bool`, a character, or an enum) is paired with `v`. Only a container named directly counts, so `grid[r][c]` pairs `r` with `grid` and nothing with `c`. Lambdas are skipped, like everything the rewriter does not instrument. The result goes into the function's `Frame` as the JSON text of its entry ([`trace-format.md` §3, Indexes](../trace-format.md#indexes)), so it costs nothing per step.
+
+**Reads are wrapped after the body is walked.** `wrapReads` walks the function again and finds every subscript chain, `at`, `find`, `count`, and `contains` whose object is a local container (§4.8), and decides from the expression's parent whether it is read or written. It runs last so that its openings nest inside the outcome calls already inserted at the same position (`InsertText` with `InsertAfter` for openings, before for closings). Lambdas are skipped. The line is the line where the expression starts.
 
 **A `switch` body** gets records but no `Scope`: a jump to a `case` label may not skip a variable's initialization, and the guard is a variable. The `record` for `case 1: x = 2;` goes after the label, so it stays in that case.
 

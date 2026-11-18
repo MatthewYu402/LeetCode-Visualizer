@@ -309,6 +309,213 @@ namespace rewriter {
     return json + "}";
   }
 
+  // ======================================================================
+  // Reads (trace-format.md, Outcomes: read)
+  // ======================================================================
+
+  namespace {
+    enum class Holds { Nothing, Indexed, Map, Set };
+
+    // What a local's type is, for reads: indexed by position (vector, array, deque,
+    // a built-in array), a map, or a set. Strings and bitsets are not containers in
+    // a trace (a string is a value), so they hold Nothing here.
+    Holds holds(QualType type) {
+      type = type.getNonReferenceType().getCanonicalType();
+      if (type->isConstantArrayType()) return Holds::Indexed;
+      const CXXRecordDecl *record = type->getAsCXXRecordDecl();
+      if (record == nullptr || !record->isInStdNamespace()) return Holds::Nothing;
+      const std::string name = record->getNameAsString();
+      if (name == "vector" || name == "array" || name == "deque") return Holds::Indexed;
+      if (name == "map" || name == "unordered_map" || name == "multimap" || name == "unordered_multimap") return Holds::Map;
+      if (name == "set" || name == "unordered_set" || name == "multiset" || name == "unordered_multiset") return Holds::Set;
+      return Holds::Nothing;
+    }
+
+    // A local or parameter of the function, named directly.
+    const VarDecl *localVar(const Expr *expr) {
+      const auto *ref = dyn_cast<DeclRefExpr>(expr->IgnoreParenImpCasts());
+      const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+      if (var == nullptr || !var->isLocalVarDeclOrParm() || var->getName().empty() || isa<DecompositionDecl>(var)) return nullptr;
+      return var;
+    }
+
+    // `base[index]` in any of its forms: a built-in array, operator[], or at().
+    bool subscript(const Expr *expr, const Expr *&base, const Expr *&index) {
+      expr = expr->IgnoreParens();
+      if (const auto *s = dyn_cast<ArraySubscriptExpr>(expr)) {
+        base = s->getBase();
+        index = s->getIdx();
+        return true;
+      }
+      if (const auto *call = dyn_cast<CXXOperatorCallExpr>(expr); call && call->getOperator() == OO_Subscript && call->getNumArgs() == 2) {
+        base = call->getArg(0);
+        index = call->getArg(1);
+        return true;
+      }
+      if (const auto *call = dyn_cast<CXXMemberCallExpr>(expr); call && call->getNumArgs() == 1) {
+        if (const CXXMethodDecl *method = call->getMethodDecl(); method && method->getNameAsString() == "at") {
+          base = call->getImplicitObjectArgument();
+          index = call->getArg(0);
+          return true;
+        }
+      }
+      return false;
+    }
+
+    bool skippable(const Stmt *node) {
+      return isa<ParenExpr, ImplicitCastExpr, MaterializeTemporaryExpr, CXXBindTemporaryExpr, ExprWithCleanups, CXXFunctionalCastExpr>(node);
+    }
+  }
+
+  void Instrumenter::wrapReads(const FunctionDecl *fn) {
+    const QualType returns = fn->getReturnType();
+    const bool returns_ref = returns->isLValueReferenceType() && !returns.getNonReferenceType().isConstQualified();
+
+    // Whether the value of `expr`, whose ancestors (nearest last) are `up`, is read:
+    // not written to, not passed or bound where it can be changed, not the object of a call.
+    auto readForValue = [&](const Expr *expr, const std::vector<const Stmt *> &up) -> bool {
+      const Expr *child = expr;
+      for (auto it = up.rbegin(); it != up.rend(); ++it) {
+        const Stmt *parent = *it;
+        if (skippable(parent)) {
+          child = cast<Expr>(parent);
+          continue;
+        }
+        if (const auto *op = dyn_cast<BinaryOperator>(parent)) return !(op->isAssignmentOp() && op->getLHS()->IgnoreParens() == child);
+        if (const auto *op = dyn_cast<UnaryOperator>(parent)) return !(op->isIncrementDecrementOp() || op->getOpcode() == UO_AddrOf);
+        if (const auto *member = dyn_cast<MemberExpr>(parent)) {
+          if (member->isArrow()) return true;  // a pointer, read to follow it
+          // `.size()`, `.first`: a call on the element is judged by the call (below); a field is
+          // judged by what is done with the field, so walk on up from the member.
+          const auto next = std::next(it);
+          if (next != up.rend())
+            if (const auto *mc = dyn_cast<CXXMemberCallExpr>(*next); mc && mc->getCallee()->IgnoreParens() == member) {
+              const CXXMethodDecl *method = mc->getMethodDecl();
+              return method != nullptr && (method->isConst() || isa<CXXConversionDecl>(method));
+            }
+          child = member;
+          continue;
+        }
+        if (const auto *call = dyn_cast<CXXOperatorCallExpr>(parent)) {
+          const OverloadedOperatorKind k = call->getOperator();
+          const bool assigns = k == OO_Equal || k == OO_PlusEqual || k == OO_MinusEqual || k == OO_StarEqual || k == OO_SlashEqual || k == OO_PercentEqual ||
+                               k == OO_PlusPlus || k == OO_MinusMinus || k == OO_AmpEqual || k == OO_PipeEqual || k == OO_CaretEqual || k == OO_LessLessEqual ||
+                               k == OO_GreaterGreaterEqual;
+          if (call->getNumArgs() > 0 && call->getArg(0)->IgnoreParenImpCasts() == child->IgnoreParenImpCasts() && assigns) return false;
+        }
+        if (const auto *call = dyn_cast<CallExpr>(parent)) {
+          // The object of a member call is read by a const method or a conversion (`if (used[i])`
+          // turns a vector<bool> bit into a bool); a non-const one (`push_back`) may change it.
+          if (const auto *mc = dyn_cast<CXXMemberCallExpr>(call); mc && mc->getImplicitObjectArgument()->IgnoreParenImpCasts() == child->IgnoreParenImpCasts()) {
+            const CXXMethodDecl *method = mc->getMethodDecl();
+            return method != nullptr && (method->isConst() || isa<CXXConversionDecl>(method));
+          }
+          const FunctionDecl *callee = call->getDirectCallee();
+          const unsigned shift = isa<CXXOperatorCallExpr>(call) && isa_and_nonnull<CXXMethodDecl>(callee) ? 1 : 0;  // a member operator's arg 0 is the object
+          for (unsigned a = 0; a < call->getNumArgs(); ++a) {
+            if (call->getArg(a) != child) continue;
+            if (shift && a == 0) return false;  // the object of a member operator
+            if (callee == nullptr || a - shift >= callee->getNumParams()) return true;
+            const QualType param = callee->getParamDecl(a - shift)->getType();
+            return !(param->isReferenceType() && !param.getNonReferenceType().isConstQualified());
+          }
+          return true;
+        }
+        if (const auto *construct = dyn_cast<CXXConstructExpr>(parent)) {
+          const CXXConstructorDecl *ctor = construct->getConstructor();
+          for (unsigned a = 0; a < construct->getNumArgs() && ctor; ++a) {
+            if (construct->getArg(a) != child || a >= ctor->getNumParams()) continue;
+            const QualType param = ctor->getParamDecl(a)->getType();
+            return !(param->isReferenceType() && !param.getNonReferenceType().isConstQualified());
+          }
+          return true;
+        }
+        if (const auto *decls = dyn_cast<DeclStmt>(parent)) {
+          for (const Decl *d : decls->decls())
+            if (const auto *var = dyn_cast<VarDecl>(d); var && var->getInit() && var->getInit()->IgnoreImplicit() == child->IgnoreImplicit())
+              return !(var->getType()->isReferenceType() && !var->getType().getNonReferenceType().isConstQualified());
+          return true;
+        }
+        if (isa<ReturnStmt>(parent)) return !returns_ref;
+        return true;
+      }
+      return true;
+    };
+
+    auto wrap = [&](const Expr *expr, const std::string &open, const std::string &close) {
+      const SourceLocation begin = expr->getBeginLoc();
+      const SourceLocation end = Lexer::getLocForEndOfToken(expr->getEndLoc(), 0, sources_, context_.getLangOpts());
+      if (!editable(begin) || !editable(end)) return;
+      rewriter_.InsertText(begin, open, /*InsertAfter=*/true, /*indentNewLines=*/false);   // inside wrappers already opened here
+      rewriter_.InsertText(end, close, /*InsertAfter=*/false, /*indentNewLines=*/false);   // inside wrappers already closed here
+    };
+
+    std::vector<const Stmt *> up;
+    std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
+      if (node == nullptr || isa<LambdaExpr>(node)) return;
+      if (const auto *expr = dyn_cast<Expr>(node)) {
+        const std::string where = std::to_string(line(expr->getBeginLoc()));
+        const Expr *base = nullptr, *index = nullptr;
+        const Stmt *parent = up.empty() ? nullptr : up.back();
+        const Expr *pb = nullptr, *pi = nullptr;
+        const bool continued = parent && isa<Expr>(parent) && subscript(cast<Expr>(parent), pb, pi) && pb->IgnoreParenImpCasts() == expr;
+        if (!continued && subscript(expr, base, index)) {
+          // A chain dp[i][j]: one read, of the whole chain, from its innermost base.
+          std::vector<const Expr *> indexes{index};
+          const Expr *b = base;
+          while (true) {
+            const Expr *bb = nullptr, *bi = nullptr;
+            if (!subscript(b->IgnoreParenImpCasts(), bb, bi)) break;
+            indexes.insert(indexes.begin(), bi);
+            b = bb;
+          }
+          const VarDecl *var = localVar(b);
+          const Holds kind = var ? holds(var->getType()) : Holds::Nothing;
+          const std::string code = sourceText(expr->getSourceRange());
+          const bool chained_map = kind == Holds::Map && indexes.size() > 1;
+          if (var && !code.empty() && !chained_map && (kind == Holds::Indexed || kind == Holds::Map) && readForValue(expr, up)) {
+            const std::string name = var->getNameAsString();
+            if (kind == Holds::Map) {
+              wrap(expr, "::trace::rk(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", ")");
+            } else if (!expr->isPRValue()) {
+              wrap(expr, "::trace::rd(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", ")");
+            } else {
+              // An element with no address (vector<bool>): its indexes, when evaluating them again changes nothing.
+              std::string extra;
+              bool pure = true;
+              for (const Expr *i : indexes) {
+                const std::string text = sourceText(i->getSourceRange());
+                if (text.empty() || i->HasSideEffects(context_, /*IncludePossibleEffects=*/true)) pure = false;
+                extra += ", (" + text + ")";
+              }
+              if (pure) wrap(expr, "::trace::rd(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", extra + ")");
+            }
+          }
+        } else if (const auto *call = dyn_cast<CXXMemberCallExpr>(expr); call && call->getNumArgs() == 1 && call->getMethodDecl()) {
+          // A lookup in a map or set: count, contains, or find.
+          const std::string method = call->getMethodDecl()->getNameAsString();
+          const VarDecl *var = localVar(call->getImplicitObjectArgument());
+          const Holds kind = var ? holds(var->getType()) : Holds::Nothing;
+          const std::string code = sourceText(expr->getSourceRange());
+          if (var && !code.empty() && (kind == Holds::Map || kind == Holds::Set)) {
+            const std::string name = var->getNameAsString();
+            const Expr *key = call->getArg(0);
+            const std::string key_text = sourceText(key->getSourceRange());
+            if (method == "find") {
+              wrap(expr, "::trace::rf(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", ", ")");
+            } else if ((method == "count" || method == "contains") && !key_text.empty() && !key->HasSideEffects(context_, /*IncludePossibleEffects=*/true)) {
+              wrap(expr, "::trace::rc(" + where + ", " + literal(code) + ", " + literal(name) + ", " + name + ", (" + key_text + "), ", ")");
+            }
+          }
+        }
+      }
+      up.push_back(node);
+      for (const Stmt *child : node->children()) walk(child);
+      up.pop_back();
+    };
+    walk(fn->getBody());
+  }
+
   bool Instrumenter::traverseFunction(FunctionDecl *fn, const std::function<bool()> &walk_normally) {
     if (!shouldInstrument(fn)) {
       const bool saved = active_;
@@ -347,6 +554,7 @@ namespace rewriter {
       if (returns_void_ && editable(body->getRBracLoc()))
         insert(body->getRBracLoc(), "::trace::ret_void(" + std::to_string(line(body->getRBracLoc())) + varArgs() + "); ");
     });
+    wrapReads(fn);
 
     active_ = saved_active;
     returns_void_ = saved_void;

@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.10 (reads trace format v0.9)
+> **Status:** Draft v0.11 (reads trace format v0.10)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -106,10 +106,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.9"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.10"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.9 only.
+Unsupported trace version "0.2". This frontend reads version 0.10 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
@@ -201,7 +201,21 @@ The drawing comes from the value's shape alone, never from guessing what the pro
 
 Whether a 2D local is a grid or rows is decided **once per run** (`raggedLocals`, computed when the trace loads, like the layout of linked structures): a local whose rows differ at any step is drawn as rows at every step. Level Order's `result` is `[[3]]` before it is `[[3], [9, 20]]`; without this it would start as a 1 × 1 grid and then turn into rows.
 
-Column markers are not drawn: `indexes` pairs `i` with `dp` in `dp[i][j]` but records nothing for `j`, which indexes `dp[i]` ([trace-format.md §3, Indexes](trace-format.md#indexes)).
+Column markers are not drawn: `indexes` pairs `i` with `dp` in `dp[i][j]` but records nothing for `j`, which indexes `dp[i]` ([trace-format.md §3, Indexes](trace-format.md#indexes)). What a line read is drawn instead ([Reads](#reads)).
+
+#### Reads
+A cell or entry that the running line **read** gets a dashed `--accent` outline, for that step only. It comes from the top frame's `read` outcomes (trace format v0.10, spec §6), which `readsOf(frame)` groups by the local they read; `VisualPanel` hands each card its own (`ctx.reads`), and `render/reads.ts` turns them into lookups. Nothing is guessed from the code or the values.
+
+| Read | Outlined |
+|---|---|
+| `at: [i]` of a 1D array | Cell `i` |
+| `at: [r, c]` of a grid or of rows | The cell at row `r`, column `c` |
+| `at: [r]` of a grid (`dp[i - 1]` passed or bound as a row) | The whole row `r`, one outline over it |
+| `at: [r]` of rows | Row `r`'s strip |
+| `key` of a map or multimap | That key's row |
+| `key` of a set or multiset | That member |
+
+The outline sits inside a cell's diff ring, so a cell that one line reads and writes (`dp[i] = min(dp[i], dp[i - c] + 1)`) shows both. A read is drawn on every step that has it, whatever the move was (a jump, a step back), because it is part of the step, not of the diff; only the diff colours wait for a one-step move forward. Backtracking needs nothing special: a step is drawn from its own top frame, so after a call returns, the caller's pop is a diff like any other and its next `nums[i]` is outlined like the first one. Reads are not chips in the state panel: the canvas shows them where they are.
 
 The canvas draws, top to bottom: one card per linked structure of the step's heap, one card per other **container local** of the running frame (a tagged kind other than `int`, `float`, `ref`, and `object`) in the order the trace lists them, and, at the bottom, the calls card when one call made another ([Section 6.6](#66-calls)). A `ref` inside a container (a queue of nodes, a map from node to clone) shows its node's value, with the id on hover.
 
@@ -370,7 +384,7 @@ The player holds `{ index, cameFrom, playing }`. All transitions are a pure redu
 ## 9. State panel
 - **Header:** `Step N of M`, counted from 1 like the playback bar, with a thin progress bar, plus a `truncated` badge when the trace sets `"truncated": true`.
 - **The running line:** a muted `Line i` pill, the statement on that line as written (trimmed, cut with `…` when long), an arrow, and a chip for what the line produced. The statement comes from the code the run was made from, kept with the run's result, so editing the code afterwards does not put other text beside the trace's line numbers.
-- **Chips** come from the top frame's `outcomes` (trace format v0.8, spec §6) in order: a condition is a green `true` or a muted red `false` (the condition's code on hover); a store is `name = value`. In a return step the chip is purple: `returns [0, 1]`, or just `returns` for a function that returns nothing (every return step of it has `return_value: null`, `voidFunctions`). A line with nothing recorded shows the pill and the statement only, so traces from adapters that do not record outcomes yet still read well.
+- **Chips** come from the top frame's `outcomes` (trace format v0.8, spec §6) in order, except reads, which are drawn on the canvas ([Reads](#reads)): a condition is a green `true` or a muted red `false` (the condition's code on hover); a store is `name = value`. In a return step the chip is purple: `returns [0, 1]`, or just `returns` for a function that returns nothing (every return step of it has `return_value: null`, `voidFunctions`). A line with nothing recorded shows the pill and the statement only, so traces from adapters that do not record outcomes yet still read well.
 - **Locals:** `Locals in twoSum`, then a full-width rounded table: Name, Kind, Value. The kind of a bare number is `int` when it is an integer and `float` otherwise; strings, booleans, and `null` show `string`, `bool`, and `null`. A `ref` shows its node's value (`→ 7`), with the id on hover, so the table never shows heap ids.
 - **Rows** use the diff colours: an added local has a green bar and tint, a changed one amber. A local that went out of scope is shown faded with its last value and `out of scope` beside it, for one step.
 - **Returns and result:** what a return step returns is only the purple chip on the running line; the table lists locals, and a return value is not one. On the last step, `result` is a purple row under the locals; a void method shows `returned, no value`; a run that did not finish says why, muted (never as a wrong answer).
@@ -494,3 +508,4 @@ Planned for later versions, not designed here:
 
 > **Q20. Why are the cards compact?** Recursion trees, DP tables and graphs need room, and at the first sizes (44 px cells, 46 px recursion boxes) a fib(5) tree or a 6 × 4 table did not fit the canvas. Everything shrank to about 75%, the same for every card so the canvas stays one system; text stays at 10.5 px or more. A density switch was considered and left out: one size that fits is simpler than a setting.
 
+> **Q21. Why are reads outlined on the canvas and not listed as chips?** A read says where a value came from, and a place is better shown than written: `dp[2][3]` as a chip makes the reader find row 2 and column 3, while an outline is already there. A chip row for LCS would also grow to three or four entries on every step and push out the conditions and stores, which are what the line *did*. The outline is dashed, and in the accent colour, so it does not look like a diff: amber and green mean changed and added, and a read changes nothing.

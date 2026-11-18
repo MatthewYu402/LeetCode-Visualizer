@@ -77,7 +77,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.9"} ;
+  inline constexpr const char* VERSION  {"0.10"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -700,6 +700,7 @@ namespace trace {
     int line = 0;               // the top frame's line
     bool returning = false;     // a return step takes no outcomes
     std::vector<Json> outcomes; // in the order they were evaluated
+    std::size_t reads = 0;      // read outcomes among them, at most max_reads
   };
 
   // A store whose value is read when its statement has finished (track, flush).
@@ -718,6 +719,8 @@ namespace trace {
     std::vector<StepSource> sources; // what each step was built from, same indices as steps
     std::vector<PendingStore> pending; // stores tracked in the statement now running
     static constexpr std::size_t max_steps = 2000;
+    // trace-format.md, Outcomes: at most this many reads per step; later ones are dropped.
+    static constexpr std::size_t max_reads = 16;
     bool truncated = false;
     std::string version {VERSION};
     std::string language {LANGUAGE};
@@ -1244,6 +1247,161 @@ namespace trace {
     for (const PendingStore& p : mine) {
       add_outcome(p.line, [&](Ctx& ctx) { return store_outcome(p.code, p.target, p.value(ctx)); });
     }
+  }
+
+  // ---- Reads: which cell or entry a line read (trace-format.md, Outcomes) ----
+  //
+  // A read of a local container, used for its value, is wrapped so the runtime
+  // sees the element the program reads and hands that same element back:
+  //
+  //   dp[i] = min(dp[i], ::trace::rd(9, "dp[i - coin]", "dp", dp, dp[i - coin]) + 1);
+  //   if (::trace::cond(8, "...", (::trace::rc(8, "numMap.count(c)", "numMap", numMap, c, numMap.count(c))))) {
+  //   auto it = ::trace::rf(7, "numMap.find(x)", "numMap", numMap, numMap.find(x));
+  //   return ::trace::rk(12, "memo[n]", "memo", memo, memo[n]);
+  //
+  // Which cell was read is found from the element's ADDRESS in its container,
+  // so no index expression is evaluated a second time. Only an element without
+  // an address (vector<bool>'s proxy) needs its indexes, and the rewriter passes
+  // them only when evaluating them again cannot change anything.
+
+  namespace detail {
+    template <typename C>
+    concept StringLike = requires { typename C::traits_type; };
+
+    // Indexed by position, element by element: vector, deque, array, a built-in array.
+    template <typename C>
+    concept Indexed = std::is_array_v<C> || (requires(const C& c) { c.size(); c[0]; typename C::value_type; } && !StringLike<C>);
+
+    template <typename C>
+    concept MapLike = requires { typename C::key_type; typename C::mapped_type; };
+
+    template <typename C>
+    std::size_t length(const C& c) {
+      if constexpr (std::is_array_v<C>) return std::extent_v<C>;
+      else return c.size();
+    }
+
+    // The path of indexes from `c` to the element at `addr`, through nested indexed
+    // containers: [3] for nums[3], [1, 2] for dp[1][2]. False when it is not in `c`.
+    template <typename C>
+    bool locate(const C& c, const void* addr, std::vector<long long>& at) {
+      if constexpr (Indexed<C>) {
+        using E = std::remove_cvref_t<decltype(c[0])>;
+        if constexpr (!std::is_same_v<C, std::vector<bool>>) {
+          for (std::size_t i = 0; i < length(c); ++i) {
+            if (static_cast<const void*>(std::addressof(c[i])) == addr) {
+              at.push_back(static_cast<long long>(i));
+              return true;
+            }
+            if constexpr (Indexed<E>) {
+              at.push_back(static_cast<long long>(i));
+              if (locate(c[i], addr, at)) return true;
+              at.pop_back();
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    // The step a read on `line` goes on, or nullptr: the running frame's last
+    // step, on that line, not a return step, with room for another read.
+    inline StepSource* read_step(int line) {
+      if (tracer.frames.empty()) return nullptr;
+      const std::size_t index = tracer.frames.back().last_step;
+      if (index >= tracer.sources.size() || index >= tracer.steps.size()) return nullptr;
+      StepSource& source = tracer.sources[index];
+      if (source.returning || source.line != line || source.reads >= Tracer::max_reads) return nullptr;
+      return &source;
+    }
+
+    inline void add_read(int line, const std::function<Json(Ctx&)>& outcome) {
+      StepSource* source = read_step(line);
+      if (source == nullptr) return;
+      ++source->reads;
+      add_outcome(line, outcome);
+    }
+
+    inline Json read_outcome(const char* code, const char* target, const std::string& where, const Json& value) {
+      return std::format(R"({{"kind": "read", "code": {}, "target": {}, {}, "value": {}}})", quote(code), quote(target), where, value);
+    }
+
+    inline std::string at_field(const std::vector<long long>& at) {
+      std::string out = R"("at": [)";
+      for (std::size_t i = 0; i < at.size(); ++i) out += (i ? ", " : "") + std::to_string(at[i]);
+      return out + "]";
+    }
+  }
+
+  // An element of an indexed container, read for its value: records its
+  // position and value, and hands the element back as it came.
+  template <typename C, typename E, typename... I>
+  decltype(auto) rd(int line, const char* code, const char* target, const C& container, E&& elem, I... index) {
+    using Elem = std::remove_cvref_t<E>;
+    constexpr bool proxy = std::is_same_v<Elem, std::vector<bool>::reference>;
+    if constexpr (Serializable<std::remove_cvref_t<C>> && (Serializable<Elem> || proxy)) {
+      if (detail::read_step(line) != nullptr) {
+        std::vector<long long> at;
+        bool found = false;
+        if constexpr (sizeof...(I) > 0) {
+          (at.push_back(static_cast<long long>(index)), ...);
+          found = true;
+        } else if constexpr (std::is_lvalue_reference_v<E&&>) {
+          found = detail::locate(container, std::addressof(elem), at);
+        }
+        if (found) {
+          // vector<bool>'s proxy reads as the bool it stands for
+          using Value = std::conditional_t<std::is_same_v<Elem, std::vector<bool>::reference>, bool, Elem>;
+          const Value value = elem;
+          detail::add_read(line, [&](Ctx& ctx) { return detail::read_outcome(code, target, detail::at_field(at), serialize(value, ctx)); });
+        }
+      }
+    }
+    return std::forward<E>(elem);
+  }
+
+  // A map's value read through [] or at(): records its key and value.
+  template <typename M, typename V>
+  V& rk(int line, const char* code, const char* target, const M& map, V& value) {
+    if constexpr (detail::MapLike<M> && Serializable<M>) {
+      if (detail::read_step(line) != nullptr) {
+        for (const auto& entry : map) {
+          if (std::addressof(entry.second) != std::addressof(value)) continue;
+          detail::add_read(line, [&](Ctx& ctx) {
+            const Json key = serialize(entry.first, ctx);
+            return detail::read_outcome(code, target, R"("key": )" + key, serialize(entry.second, ctx));
+          });
+          break;
+        }
+      }
+    }
+    return value;
+  }
+
+  // The entry an iterator from find() points at, if it found one.
+  template <typename M, typename It>
+  It rf(int line, const char* code, const char* target, const M& container, It it) {
+    if constexpr (Serializable<M>) {
+      if (it != container.end() && detail::read_step(line) != nullptr) {
+        detail::add_read(line, [&](Ctx& ctx) {
+          if constexpr (detail::MapLike<M>) return detail::read_outcome(code, target, R"("key": )" + serialize(it->first, ctx), serialize(it->second, ctx));
+          else {
+            const Json member = serialize(*it, ctx);
+            return detail::read_outcome(code, target, R"("key": )" + member, member);
+          }
+        });
+      }
+    }
+    return it;
+  }
+
+  // count() or contains() that found the key: records the entry it found.
+  template <typename M, typename K, typename R>
+  R rc(int line, const char* code, const char* target, const M& container, const K& key, R result) {
+    if constexpr (Serializable<M>) {
+      if (static_cast<bool>(result) && detail::read_step(line) != nullptr) rf(line, code, target, container, container.find(key));
+    }
+    return result;
   }
 
   // Pushes a frame for one call, and pops it when the call ends.

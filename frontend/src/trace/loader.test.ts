@@ -6,16 +6,16 @@ import { problemTitle, returnsVoid, runEnd } from "./types";
 const withVersion = (version: string) => JSON.stringify({ ...JSON.parse(twoSum), version });
 
 describe("loadTrace", () => {
-  it("accepts version 0.9 (the Two Sum fixture)", () => {
+  it("accepts version 0.10 (the Two Sum fixture)", () => {
     const r = loadTrace(twoSum);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.trace.steps).toHaveLength(12);
   });
 
-  it.each(["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.10", "1.0", "1.7"])("rejects version %s with an error", (v) => {
+  it.each(["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.11", "1.0", "1.7"])("rejects version %s with an error", (v) => {
     const r = loadTrace(withVersion(v));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe(`Unsupported trace version "${v}". This frontend reads version 0.9 only.`);
+    if (!r.ok) expect(r.error).toBe(`Unsupported trace version "${v}". This frontend reads version 0.10 only.`);
   });
 
   it("accepts a trace with no result: the run did not finish", () => {
@@ -35,7 +35,7 @@ describe("loadTrace", () => {
   });
 
   it("rejects text that is not JSON in a 0.8 trace too", () => {
-    expect(loadTrace('{"version":"0.9","x":Infinity}').ok).toBe(false);
+    expect(loadTrace('{"version":"0.10","x":Infinity}').ok).toBe(false);
   });
 
   it("rejects a step in the v0.5 shape, with line and locals and no frames", () => {

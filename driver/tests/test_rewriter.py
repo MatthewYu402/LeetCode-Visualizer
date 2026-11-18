@@ -429,11 +429,13 @@ if __name__ == "__main__":
 
 
 def outcomes(trace):
-    """Each step's outcomes as short strings: 'cond: true' or 'x = 3', by line, in step order."""
+    """Each step's conditions and stores as short strings: 'cond: true' or 'x = 3', by line, in step order. Reads are checked by reads_of."""
     out = []
     for step in trace["steps"]:
         top = step["frames"][-1]
         for o in top.get("outcomes", []):
+            if o["kind"] == "read":
+                continue
             text = f"{o['code']}: {json.dumps(o['value'])}" if o["kind"] == "condition" else f"{o['target']} = {json.dumps(o['value'])}"
             out.append((top["line"], text))
     return out
@@ -615,3 +617,129 @@ public:
 };"""
         trace, _ = run_source(src, "nums = [1,2]")
         self.assertNotIn("indexes", trace)
+
+
+def reads_of(trace):
+    """Every read outcome, in order, as (line, code, at or key)."""
+    out = []
+    for step in trace["steps"]:
+        frame = step["frames"][-1]
+        for o in frame.get("outcomes", []):
+            if o["kind"] == "read":
+                out.append((frame["line"], o["code"], o.get("at", o.get("key"))))
+    return out
+
+
+@needs_rewriter
+@needs_compiler
+class Reads(unittest.TestCase):
+    """trace-format.md, Outcomes (read): which cells and entries a line read."""
+
+    def test_reads_but_not_writes(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        vector<int> dp(4, 0);
+        dp[1] = nums[0] + nums[1];
+        dp[2] = max(dp[1], nums[2]);
+        dp[3] += dp[2];
+        swap(nums[0], nums[1]);
+        dp[0]++;
+        vector<int> out;
+        out.push_back(dp[3]);
+        return dp[3];
+    }
+};"""
+        trace, _ = run_source(src, "nums = [1,2,3]")
+        codes = [code for _, code, _ in reads_of(trace)]
+        self.assertEqual(codes, ["nums[0]", "nums[1]", "dp[1]", "nums[2]", "dp[2]", "dp[3]", "dp[3]"])
+        self.assertEqual(trace["result"], 3)
+
+    def test_a_2d_table_and_a_row(self):
+        src = """class Solution {
+public:
+    int f(vector<vector<int>>& grid) {
+        int a = grid[1][0];
+        int n = grid[0].size();
+        return a + n;
+    }
+};"""
+        trace, _ = run_source(src, "grid = [[1,2],[3,4]]")
+        self.assertEqual(reads_of(trace), [(4, "grid[1][0]", [1, 0]), (5, "grid[0]", [0])])
+
+    def test_lookups_that_found_an_entry(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        unordered_map<int, int> seen;
+        unordered_set<int> s;
+        seen[nums[0]] = 7;
+        s.insert(nums[0]);
+        int a = seen.count(nums[1]);
+        int b = seen.count(5);
+        if (s.count(5)) a++;
+        auto it = seen.find(5);
+        return a + b + seen[5] + (it != seen.end());
+    }
+};"""
+        trace, _ = run_source(src, "nums = [5,6]")
+        found = [(code, where) for _, code, where in reads_of(trace)]
+        self.assertIn(("seen.count(5)", 5), found)
+        self.assertIn(("s.count(5)", 5), found)
+        self.assertIn(("seen.find(5)", 5), found)
+        self.assertIn(("seen[5]", 5), found)
+        self.assertNotIn("seen.count(nums[1])", [c for c, _ in found])  # a call in its key: not evaluated twice, not recorded
+        self.assertEqual(trace["result"], 1 + 1 + 7 + 1)
+
+    def test_an_index_with_a_side_effect_runs_once(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        int k = 0;
+        int a = nums[k++];
+        int b = nums[k++];
+        return a * 10 + b + k;
+    }
+};"""
+        trace, _ = run_source(src, "nums = [3,4,5]")
+        self.assertEqual(trace["result"], 36)  # 3 * 10 + 4 + 2: each k++ ran once
+        self.assertEqual([where for _, _, where in reads_of(trace)], [[0], [1]])  # found from the element, not by evaluating k++ again
+
+    def test_vector_of_bool(self):
+        src = """class Solution {
+public:
+    int f(vector<int>& nums) {
+        vector<bool> used(3, false);
+        used[1] = true;
+        int n = 0;
+        for (int i = 0; i < 3; i++) {
+            if (used[i]) n++;
+        }
+        return n;
+    }
+};"""
+        trace, _ = run_source(src, "nums = [1]")
+        self.assertEqual([where for _, code, where in reads_of(trace) if code == "used[i]"], [[0], [1], [2]])
+        self.assertEqual(trace["result"], 1)
+
+    def test_backtracking_reads_the_callers_array(self):
+        src = """class Solution {
+public:
+    vector<vector<int>> subsets(vector<int>& nums) {
+        vector<vector<int>> result;
+        vector<int> path;
+        go(nums, 0, path, result);
+        return result;
+    }
+    void go(vector<int>& nums, int start, vector<int>& path, vector<vector<int>>& result) {
+        result.push_back(path);
+        for (int i = start; i < (int)nums.size(); i++) {
+            path.push_back(nums[i]);
+            go(nums, i + 1, path, result);
+            path.pop_back();
+        }
+    }
+};"""
+        trace, _ = run_source(src, "nums = [1,2]")
+        reads = [(step["frames"][-1]["function"], o["target"], o["at"]) for step in trace["steps"] for o in step["frames"][-1].get("outcomes", []) if o["kind"] == "read"]
+        self.assertEqual(reads, [("go", "nums", [0]), ("go", "nums", [1]), ("go", "nums", [1])])

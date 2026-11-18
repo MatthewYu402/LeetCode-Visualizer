@@ -1087,6 +1087,38 @@ kbd {
   animation: none;
 }
 
+/* Read this step (a `read` outcome): a dashed accent outline, for this step only. A cell can be
+   read and changed by one line (dp[i] = min(dp[i], ...)); the outline sits inside the ring. */
+.cell.is-read,
+.grid-cell.is-read,
+.set-member.is-read,
+.kv-row.is-read {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -4px;
+  animation: read-in 260ms ease-out both;
+}
+
+.array-strip.is-read {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 2px;
+  animation: read-in 260ms ease-out both;
+}
+
+.grid-row-read {
+  grid-column: 1 / -1;
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -3px;
+  border-radius: 4px;
+  pointer-events: none;
+  animation: read-in 260ms ease-out both;
+}
+
+@keyframes read-in {
+  from {
+    outline-color: transparent;
+  }
+}
+
 /* Rows of different lengths (an adjacency list): one strip per row, all starting at the left. */
 /* Two columns: row labels (tags and index), right-aligned, then the row's strip, so every strip
    starts at the same place whatever tags a row has. */

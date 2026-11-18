@@ -22,6 +22,11 @@ Every file is always:
       frames: only the top frame has return_value or outcomes, and never
         both; frame ids are unique in a step; an id keeps one function name
         for the whole run, and never comes back after its call returned
+      reads: a read outcome names a local of its frame, of a kind that is read
+        that way: `at` on an array or deque (at every level), `key` on a map,
+        multimap, set, or multiset. Positions and keys are not checked against the
+        step's locals, which are from before the line ran: a line can read a cell
+        it made (`m[k]` inserts a missing key)
       indexes: every function named in "indexes" ran (a frame has that
         function), unless the trace is truncated, and no local is listed as
         indexing itself. Whether the locals appear in its frames is not
@@ -246,6 +251,33 @@ def check_frames(doc):
         previous = ids
 
 
+POSITIONED = {"array", "deque"}
+KEYED = {"map", "multimap", "set", "multiset"}
+
+
+def check_reads(doc):
+    """trace-format.md, Outcomes: what the schema cannot say about a read."""
+    for s, step in enumerate(doc["steps"]):
+        for f, frame in enumerate(step["frames"]):
+            for o, outcome in enumerate(frame.get("outcomes", [])):
+                if outcome["kind"] != "read":
+                    continue
+                where = f"$.steps[{s}].frames[{f}].outcomes[{o}]"
+                target = frame["locals"].get(outcome["target"])
+                if not isinstance(target, dict) or "kind" not in target:
+                    raise CheckError(f"{where}: {json.dumps(outcome['target'])} is not a container local of its frame")
+                if "at" in outcome:
+                    value = target
+                    for level in range(len(outcome["at"])):
+                        if not isinstance(value, dict) or value.get("kind") not in POSITIONED:
+                            raise CheckError(f"{where}: level {level} of {json.dumps(outcome['target'])} is not an array or deque, so it has no position")
+                        items = value["items"]
+                        k = outcome["at"][level]
+                        value = items[k] if k < len(items) else None
+                elif target["kind"] not in KEYED:
+                    raise CheckError(f"{where}: {json.dumps(outcome['target'])} is a {target['kind']}, so it has no key")
+
+
 def check_indexes(doc):
     """trace-format.md section 3, Indexes: what the schema cannot say about "indexes"."""
     indexes = doc.get("indexes", {})
@@ -307,6 +339,7 @@ def check_file(path, validator, fixture, expect):
     check_frames(doc)
     check_iterators(doc)
     check_indexes(doc)
+    check_reads(doc)
 
     if fixture is not None:
         diff = first_difference(doc, fixture[1], [])

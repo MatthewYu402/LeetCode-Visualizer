@@ -170,7 +170,8 @@ export function lineChips(outcomes: Outcome[] | undefined, returning: { value: V
     const text = returning.none ? "returns" : `returns ${formatValue(returning.value, node)}`;
     return [{ tone: "return", text, title: returning.none ? "Returns, with no value" : text }];
   }
-  return (outcomes ?? []).map((o): Chip =>
+  // Reads are drawn on the canvas, as outlines on the cells they read, not as chips here.
+  return (outcomes ?? []).filter((o) => o.kind !== "read").map((o): Chip =>
     o.kind === "condition"
       ? { tone: o.value ? "true" : "false", text: String(o.value), title: `${o.code} is ${o.value}` }
       : { tone: "store", name: o.target, text: formatValue(o.value, node), title: `${o.code}: ${o.target} = ${formatValue(o.value, node)}` },

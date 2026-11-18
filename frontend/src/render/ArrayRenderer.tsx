@@ -3,6 +3,7 @@ import { formatValue } from "../trace/format";
 import { hasItems, isTagged, type Trace, type Value } from "../trace/types";
 import { CardHeader, Empty } from "./Card";
 import { pointersFor, type Pointer } from "./pointers";
+import { readsFrom, type Reads } from "./reads";
 import type { RendererProps } from "./types";
 
 /** One cell's width in px. Cells are joined, so this is also the distance between neighbouring cells. Pointer tags are placed with it, so the CSS uses the same variable. */
@@ -29,6 +30,7 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
   if (!hasItems(value)) throw new Error(`ArrayRenderer got a ${typeof value} value for ${name}`);
   const items = value.items;
   const rows = rowsOf(items);
+  const reads = readsFrom(ctx.reads);
   if (rows) {
     const width = rows[0]?.length ?? 0;
     const grid = !ctx.ragged && width > 0 && rows.every((r) => r.length === width);
@@ -37,9 +39,9 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
       <section className="structure" aria-label={`${name}: array`}>
         <CardHeader name={name} meta={meta} op={ctx.op} />
         {grid ? (
-          <Grid name={name} rows={rows} diff={diff} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes)} />
+          <Grid name={name} rows={rows} diff={diff} reads={reads} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes)} />
         ) : (
-          <RaggedRows name={name} rows={rows} diff={diff} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes)} />
+          <RaggedRows name={name} rows={rows} diff={diff} reads={reads} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes)} />
         )}
       </section>
     );
@@ -56,7 +58,7 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
         <div className="array" style={{ ["--cell" as string]: `${CELL_PX}px` }}>
           <div className="array-strip">
             {items.map((v, i) => (
-              <div key={i} className={`cell ${diffClass(diff?.items?.[i])}`} title={formatValue(v)}>
+              <div key={i} className={`cell ${diffClass(diff?.items?.[i])}${reads.at(i) ? " is-read" : ""}`} title={formatValue(v)}>
                 {formatValue(v)}
               </div>
             ))}
@@ -127,7 +129,7 @@ function RowTags({ pointers, row }: { pointers: Pointer[]; row: number }) {
 }
 
 /** A grid: every row the same length. Column indexes on top, row indexes (and row tags) on the left. */
-function Grid({ name, rows, diff, pointers }: { name: string; rows: Value[][]; diff: ValueDiff | null; pointers: Pointer[] }) {
+function Grid({ name, rows, diff, reads, pointers }: { name: string; rows: Value[][]; diff: ValueDiff | null; reads: Reads; pointers: Pointer[] }) {
   const width = rows[0].length;
   const cells = cellChanges(rows, diff);
   return (
@@ -151,18 +153,26 @@ function Grid({ name, rows, diff, pointers }: { name: string; rows: Value[][]; d
       <div className="grid-cells">
         {rows.map((row, r) =>
           row.map((v, c) => (
-            <div key={`${r}-${c}`} role="cell" className={`grid-cell ${diffClass(cells[r]?.[c])}`} title={`${name}[${r}][${c}] = ${formatValue(v)}`}>
+            <div
+              key={`${r}-${c}`}
+              role="cell"
+              className={`grid-cell ${diffClass(cells[r]?.[c])}${reads.at(r, c) ? " is-read" : ""}`}
+              style={{ gridRow: r + 1, gridColumn: c + 1 }}
+              title={`${name}[${r}][${c}] = ${formatValue(v)}`}
+            >
               {formatValue(v)}
             </div>
           )),
         )}
+        {/* A whole row read this step (dp[i - 1]): one outline over the row, placed on the same grid. */}
+        {rows.map((_, r) => (reads.at(r) ? <span key={`read-${r}`} className="grid-row-read" style={{ gridRow: r + 1 }} aria-hidden="true" /> : null))}
       </div>
     </div>
   );
 }
 
 /** Rows of different lengths: one strip per row, each starting at the left, row index (and row tags) beside it. */
-function RaggedRows({ name, rows, diff, pointers }: { name: string; rows: Value[][]; diff: ValueDiff | null; pointers: Pointer[] }) {
+function RaggedRows({ name, rows, diff, reads, pointers }: { name: string; rows: Value[][]; diff: ValueDiff | null; reads: Reads; pointers: Pointer[] }) {
   const cells = cellChanges(rows, diff);
   return (
     <div className="ragged" aria-label={`${name}, ${rows.length} rows`} style={{ ["--cell" as string]: `${CELL_PX}px` }}>
@@ -175,9 +185,9 @@ function RaggedRows({ name, rows, diff, pointers }: { name: string; rows: Value[
           {row.length === 0 ? (
             <span className="ragged-empty">empty</span>
           ) : (
-            <div className="array-strip">
+            <div className={`array-strip${reads.at(r) ? " is-read" : ""}`}>
               {row.map((v, c) => (
-                <div key={c} className={`cell ${diffClass(cells[r]?.[c])}`} title={`${name}[${r}][${c}] = ${formatValue(v)}`}>
+                <div key={c} className={`cell ${diffClass(cells[r]?.[c])}${reads.at(r, c) ? " is-read" : ""}`} title={`${name}[${r}][${c}] = ${formatValue(v)}`}>
                   {formatValue(v)}
                 </div>
               ))}

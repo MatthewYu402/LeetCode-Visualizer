@@ -75,7 +75,7 @@ private:
       ::trace::Scope scope(13);
       ::trace::record(14, ::trace::var("nums", nums), ::trace::var("start", start), ::trace::var("path", path),
                       ::trace::var("result", result), ::trace::var("i", i));
-      path.push_back(nums[i]);
+      path.push_back(::trace::rd(14, "nums[i]", "nums", nums, nums[i]));
 
       ::trace::record(15, ::trace::var("nums", nums), ::trace::var("start", start), ::trace::var("path", path),
                       ::trace::var("result", result), ::trace::var("i", i));

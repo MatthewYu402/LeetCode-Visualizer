@@ -6,7 +6,7 @@ import { operation } from "../render/ops";
 import { selectRenderer } from "../render/registry";
 import { callsCardKind, callTree } from "../trace/calls";
 import type { StepDiff } from "../trace/diff";
-import { isContainer, isReturning, topFrame, type Hint, type Step, type Trace, type Value } from "../trace/types";
+import { isContainer, isReturning, readsOf, topFrame, type Hint, type Step, type Trace, type Value } from "../trace/types";
 import { CallStackCard } from "./CallStackCard";
 import { callLayout, RecursionTree } from "./RecursionTree";
 import { RunningCanvas } from "./RunningCanvas";
@@ -80,6 +80,7 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const current = Object.entries(locals).filter(([, v]) => drawnHere(v));
   const last = step.step === trace.steps.length - 1;
   const resultId = last ? refId(trace.result) : null;
+  const reads = readsOf(frame);
   const ctxBase = { locals, heap: step.heap, indexes: trace.indexes?.[frame.function] };
   const linked = shownComponents(step, views.layout);
   const nulls = nullPointers(step, views.layout);
@@ -116,7 +117,7 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
             const R = selectRenderer(value, hints.get(name));
             return (
               <Card key={name} added={d?.status === "added"}>
-                <R name={name} value={value} diff={own} ctx={{ ...ctxBase, hint: hints.get(name), op: operation(value, own, step.heap), ragged: views?.ragged.has(`${frame.function}/${name}`) }} />
+                <R name={name} value={value} diff={own} ctx={{ ...ctxBase, hint: hints.get(name), op: operation(value, own, step.heap), ragged: views?.ragged.has(`${frame.function}/${name}`), reads: reads.get(name) }} />
               </Card>
             );
           })}

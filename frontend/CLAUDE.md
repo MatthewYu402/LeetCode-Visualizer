@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.9).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.10).
 
 Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and rewriter: see the root `CLAUDE.md`).
 
@@ -40,7 +40,7 @@ src/
 │   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.9")
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.10")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
@@ -57,6 +57,7 @@ src/
 │   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
 │   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
 │   ├── pointers.ts      pointer markers: integer locals the trace's `indexes` pairs with an array, and iterators
+│   ├── reads.ts         readsFrom(ctx.reads): the cells and keys the running line read, for the dashed outline
 │   └── types.ts         Renderer, RendererProps, RenderContext
 ├── components/          Toolbar (top bar), PlaybackBar, CodePanel, InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
@@ -81,7 +82,8 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 12. **Wherever the problem's title is shown, it is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`. (The top bar shows the app's name, not the problem's.)
 13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel shows the running frame's line, its outcomes, and its locals; the calls are drawn on the canvas, not listed in the state panel. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
 14. **Refs and objects are drawn by `LinkedCard` (`render/HeapView.tsx`), not per local.** A `ref` local is a pointer label on its node; a `ref` inside a container shows its node's value (`itemText`). Shapes come from field names (`left`/`right`, `next`, anything else is a graph), never from the language.
-15. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
+15. **Reads come from `read` outcomes only.** `VisualPanel` passes each card its local's reads (`ctx.reads`, from `readsOf(frame)`); a renderer outlines exactly those cells, rows, entries, or members with `is-read`, for that step, with or without a diff. Never infer a read from the code or from the values.
+16. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
 
 ## Theme tokens
 

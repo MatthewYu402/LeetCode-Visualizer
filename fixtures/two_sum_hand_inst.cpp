@@ -56,13 +56,13 @@ public:
       ::trace::Scope scope(7);
       ::trace::record(8, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i));
-      int complement = target - nums[i];
+      int complement = target - ::trace::rd(8, "nums[i]", "nums", nums, nums[i]); // a read: which cell, and its value
       ::trace::store(8, "int complement = target - nums[i]", "complement", complement);
 
       ::trace::record(9, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
                       ::trace::var("complement", complement));
-      auto it = numMap.find(complement); // from here on, `it` is a position in numMap
+      auto it = ::trace::rf(9, "numMap.find(complement)", "numMap", numMap, numMap.find(complement)); // from here on, `it` is a position in numMap
 
       ::trace::record(11, ::trace::var("nums", nums), ::trace::var("target", target),
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
@@ -84,7 +84,7 @@ public:
                       ::trace::var("numMap", numMap), ::trace::var("i", i),
                       ::trace::var("complement", complement),
                       ::trace::var_iter("it", it, "numMap", numMap));
-      ::trace::track(16, "numMap[nums[i]] = i", "numMap[nums[i]]", numMap[nums[i]]) = i;
+      ::trace::track(16, "numMap[nums[i]] = i", "numMap[nums[i]]", numMap[::trace::rd(16, "nums[i]", "nums", nums, nums[i])]) = i;
       ::trace::flush();
     }
 

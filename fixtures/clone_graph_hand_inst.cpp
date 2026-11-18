@@ -109,7 +109,7 @@ public:
         ::trace::record(18, ::trace::var("node", node), ::trace::var("visited", visited),
                         ::trace::var("q", q), ::trace::var("curr", curr),
                         ::trace::var("neighbor", neighbor));
-        if (::trace::cond(18, "visited.find(neighbor) == visited.end()", visited.find(neighbor) == visited.end())) {
+        if (::trace::cond(18, "visited.find(neighbor) == visited.end()", ::trace::rf(18, "visited.find(neighbor)", "visited", visited, visited.find(neighbor)) == visited.end())) {
           ::trace::record(19, ::trace::var("node", node), ::trace::var("visited", visited),
                           ::trace::var("q", q), ::trace::var("curr", curr),
                           ::trace::var("neighbor", neighbor));
@@ -126,7 +126,7 @@ public:
         ::trace::record(22, ::trace::var("node", node), ::trace::var("visited", visited),
                         ::trace::var("q", q), ::trace::var("curr", curr),
                         ::trace::var("neighbor", neighbor));
-        visited[curr]->neighbors.push_back(visited[neighbor]);
+        ::trace::rk(22, "visited[curr]", "visited", visited, visited[curr])->neighbors.push_back(::trace::rk(22, "visited[neighbor]", "visited", visited, visited[neighbor]));
       }
     }
 
@@ -134,7 +134,7 @@ public:
     // declared before the loop, and it is empty here.
     ::trace::record(25, ::trace::var("node", node), ::trace::var("visited", visited),
                     ::trace::var("q", q));
-    return ::trace::ret<Node *>(25, visited[node], ::trace::var("node", node), ::trace::var("visited", visited),
+    return ::trace::ret<Node *>(25, ::trace::rk(25, "visited[node]", "visited", visited, visited[node]), ::trace::var("node", node), ::trace::var("visited", visited),
                                 ::trace::var("q", q));
   }
 };
