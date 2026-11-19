@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.13).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.14).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -28,19 +28,28 @@ export function asNumber(v: Value): number | null {
  */
 export type ItemsKind = "array" | "list" | "stack" | "queue" | "deque" | "tuple" | "set" | "multiset";
 
-export interface ItemsValue {
+/**
+ * A container reached from two or more places in its step carries the same `id` at every
+ * place (spec §5, Shared containers, since v0.14): it is one container. The id is identity,
+ * not content: `canonical` leaves it out, so it never makes two values differ.
+ */
+interface Shareable {
+  id?: string;
+}
+
+export interface ItemsValue extends Shareable {
   kind: ItemsKind;
   items: Value[];
 }
 
-export interface PriorityQueueValue {
+export interface PriorityQueueValue extends Shareable {
   kind: "priority-queue";
   items: Value[];
   order: "max" | "min" | "custom";
 }
 
 /** map has unique keys; multimap may repeat them. Entry order is unspecified for both. */
-export interface MapValue {
+export interface MapValue extends Shareable {
   kind: "map" | "multimap";
   entries: [Value, Value][];
 }

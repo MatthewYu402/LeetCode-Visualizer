@@ -33,6 +33,12 @@ Every file is always:
         function), unless the trace is truncated, and no local is listed as
         indexing itself. Whether the locals appear in its frames is not
         checked: an index declared in a loop that never runs never does
+      shared containers (since v0.14): a container id appears at two or more
+        places in its step (frames' locals and return values, members, inside
+        other values, objects' fields in the heap), or in the result and
+        result_heap; every place has the same kind and contents; it is never
+        an object's id there; it keeps one kind for the whole run; and no
+        outcome's value carries one
 
 Options add checks:
   --equals FIXTURE    the parsed trace must equal the parsed fixture. The
@@ -188,6 +194,74 @@ def canonical(v):
     if isinstance(v, list):
         return [canonical(x) for x in v]
     return (type(v).__name__, v)
+
+
+def a_kind(kind):
+    """'an array', 'a map'."""
+    return f"{'an' if kind[0] in 'aeiou' else 'a'} {kind}"
+
+
+CONTAINER_KINDS = {"array", "list", "stack", "queue", "deque", "priority-queue", "set", "multiset", "map", "multimap"}
+
+
+def shared_places(value, path, out):
+    """Collect every container with an `id` inside a value: out[id] gets (path, value).
+    Objects are not entered here; their fields are walked from the heap."""
+    if isinstance(value, dict):
+        if value.get("kind") in CONTAINER_KINDS and "id" in value:
+            out.setdefault(value["id"], []).append((path, value))
+        for key, v in value.items():
+            if key != "id":
+                shared_places(v, f"{path}.{key}", out)
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            shared_places(v, f"{path}[{i}]", out)
+
+
+def check_shared(doc):
+    """Shared containers (spec §5, since v0.14): an `id` is written at every place one
+    container is reached from, and only when there are two or more such places."""
+    kinds = {}
+
+    def scope(places_of, heap, where):
+        for cid, places in places_of.items():
+            first = places[0][0]
+            if len(places) < 2:
+                raise CheckError(f'{first}: container id "{cid}" appears at only one place in {where}; an id is written only on a shared container')
+            if cid in heap:
+                raise CheckError(f'{first}: container id "{cid}" is also the id of an object in the heap')
+            for path, value in places[1:]:
+                if value["kind"] != places[0][1]["kind"]:
+                    raise CheckError(f'{path}: container id "{cid}" is {a_kind(value["kind"])} here and {a_kind(places[0][1]["kind"])} at {first}')
+                if not same_value(value, places[0][1]):
+                    raise CheckError(f'{path}: container id "{cid}" has different contents here than at {first}; one container has one value in a step')
+            kind = places[0][1]["kind"]
+            if kinds.setdefault(cid, (kind, first))[0] != kind:
+                raise CheckError(f'{first}: container id "{cid}" is {a_kind(kind)} here and {a_kind(kinds[cid][0])} at {kinds[cid][1]}; an id names one container for the run')
+
+    for i, step in enumerate(doc["steps"]):
+        places = {}
+        for depth, frame in enumerate(step["frames"]):
+            base = f"$.steps[{i}].frames[{depth}]"
+            shared_places(frame["locals"], f"{base}.locals", places)
+            if "return_value" in frame:
+                shared_places(frame["return_value"], f"{base}.return_value", places)
+            for k, outcome in enumerate(frame.get("outcomes", [])):
+                found = {}
+                shared_places(outcome, f"{base}.outcomes[{k}]", found)
+                for cid, at in found.items():
+                    raise CheckError(f'{at[0][0]}: an outcome\'s value carries container id "{cid}"; it is a copy taken when the line ran, never a place')
+        shared_places(step.get("members", {}), f"$.steps[{i}].members", places)
+        for oid, obj in step["heap"].items():
+            shared_places(obj.get("fields", {}), f"$.steps[{i}].heap.{oid}.fields", places)
+        scope(places, step["heap"], f"step {i}")
+    if "result" in doc:
+        places = {}
+        shared_places(doc["result"], "$.result", places)
+        heap = doc.get("result_heap", {})
+        for oid, obj in heap.items():
+            shared_places(obj.get("fields", {}), f"$.result_heap.{oid}.fields", places)
+        scope(places, heap, "the result")
 
 
 def check_iterators(doc):
@@ -352,6 +426,7 @@ def check_file(path, validator, fixture, expect):
     check_iterators(doc)
     check_indexes(doc)
     check_reads(doc)
+    check_shared(doc)
 
     if fixture is not None:
         diff = first_difference(doc, fixture[1], [])

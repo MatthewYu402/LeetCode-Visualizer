@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.13).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.14).
 
 Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and rewriter: see the root `CLAUDE.md`).
 
@@ -44,10 +44,11 @@ src/
 │   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.13")
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.14")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
+│   ├── shared.ts        sharedPlaces(step): where each shared container (v0.14 id) is reached from, named as the reader writes it; sharedGroups per card
 │   └── calls.ts         callTree(trace): every call, its caller, parameters, arguments, return value; callState at a step; callsCardKind
 ├── player/
 │   ├── playback.ts      pure reducer: index, cameFrom, playing; restart
@@ -98,7 +99,8 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 15. **Reads come from `read` outcomes only.** `VisualPanel` passes each card its local's reads (`ctx.reads`, from `readsOf(frame)`); a renderer outlines exactly those cells, rows, entries, or members with `is-read`, for that step, with or without a diff. Never infer a read from the code or from the values.
 16. **Members are drawn once, not per frame.** A step's `members` (the Solution's memo, visited) are cards after the running call's own, with the `member` tag (`MemberCard` context in `render/Card.tsx`), diffed through `diff.members`, and listed under "Members of Solution" in the state panel. A local of the running call hides a member of the same name.
 17. **"View as" is UI state, not a step.** `VisualPanel` keeps the reader's pick per local name for the current trace and passes the chosen hint down as `ctx.hint` (and an edge list's `ctx.direction`); a renderer never reads the pick itself. A hint or pick is used only when `fits` says the value has that shape at this step. Locals start on the drawing by kind: never guess a hint in the frontend.
-18. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
+18. **A shared container is noted, never merged.** Each place a container with an `id` is reached from is drawn in full, as the trace writes it; `SharedNote` under the card names the places that are one (`trace/shared.ts`, `docs/frontend.md` §6.8). The `id` is identity, not content: `canonical` leaves a container's `id` out (never a ref's), so it never makes a diff.
+19. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
 
 ## Theme tokens
 

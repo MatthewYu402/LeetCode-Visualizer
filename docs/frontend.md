@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.17 (reads trace format v0.13)
+> **Status:** Draft v0.18 (reads trace format v0.14)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -81,6 +81,7 @@ Every split is resizable by dragging the border between panels: the left / right
 | `render/ops.ts` | `operation(value, diff, heap)`: the operation chip's words ("push 3", "erase key 3"); a ref is named by its node's value | One value, its diff, the step's heap |
 | `trace/heap.ts` | Edges between heap objects, a node's label and shape, pointers into the heap, `heapDiff` | One or two steps |
 | `trace/calls.ts` | `callTree(trace)`: every call, its caller, parameters, arguments, and return value; where a call stands at a step; which calls card a run gets (`callsCardKind`) | The whole trace, once |
+| `trace/shared.ts` | `sharedPlaces(step)`: every place each shared container (v0.14 `id`) is reached from, named as the reader writes it; `sharedGroups` picks a card's ([Section 6.8](#68-shared-containers)) | One step |
 | `render/layout.ts` | `layoutTrace(trace)`: a fixed place for every node of every linked structure ([Section 6.4](#64-linked-structures-layout)) | The whole trace, once |
 | `render/HeapView.tsx` | `LinkedCard`: one linked structure of one step as a card: nodes, edges, pointer tags, highlights; `NullPointers` for pointers that hold null | One step, its heap diff, the layout, the running call's parameters |
 | `components/RecursionTree.tsx` | The recursion card at one step: a Tree view (whole or focused) and a Stack view ([Section 6.6](#66-calls)) | The call tree, one step |
@@ -109,10 +110,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.13"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.14"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.13 only.
+Unsupported trace version "0.2". This frontend reads version 0.14 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
@@ -365,6 +366,23 @@ The structure card above follows along through the pointers ([Section 6.5](#65-l
 
 ### 6.7 Motion
 Motion uses `framer-motion`. Nothing appears or disappears instantly: nodes, boxes, and labels fade and scale in and out, edges draw themselves in, pointer labels and items glide to their new places, and flashes fade over about 900 ms. Motion only describes the step before; drawing with no diff (step 0, a jump, moving back) shows the step without flashes. `MotionConfig reducedMotion="user"` turns movement off for anyone whose system asks for reduced motion.
+
+### 6.8 Shared containers
+Since v0.14 a container reached from two or more places in a step carries the same `id` at every place ([trace-format.md, Shared containers](trace-format.md#shared-containers)): `dp = [[0] * 3] * 3` is one row three times, and `first = dp[0]` is that row again. The cards keep drawing each place in full, as before; what the id adds is a note under each card that holds a shared container, naming every place that is the same one:
+
+```
+dp    array · 3 × 3                       first   array · 3
+  0 │ 1 │ 0 │ 0 │                           │ 1 │ 0 │ 0 │
+  1 │ 1 │ 0 │ 0 │
+  2 │ 1 │ 0 │ 0 │                         ⛓ Same array: first · dp[0] · dp[1] · dp[2]
+⛓ Same array: dp[0] · dp[1] · dp[2] · first
+```
+
+- **The places** come from `sharedPlaces(step)` (`trace/shared.ts`), once per step: the running frame's locals as their names and paths (`dp[0]`, `m[3]`, `an item of s`), a caller's with its function (`path (in backtrack)`), members as `memo (member)`, and a node's field as `Node.children (a node's field)`. The card's own places come first, and each name appears once (a recursion's callers often hold one list under one name).
+- **One line per shared container**, named by its kind ("Same array", "Same map"), at most five places with "+N more" and the full list in the tooltip.
+- **No new colour.** A write through one name changes every place, and the diff already flashes each one, so `dp[0][0] = 1` lights up all three rows; the note says why.
+- **The id is identity, not content.** `canonical` leaves a container's `id` out, so a list that becomes shared at a step is not "changed" by that. A `ref`'s `id` is kept: it is what the ref is.
+- **Adapters that cannot tell write no ids** (the C++ adapter, for now), and then no note appears.
 
 ## 7. Diffing
 `diff(prev, curr)` is a pure function of two steps. For each local it reports:
@@ -623,3 +641,5 @@ Planned for later versions, not designed here:
 > **Q27. Why does the home page replay a golden fixture, when only tests import fixtures?** The rule exists so the sandbox never opens on a canned trace and fixtures are never copied into `frontend/`. Both still hold: the sandbox opens with no trace, and the preview imports the fixture from `../fixtures` like the tests. A drawing of the canvas would have to be redrawn by hand whenever a renderer changes and could show things the canvas does not do; the golden trace through the real `VisualPanel` is always exactly what the sandbox draws, and CI already checks the trace against the schema.
 
 > **Q28. Why does an example link not run the example?** A run takes a few seconds of sandbox time and holds one of the visitor's slots. Many visitors click an example to see what it is, and the trace is one button away; the field note and the filled inputs say the example is ready.
+
+> **Q29. Why a note under the card, and not lines between the places, or one card for all of them?** Lines between cards cross the canvas and tangle as soon as two lists are shared, and they cannot point at a caller's local, which has no card. Drawing a shared container once, with the others pointing at it, would change how every card is laid out for the rare list that is shared, and it would hide the thing Python's `[[0] * n] * m` teaches: three rows that are visibly one. Each place keeps its full drawing, which is what the trace says, and a short line of text says which places are one, including the ones with no card.

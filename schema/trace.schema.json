@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.13).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.14).",
   "type": "object",
   "required": [
     "version",
@@ -228,6 +228,9 @@
         "kind": {
           "const": "array"
         },
+        "id": {
+          "$ref": "#/$defs/containerId"
+        },
         "items": {
           "type": "array",
           "items": {
@@ -247,6 +250,9 @@
       "properties": {
         "kind": {
           "const": "list"
+        },
+        "id": {
+          "$ref": "#/$defs/containerId"
         },
         "items": {
           "type": "array",
@@ -268,6 +274,9 @@
         "kind": {
           "const": "stack"
         },
+        "id": {
+          "$ref": "#/$defs/containerId"
+        },
         "items": {
           "type": "array",
           "items": {
@@ -287,6 +296,9 @@
       "properties": {
         "kind": {
           "const": "queue"
+        },
+        "id": {
+          "$ref": "#/$defs/containerId"
         },
         "items": {
           "type": "array",
@@ -308,6 +320,9 @@
         "kind": {
           "const": "deque"
         },
+        "id": {
+          "$ref": "#/$defs/containerId"
+        },
         "items": {
           "type": "array",
           "items": {
@@ -328,6 +343,9 @@
       "properties": {
         "kind": {
           "const": "priority-queue"
+        },
+        "id": {
+          "$ref": "#/$defs/containerId"
         },
         "items": {
           "type": "array",
@@ -376,6 +394,9 @@
         "kind": {
           "const": "set"
         },
+        "id": {
+          "$ref": "#/$defs/containerId"
+        },
         "items": {
           "type": "array",
           "items": {
@@ -397,6 +418,9 @@
         "kind": {
           "const": "multiset"
         },
+        "id": {
+          "$ref": "#/$defs/containerId"
+        },
         "items": {
           "type": "array",
           "items": {
@@ -416,6 +440,9 @@
       "properties": {
         "kind": {
           "const": "map"
+        },
+        "id": {
+          "$ref": "#/$defs/containerId"
         },
         "entries": {
           "type": "array",
@@ -447,6 +474,9 @@
         "kind": {
           "const": "multimap"
         },
+        "id": {
+          "$ref": "#/$defs/containerId"
+        },
         "entries": {
           "type": "array",
           "items": {
@@ -465,6 +495,11 @@
         }
       },
       "description": "Like map, but keys may repeat: multimap, unordered_multimap."
+    },
+    "containerId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Only on a container reached from two or more places in the step: the same id at every place, unique to that container for the run, never an object's id (trace-format.md, Shared containers, since v0.14)."
     },
     "object": {
       "type": "object",

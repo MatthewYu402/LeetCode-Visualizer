@@ -17,6 +17,7 @@ import { CardControls, MemberCard } from "../render/Card";
 import { autoView, fits, hintOfView, numberRows, viewOptions, type View, type ViewChoice } from "../render/views";
 import type { RenderContext } from "../render/types";
 import type { ValueDiff } from "../trace/diff";
+import { sharedGroups, sharedPlaces, type SharedGroup } from "../trace/shared";
 import { ViewMenu } from "./ViewMenu";
 
 interface Props {
@@ -99,6 +100,8 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const last = step.step === trace.steps.length - 1;
   const resultId = last ? refId(trace.result) : null;
   const reads = readsOf(frame);
+  // Containers reached from more than one place this step (v0.14 ids): each card notes its own.
+  const shared = sharedPlaces(step);
   const ctxBase = { locals, heap: step.heap, indexes: trace.indexes?.[frame.function], steady: views.steady.get(frame.function) };
   const linked = shownComponents(step, views.layout);
   const nulls = nullPointers(step, views.layout);
@@ -166,6 +169,7 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
                     <R name={c.name} value={c.value} diff={own} ctx={ctx} />
                   </CardControls.Provider>
                 </MemberCard.Provider>
+                <SharedNote groups={sharedGroups(c.key, shared)} />
               </Card>
             );
           })}
@@ -184,6 +188,41 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
           <p className="canvas-note">No containers in scope at this step. Values are in the state panel.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/** At most this many places are named in one note; the rest are in its tooltip. */
+const MAX_PLACES = 5;
+
+/**
+ * Under a card that holds a shared container: every place that is the same container this step
+ * ("Same array: dp[0] · dp[1] · dp[2] · first"), one line per container, named by its kind. A
+ * change through any of those names shows at all of them, because they are one.
+ */
+export function SharedNote({ groups }: { groups: SharedGroup[] }) {
+  if (groups.length === 0) return null;
+  return (
+    <div className="shared-note">
+      {groups.map(({ kind, places }) => {
+        const shown = places.slice(0, MAX_PLACES);
+        const more = places.length - shown.length;
+        return (
+          <p key={places.join("\u0000")} className="shared-line" title={`One container, reached as ${places.join(", ")}`}>
+            <svg className="icon-stroke" aria-hidden="true" width="12" height="12" viewBox="0 0 16 16">
+              <path d="M6.5 9.5a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2l-.9.9M9.5 6.5a3 3 0 0 0-4.2 0L3 8.8A3 3 0 0 0 7.2 13l.9-.9" />
+            </svg>
+            <span className="shared-label">Same {kind.replace("-", " ")}:</span>
+            {shown.map((p, i) => (
+              <span key={p}>
+                {i > 0 && <span className="shared-sep" aria-hidden="true"> · </span>}
+                <code className="shared-place">{p}</code>
+              </span>
+            ))}
+            {more > 0 && <span className="shared-more">+{more} more</span>}
+          </p>
+        );
+      })}
     </div>
   );
 }

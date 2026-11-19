@@ -102,7 +102,11 @@ export function canonical(v: unknown): string {
   if (typeof v === "object" && v !== null) {
     const rec = v as Record<string, unknown>;
     const unorderedField = isUnorderedKind(rec.kind) ? UNORDERED_KINDS[rec.kind] : null;
-    const keys = Object.keys(rec).sort();
+    // A container's `id` says it is shared (v0.14): identity, not content, so it is left out.
+    // A ref's `id` is what the ref is, so it stays.
+    const keys = Object.keys(rec)
+      .filter((k) => !(k === "id" && rec.kind !== "ref"))
+      .sort();
     return `{${keys
       .map((k) => {
         const field = rec[k];

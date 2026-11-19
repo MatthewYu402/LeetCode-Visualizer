@@ -24,7 +24,7 @@ function trace(extraLocals: Record<string, Value> = {}): Trace {
     heap: {},
   });
   return {
-    version: "0.13",
+    version: "0.14",
     language: "cpp",
     problem: { method: "fib", params: [{ name: "n", type: "int" }], returns: { type: "int" }, input: { n: 3 } },
     steps: [step(0, map([])), step(1, map([[2, 1]]), true)],

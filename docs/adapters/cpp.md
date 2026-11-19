@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.11
+> **Status:** Draft v0.12
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -454,7 +454,7 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.13"`) |
+| `version` | Always | The `VERSION` constant (`"0.14"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `indexes` | Only when some function registered an entry | `tracer.indexes`: each function's entry, from its `Frame` (§8.1), keyed by function name |
@@ -609,7 +609,7 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 - **Instrumentation rules are not checked at run time.** A `record` outside any `Frame` stops the program with a message. A call made before a function's first `record` would write a frame with line 0, which the schema rejects. A missing `Scope` is undefined behavior only when a call happens between the end of the block and the next `record` (§4.5).
 - **Step size grows with recursion depth.** Every step writes every frame. For LeetCode examples and a 2,000-step cap this is small. A cap on frames can be added if a test shows it is needed.
 - **Iterators into something that is not a local** (a member, a temporary, a container inside a container: `g[u].begin()`) have no container to name, so they are left out. So are reverse iterators.
-- **Container aliasing.** Two references to the same `vector` appear as two copies. Only objects have identity.
+- **Shared containers are not marked.** Since v0.14 the format gives a container reached from two places in a step (a `vector<int>& path` parameter and its caller's `path`) the same `id` at every place. The C++ runtime writes none yet: each place is serialized as it is reached, in one pass, so it cannot know a container is shared until the second place, after the first was written. It would need a first pass over the step's variables by address, or a fix-up of the text afterwards. The traces stay valid (the `id` is optional) and their values right; only the fact that two cards are one container is missing.
 - **Wide character types** (`wchar_t`, `char8_t`, `char16_t`, `char32_t`) are rejected by the integer serializer's comparisons.
 - **Dangling and uninitialized pointers, and reused addresses.** A pointer to a deleted node, or one that was never assigned, is followed as if it were valid, which is undefined behavior. An object that reuses an address also reuses its id. See §3.7.
 - **A table must be declared before its type is first serialized.** `HasFields<T>` is decided the first time it is asked, so a `Fields<T>` specialization that appears later in the file is not seen. Keeping each table next to its struct avoids this.

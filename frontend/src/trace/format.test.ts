@@ -26,7 +26,7 @@ describe("tagged numbers", () => {
 
   it("survives the loader", () => {
     const t = {
-      version: "0.13", language: "x", problem: { method: "f", params: [], input: {} },
+      version: "0.14", language: "x", problem: { method: "f", params: [], input: {} },
       steps: [{ step: 0, heap: {}, frames: [{ id: "f1", function: "f", line: 1, locals: { a: { kind: "int", value: "18446744073709551615" }, b: { kind: "float", value: "-Infinity" } } }] }],
       result: null,
     };

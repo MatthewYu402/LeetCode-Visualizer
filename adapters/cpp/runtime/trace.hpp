@@ -77,7 +77,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.13"} ;
+  inline constexpr const char* VERSION  {"0.14"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;

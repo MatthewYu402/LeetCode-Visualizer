@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.13
+> **Status:** Draft v0.14
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.13",
+  "version": "0.14",
   "language": "cpp",
   "problem": { ... },
   "indexes": { ... },
@@ -233,6 +233,28 @@ Plain JSON: `5`, `3.14`, `"abc"`, `true`, `null`.
 - `tuple` is a fixed-size group that may mix types (`pair`, `tuple`).
 - `set` items are unique, and `map` keys are unique. `multiset` and `multimap` are the same shapes with duplicates allowed (`std::multiset`, `std::multimap`, and their unordered versions).
 - Maps use an array of `[key, value]` pairs instead of a JSON object, because JSON object keys must be strings and map keys can be ints or other types. The pairs are raw JSON arrays, never a tagged kind.
+
+#### Shared containers
+A container is written in full wherever it appears, so two names for **the same** container would look like two copies. Since v0.14, a container that is reached from more than one place in a step carries an `id`, the same at every place:
+
+```json
+"locals": {
+  "dp": {"kind": "array", "items": [
+    {"kind": "array", "id": "c1", "items": [1, 0, 0]},
+    {"kind": "array", "id": "c1", "items": [1, 0, 0]},
+    {"kind": "array", "id": "c1", "items": [1, 0, 0]}]}
+}
+```
+
+That is Python's `dp = [[0] * 3] * 3` after `dp[0][0] = 1`: the three rows are one list, so all three show the `1`, and the shared `id` says why. Two locals that name one list (`row = grid[i]`), a list appended without a copy (`res.append(path)`), and a helper's view of its caller's list (a C++ `vector<int>& path` parameter, a Python closure) are shared the same way.
+
+- **Which kinds:** `array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `set`, `multiset`, `map`, and `multimap`. Never `tuple` or a string, which are values: no change can be made through one name and seen through another.
+- **When:** only when the same container is reached from **two or more places in the step**: the locals of any frames, `members`, a `return_value`, inside another container, or in an object's fields in the `heap`. Every place carries the `id`. A container reached from one place has no `id`. `result` and `result_heap` are a scope of their own, by the same rule. An outcome's value (what a line read or stored) is a copy taken when the line ran, not a place, so it never carries an `id`.
+- **The id:** a non-empty string, unique to that container for the whole run (assigned in first-seen order, conventionally `c1`, `c2`, …), never the id of an object in the same heap, and never an address. A container that is shared at one step and not at the next loses its `id` at that step and gets the same one back if it is shared again.
+- **Every place has the same contents** (it is one container), and the same kind.
+- **A container that contains itself** (Python `a.append(a)`) cannot be written: it would be infinitely deep. The adapter stops with an error for that run, as for an unrecognized type.
+- **An adapter that cannot tell when containers are shared writes no container ids.** That is allowed (the field is optional) and is a limit of that adapter, recorded in its notes; it never writes an `id` it is unsure of.
+- **The `id` is identity, not content.** Two containers with the same items are equal values whether or not either has an `id`, and the frontend compares them that way.
 
 #### Numbers JSON cannot carry exactly
 The frontend parses traces in JavaScript, where every number is an IEEE 754 double. Three kinds of value do not survive that:
@@ -497,7 +519,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.13",
+  "version": "0.14",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -542,7 +564,7 @@ The frontend reads `nums` as an `array` (array renderer, with `i` as a pointer, 
 Adapters must:
 1. Map every native type to a kind from [Section 5](#5-the-value-model). Never emit raw debugger or language output. An unrecognized type is an error, never a pass-through.
 2. Never emit memory addresses, capacities, bucket counts, or other implementation details.
-3. Assign `id`s so that **distinct objects get distinct IDs and aliases share one**.
+3. Assign `id`s so that **distinct objects get distinct IDs and aliases share one**. The same holds for a container reached from more than one place in a step, which carries an `id` at every place ([Shared containers](#shared-containers)).
 4. Report line numbers relative to the user's original code, not the generated driver.
 5. Treat the ordering of `map`, `set`, `multimap`, and `multiset` as **unspecified**. The frontend must not assume insertion order.
 6. Stop at the step limit, flag truncation, and write the trace at that moment instead of when the program ends ([Section 6](#limits)).
@@ -577,6 +599,8 @@ Two adapters running the same algorithm may legitimately produce different trace
 | `result` is a `ref` and there is no `result_heap` | **Yes**: the frontend has a reference to nothing |
 | A `void` method that returned has no `result` | **Yes**: absent means it did not return |
 | A by-value object and a pointer to it have different ids | **Yes**: one object, one id (rule 3) |
+| Two places in a step hold one list, and the adapter can tell, but they carry no `id` or different ids | **Yes**: one container, one id (rule 3) |
+| A container that only one place reaches carries an `id` | **Yes**: an `id` says the container is shared |
 | A caller's frame shows a vector as it was before the call, after the callee changed it | **Yes**: every frame shows its live state |
 | Two calls at the same depth share a frame id | **Yes**: the frontend cannot see one return and the next begin |
 | A call returns with no return step | **Yes**: the value it returned is never shown |
@@ -599,6 +623,10 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.14**:
+  - Adds the optional `id` on container kinds: a container reached from more than one place in a step carries it at every place ([Shared containers](#shared-containers)).
+  - A container that contains itself cannot be written; the adapter stops with an error.
+  - Every valid v0.13 trace is still valid once its `version` is changed.
 - **v0.13**:
   - A whole float (3.0) is written `{"kind": "float", "value": "3.0"}` instead of the bare number `3`, so it is not mistaken for an int.
   - A v0.12 trace holding a whole float is not valid as a v0.13 one until that number is tagged; every other v0.12 trace is valid once its `version` is changed.
@@ -651,7 +679,7 @@ History:
 
 ## 10. Validation and testing
 - A JSON Schema for this format lives in `schema/trace.schema.json`. CI (`.github/workflows/ci.yml`) validates every golden fixture against it, and the C++ adapter's end-to-end check (`make -C adapters/cpp e2e`) validates the traces the adapter writes. Both use `tools/check_trace.py`. Every new adapter's output must be checked the same way.
-- The schema checks structure only. `tools/check_trace.py` also checks what the schema cannot express: every `ref` in a step names an object in that step's `heap`, and every `ref` in `result` names an object in `result_heap`; only the top frame has `return_value`; an iterator's `container` names a local of its frame, and its position fits that local (an `index` for an `array`, `list`, `deque`, or string, inside its length; a `key` for a `map`, `multimap`, `set`, or `multiset`, present in it); frame ids are unique within a step; and a frame id keeps one function name for the whole run and never comes back after its call returned.
+- The schema checks structure only. `tools/check_trace.py` also checks what the schema cannot express: every `ref` in a step names an object in that step's `heap`, and every `ref` in `result` names an object in `result_heap`; a container `id` appears at two or more places in its step (or in `result` and `result_heap`), every place has the same kind and contents, it is never also an object's id there, it keeps one kind for the whole run, and no outcome's value carries one; only the top frame has `return_value`; an iterator's `container` names a local of its frame, and its position fits that local (an `index` for an `array`, `list`, `deque`, or string, inside its length; a `key` for a `map`, `multimap`, `set`, or `multiset`, present in it); frame ids are unique within a step; and a frame id keeps one function name for the whole run and never comes back after its call returned.
 - The validator must reject the bare tokens `NaN` and `Infinity`. Python's `json` module accepts them by default, so load traces with `json.load(..., parse_constant=...)` set to raise.
 - **Golden traces**: for each problem example, a reference trace is stored as a fixture. Adapters are checked against it for **structural equivalence** (same kinds, same shapes), not byte-for-byte equality
 - The frontend can be developed against hand-written traces with no backend at all.
@@ -713,7 +741,7 @@ These are mainly notes for me, to help me understand these concepts.
 
 > **Q19. Why is `return_value` absent on a frame that has not returned, instead of `null`?** For the same reason as `result` (Q10): `null` is a real return value. A `void` function's return step has `"return_value": null`, and a frame still running has no field at all.
 
-> **Q20. Why does an iterator name a local instead of pointing at the container's value directly?** Containers have no ids: a `vector` is written inline in `locals`, not in the heap, so there is nothing else to point at. Giving every container an id would be the larger change of container aliasing (an open question). A local's name is enough for the common cases (`auto it = m.find(x)`, `for (auto it = v.begin(); ...)`), and it costs nothing in the format.
+> **Q20. Why does an iterator name a local instead of pointing at the container's value directly?** Containers are written inline in `locals`, not in the heap, and since v0.14 only a shared one has an id, so there is usually nothing else to point at. A local's name is enough for the common cases (`auto it = m.find(x)`, `for (auto it = v.begin(); ...)`), and it costs nothing in the format.
 
 > **Q21. Why `key` for maps and sets instead of an index?** Map and set order is unspecified ([Section 8](#8-rules-for-adapter-authors)), and the frontend draws entries in whatever order the trace gives. An index into that order would mean nothing to a reader. A key identifies the entry whatever the order.
 
@@ -735,3 +763,4 @@ These are mainly notes for me, to help me understand these concepts.
 
 > **Q30. Why tag a whole float instead of writing `3.0` as a bare number?** `3.0` is valid JSON, but every JSON parser, JavaScript's included, reads it as the same number as `3`, so the `.0` is gone before the frontend sees it. A type for every value would fix that and double the trace; a tag only on the values that need one is the rule the format already follows for big ints and NaN (Key Insight 4).
 
+> **Q31. Why give a container an `id` only when it is shared, and keep writing it in full at every place, instead of moving containers into the heap like objects?** Values were never wrong without ids: every step re-reads every variable, so two names for one list both show its current contents. What was lost is the fact that they are one list, and that is what explains Python's `[[0] * n] * m` (every row changes together) or `res.append(path)` without a copy. An `id` at every place restores exactly that fact. Moving containers into the heap would say the same thing but change how every local is written, every renderer, and every trace, for the rare container that is shared; and an `id` on every container would grow every trace and make every list look shared. Writing the contents at each place repeats them, which is the cost the format already accepts for snapshots (Key Insight 8): every place still draws on its own.

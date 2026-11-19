@@ -23,8 +23,8 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 | Area | Status |
 |---|---|
-| Trace format specification | Draft v0.13 |
-| JSON Schema + golden fixtures | v0.13, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking) |
+| Trace format specification | Draft v0.14 |
+| JSON Schema + golden fixtures | v0.14, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking) |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object`, and so do those objects held by value |
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
@@ -36,7 +36,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command. Without `--sandbox` it runs the code directly with a time limit |
 | Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
 | Python adapter | Planned |
-| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.13: a dark and a light theme, a canvas that shows the sandbox at work during a run, an Output tab for what the program printed, a renderer for every container kind, pointer markers under an array for the locals the code indexes it with (v0.9 `indexes`), linked lists, trees, and graphs drawn from the heap with pointer tags and highlights, a dashed outline on the cells and entries the running line read (`read` outcomes), strings as strips of characters with their pointers, the `Solution`'s members as cards tagged `member`, a recursion card (tree or stack view) that folds large runs, a call-stack card for void recursion, a state panel with the running statement and what it produced (from v0.8 outcomes), and motion throughout |
+| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.14: a dark and a light theme, a canvas that shows the sandbox at work during a run, an Output tab for what the program printed, a renderer for every container kind, pointer markers under an array for the locals the code indexes it with (v0.9 `indexes`), linked lists, trees, and graphs drawn from the heap with pointer tags and highlights, a dashed outline on the cells and entries the running line read (`read` outcomes), strings as strips of characters with their pointers, the `Solution`'s members as cards tagged `member`, a recursion card (tree or stack view) that folds large runs, a call-stack card for void recursion, a state panel with the running statement and what it produced (from v0.8 outcomes), and motion throughout |
 | Frontend: input form and real runs | Done, redesigned. The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
 | Frontend: hint renderers and "view as" | Done: a 2D array as a graph (adjacency list, edge list, adjacency matrix) or as intervals, from the parameter's hint or the card's View menu |
 | Frontend: home page | First version. The default route (`#/`, a hash route; the sandbox is `#/sandbox`): the pitch, a live preview that replays the Reverse Linked List golden trace through the real canvas, six example problems that open the sandbox with their Solution and inputs filled in, how a run works, and the languages. The sandbox is loaded only when opened |
@@ -50,11 +50,11 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.13 |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.14 |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.13 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.13 |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.14 |
+| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.14 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
@@ -313,7 +313,7 @@ The full specification is [`docs/trace-format.md`](docs/trace-format.md). The sh
 {"kind": "ref",            "id": "n3"}
 ```
 
-The full list (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `map`, `object`, `ref`, `int`, `float`, and `iterator` for a position in a container) is in the [summary of kinds](docs/trace-format.md#summary-of-kinds). What the type cannot say, such as whether an `array` of `array`s is a grid or a graph, is a **hint** that the adapter infers.
+The full list (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `map`, `object`, `ref`, `int`, `float`, and `iterator` for a position in a container) is in the [summary of kinds](docs/trace-format.md#summary-of-kinds). A container reached from more than one place, such as two names for one list, carries the same `id` at every place, so the frontend can show they are one ([shared containers](docs/trace-format.md#shared-containers)). What the type cannot say, such as whether an `array` of `array`s is a grid or a graph, is a **hint** that the adapter infers.
 
 Numbers are plain JSON whenever JavaScript can read them back exactly, as the kind they are. Three cases cannot be, so they are tagged, with the exact value kept in a string:
 
@@ -427,10 +427,9 @@ These are the decisions that shaped the project. Each links to where it is expla
 
 Gaps in the trace format that the tracing work exposed. They are planned for a minor version. Details in [`native-tracing.md` §8](docs/native-tracing.md#8-open-questions).
 
-1. **Aliasing of containers.** Only objects have ids, so two variables pointing at the same container appear as two copies.
-2. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
+1. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
 
-Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6. Iterators, which had no kind and were left out, are `iterator` values naming a local container since v0.7. What a line evaluated, a condition's result or the value a store left, is the top frame's `outcomes` since v0.8. Which locals index which array, which a list of conventional names guessed at, is `indexes` since v0.9. Which cells a line read, which nothing recorded, is the `read` outcome since v0.10. Member variables of the `Solution` (memo tables, visited sets), which had nowhere to go, are a step's `members` since v0.12. A whole float, which a bare `3` made look like an int, is a tagged `float` since v0.13.
+Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6. Iterators, which had no kind and were left out, are `iterator` values naming a local container since v0.7. What a line evaluated, a condition's result or the value a store left, is the top frame's `outcomes` since v0.8. Which locals index which array, which a list of conventional names guessed at, is `indexes` since v0.9. Which cells a line read, which nothing recorded, is the `read` outcome since v0.10. Member variables of the `Solution` (memo tables, visited sets), which had nowhere to go, are a step's `members` since v0.12. A whole float, which a bare `3` made look like an int, is a tagged `float` since v0.13. Two names for one container, which looked like two copies, share an `id` since v0.14.
 
 ---
 
@@ -549,7 +548,7 @@ Tentative. The architecture does not depend on these choices.
 
 ## Roadmap
 
-- [x] Trace format specification and JSON Schema (v0.13)
+- [x] Trace format specification and JSON Schema (v0.14)
 - [x] Tracing strategy docs (native, DAP)
 - [x] C++ serializers for every value kind, including pointers and by-value objects as `ref` and `object`
 - [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum

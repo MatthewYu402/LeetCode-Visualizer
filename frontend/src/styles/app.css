@@ -4014,3 +4014,48 @@ select.field-input {
     width: 100%;
   }
 }
+
+/* ---- Shared containers (v0.14): the note under a card naming every place that is one container ---- */
+
+.shared-note {
+  margin-top: 12px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.shared-line {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.shared-line .icon-stroke {
+  color: var(--accent-fg);
+  flex-shrink: 0;
+}
+
+.shared-label {
+  font-weight: 500;
+  color: var(--fg-soft);
+}
+
+.shared-place {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg);
+}
+
+.shared-sep {
+  color: var(--fg-faint);
+}
+
+.shared-more {
+  color: var(--fg-faint);
+}
