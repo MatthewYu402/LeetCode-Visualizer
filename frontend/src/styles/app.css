@@ -410,9 +410,55 @@ textarea {
   background: var(--border);
 }
 
+/* One motion per step: the line moves (180 ms), then the dot fades in where it stops
+   (140 ms after the line). 320 ms in all, inside one step at 2x (350 ms). */
 .scrubber-fill {
   background: var(--accent);
-  transition: width 200ms ease-out;
+  transition: width 180ms ease-out;
+}
+
+.scrubber-dot {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--fg);
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: scrubber-dot-in 140ms ease-out 180ms both;
+}
+
+@keyframes scrubber-dot-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* Dragging: the line and the dot follow the pointer at once. */
+.scrubber.is-dragging .scrubber-fill {
+  transition: none;
+}
+
+.scrubber.is-dragging .scrubber-dot {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrubber-fill {
+    transition: none;
+  }
+  .scrubber-dot {
+    animation: none;
+  }
 }
 
 .scrubber-ticks {
@@ -451,11 +497,8 @@ textarea {
   outline: none;
 }
 
-.scrubber input[type="range"]:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent);
-}
-
-.scrubber input[type="range"]:focus-visible::-moz-range-thumb {
+/* The drawn dot shows the focus ring, since the native thumb is invisible. */
+.scrubber input[type="range"]:focus-visible ~ .scrubber-dot {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
@@ -464,15 +507,15 @@ textarea {
   background: transparent;
 }
 
+/* The native thumb is the drag handle only: full size, invisible. .scrubber-dot is what shows. */
 .scrubber input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   width: 14px;
   height: 14px;
   margin-top: -5px;
   border-radius: 50%;
-  background: var(--fg);
-  border: 3px solid var(--accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent);
+  background: transparent;
+  border: 0;
 }
 
 .scrubber input[type="range"]::-moz-range-track {
@@ -481,11 +524,11 @@ textarea {
 }
 
 .scrubber input[type="range"]::-moz-range-thumb {
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--fg);
-  border: 3px solid var(--accent);
+  background: transparent;
+  border: 0;
 }
 
 .scrubber input[type="range"]:disabled::-webkit-slider-thumb {

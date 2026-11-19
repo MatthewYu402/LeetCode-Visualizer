@@ -1,4 +1,4 @@
-import type { Dispatch } from "react";
+import { useState, type Dispatch } from "react";
 import { SPEEDS, type PlayerAction, type PlayerState, type Speed } from "../player/playback";
 
 interface Props {
@@ -15,6 +15,12 @@ const MAX_TICKS = 60;
  * The bar at the bottom of the page: Restart (step 1 of this trace again, without running
  * the code), the transport, the step counter, a scrubber with a tick per step, and speed.
  * Steps are counted from 1 here; the trace numbers them from 0.
+ *
+ * The scrubber's dot is drawn, not the range input's own thumb (which is still there,
+ * invisible, to drag and focus). The native thumb jumps to a new step at once while the
+ * line eases after it; drawn, the move is one motion: the line grows or shrinks to the
+ * step, then the dot fades in there (keyed by the step, so each step fades it in again).
+ * While the reader drags, both follow the pointer with no delay.
  */
 export function PlaybackBar({ player, dispatch, speed, onSpeed }: Props) {
   const has = player.count > 0;
@@ -22,6 +28,7 @@ export function PlaybackBar({ player, dispatch, speed, onSpeed }: Props) {
   const atStart = player.index === 0;
   const atEnd = player.index === last;
   const progress = has && last > 0 ? (player.index / last) * 100 : 0;
+  const [dragging, setDragging] = useState(false);
 
   return (
     <footer className={`playback${has ? "" : " is-empty"}`} aria-label="Playback">
@@ -58,7 +65,7 @@ export function PlaybackBar({ player, dispatch, speed, onSpeed }: Props) {
         Step {has ? player.index + 1 : "–"} <span className="muted">/ {has ? player.count : "–"}</span>
       </span>
 
-      <div className="scrubber">
+      <div className={`scrubber${dragging ? " is-dragging" : ""}`}>
         <div className="scrubber-track" aria-hidden="true" />
         <div className="scrubber-fill" aria-hidden="true" style={{ width: `${progress}%` }} />
         {has && player.count <= MAX_TICKS && last > 0 && (
@@ -76,9 +83,14 @@ export function PlaybackBar({ player, dispatch, speed, onSpeed }: Props) {
           value={player.index}
           disabled={!has}
           onChange={(e) => dispatch({ type: "seek", index: Number(e.target.value) })}
+          onPointerDown={() => setDragging(true)}
+          onPointerUp={() => setDragging(false)}
+          onPointerCancel={() => setDragging(false)}
+          onBlur={() => setDragging(false)}
           aria-label="Step"
           aria-valuetext={has ? `Step ${player.index + 1} of ${player.count}` : "No trace"}
         />
+        {has && <span key={player.index} className="scrubber-dot" aria-hidden="true" style={{ left: `${progress}%` }} />}
       </div>
 
       <div className="segmented" role="group" aria-label="Speed">
