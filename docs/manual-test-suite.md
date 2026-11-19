@@ -93,6 +93,8 @@ Every case was run with its pasted example through the pipeline on 2026-11-17 (`
 | 66 | [Example names that do not match](#66-example-names-that-do-not-match) | — | — | input error |
 | 67 | [Long single line (statement cut with an ellipsis)](#67-long-single-line-statement-cut-with-an-ellipsis) | array | 12 | returns |
 | 68 | [Climbing Stairs (memo as a member)](#68-climbing-stairs-memo-as-a-member) | map (member), recursion | 28 | returns |
+| 69 | [Merge Intervals (intervals hint)](#69-merge-intervals-intervals-hint) | array (intervals view) | 17 | returns |
+| 70 | [Number of Provinces (adjacency matrix hint)](#70-number-of-provinces-adjacency-matrix-hint) | array (graph view), recursion | 44 | returns |
 
 ---
 
@@ -2065,7 +2067,7 @@ Output: 2
 
 **Exercises:** array, queue · **Steps:** 56 · **Ends:** returns
 
-**Watch for:** `adj` is a local `vector<vector<int>>` that is really a graph: drawn as nested arrays (the "View as" and hints gap).
+**Watch for:** `prerequisites` starts as a graph ("auto, from the name"); open its View menu to set the direction to `[a, b] is b → a`. `adj` is a local, so it starts as rows: pick "Graph (adjacency list)" in its menu and watch the arrows fill in.
 
 **Code**
 
@@ -2113,7 +2115,7 @@ Output: true
 
 **Exercises:** array, heap, pair · **Steps:** 56 · **Ends:** returns
 
-**Watch for:** Weighted adjacency of pairs, a min-heap of (distance, node), and `dist` with `INT_MAX` values.
+**Watch for:** `times` drawn as a weighted graph from its edge list (each weight beside its edge); weighted adjacency of pairs, a min-heap of (distance, node), and `dist` with `INT_MAX` values.
 
 **Code**
 
@@ -2166,7 +2168,7 @@ Output: 2
 
 **Exercises:** array, recursion (9 calls) · **Steps:** 52 · **Ends:** returns
 
-**Watch for:** `parent` array changing as sets merge; a recursive `find` that returns values (recursion card).
+**Watch for:** `edges` drawn as a graph from its pairs; `parent` array changing as sets merge; a recursive `find` that returns values (recursion card).
 
 **Code**
 
@@ -2971,6 +2973,88 @@ public:
 ```text
 Input: n = 5
 Output: 8
+```
+
+**Notes**
+
+- 
+
+
+# View as
+
+## 69 Merge Intervals (intervals hint)
+
+**Exercises:** array (intervals view) · **Steps:** 17 · **Ends:** returns
+
+**Watch for:** `intervals` drawn as bars on a number line ("auto, from the name"), with `i` beside the row it is on and the row each line reads dashed. `merged` is a local, so it starts as a grid: pick "Intervals" in its View menu and the two cards share one number line. The bar that grows turns amber.
+
+**Code**
+
+```cpp
+class Solution {
+public:
+    vector<vector<int>> merge(vector<vector<int>>& intervals) {
+        sort(intervals.begin(), intervals.end());
+        vector<vector<int>> merged;
+        for (int i = 0; i < (int)intervals.size(); i++) {
+            if (merged.empty() || merged.back()[1] < intervals[i][0]) {
+                merged.push_back(intervals[i]);
+            } else {
+                merged.back()[1] = max(merged.back()[1], intervals[i][1]);
+            }
+        }
+        return merged;
+    }
+};
+```
+
+**Example**
+
+```text
+Input: intervals = [[1,3],[2,6],[8,10],[15,18]]
+Output: [[1,6],[8,10],[15,18]]
+```
+
+**Notes**
+
+- 
+
+
+## 70 Number of Provinces (adjacency matrix hint)
+
+**Exercises:** array (graph view), recursion · **Steps:** 44 · **Ends:** returns
+
+**Watch for:** `isConnected` drawn as a graph from its matrix (0 and 1 joined, 2 alone); the edge `isConnected[u][v]` lights up when it is read. Switch it to Grid and back in its View menu; the dimmed options say why they do not fit.
+
+**Code**
+
+```cpp
+class Solution {
+public:
+    int findCircleNum(vector<vector<int>>& isConnected) {
+        int n = isConnected.size(), count = 0;
+        vector<bool> seen(n, false);
+        for (int i = 0; i < n; i++) {
+            if (seen[i]) continue;
+            count++;
+            visit(isConnected, seen, i);
+        }
+        return count;
+    }
+    void visit(vector<vector<int>>& isConnected, vector<bool>& seen, int u) {
+        seen[u] = true;
+        for (int v = 0; v < (int)isConnected.size(); v++) {
+            if (isConnected[u][v] == 1 && !seen[v]) visit(isConnected, seen, v);
+        }
+    }
+};
+```
+
+**Example**
+
+```text
+Input: isConnected = [[1,1,0],[1,1,0],[0,0,1]]
+Output: 2
 ```
 
 **Notes**
