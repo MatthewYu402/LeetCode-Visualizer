@@ -3428,7 +3428,7 @@ select.field-input {
   animation: rise-in 520ms ease-out both;
 }
 
-/* The app's version above the title, with the same green dot as "C++ today". */
+/* The app's version above the title, with the same green dot as the languages note under the buttons. */
 .version-badge {
   display: inline-flex;
   align-items: center;

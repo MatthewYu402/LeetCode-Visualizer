@@ -1,13 +1,24 @@
-// Editor languages. This is a UI input only: it picks the Monaco mode and, later, is sent with
-// the run request. No renderer, diff, or state code may import this module (CLAUDE.md invariant 2).
+// Editor languages. This is a UI input only: it picks the Monaco mode and the starter template,
+// and is sent with the signature and run requests, where it picks the backend's driver and
+// sandbox. No renderer, diff, or state code may import this module (CLAUDE.md invariant 2).
 
 export type EditorLanguage = "cpp" | "java" | "python";
 
-export const LANGUAGES: { id: EditorLanguage; label: string; monaco: string }[] = [
-  { id: "cpp", label: "C++", monaco: "cpp" },
-  { id: "java", label: "Java", monaco: "java" },
-  { id: "python", label: "Python", monaco: "python" },
+/** `runs`: the backend can trace it (its `language` field takes the same id). */
+export const LANGUAGES: { id: EditorLanguage; label: string; monaco: string; runs: boolean }[] = [
+  { id: "cpp", label: "C++", monaco: "cpp", runs: true },
+  { id: "java", label: "Java", monaco: "java", runs: false },
+  { id: "python", label: "Python", monaco: "python", runs: true },
 ];
+
+export function canRun(id: EditorLanguage): boolean {
+  return LANGUAGES.find((l) => l.id === id)?.runs ?? false;
+}
+
+/** The languages that run, as a sentence: "C++ and Python". */
+export const RUNNABLE = LANGUAGES.filter((l) => l.runs)
+  .map((l) => l.label)
+  .join(" and ");
 
 export function monacoLanguage(id: EditorLanguage): string {
   return LANGUAGES.find((l) => l.id === id)?.monaco ?? "plaintext";

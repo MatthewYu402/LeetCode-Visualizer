@@ -14,11 +14,11 @@ export const APP_VERSION = `v${__APP_VERSION__}`;
 export const REPO_URL = "https://github.com/MatthewYu402/LeetCode-Visualizer";
 export const CONTACT_EMAIL = "myu22826@gmail.com";
 
-/** Languages, in the order the project plans them. Only C++ runs today. */
+/** Languages: the ones that run today first, then the planned one. */
 export const LANGUAGE_STATUS: { name: string; ready: boolean; note: string }[] = [
   { name: "C++", ready: true, note: "Available now" },
+  { name: "Python", ready: true, note: "Available now" },
   { name: "Java", ready: false, note: "Coming soon" },
-  { name: "Python", ready: false, note: "Coming soon" },
 ];
 
 /**
@@ -91,7 +91,7 @@ export function Home() {
             </div>
             <p className="hero-note">
               <span className="lang-dot is-ready" aria-hidden="true" />
-              C++ today. Java and Python are coming.
+              C++ and Python today. Java is coming.
             </p>
           </div>
           <Preview />

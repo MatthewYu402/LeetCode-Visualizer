@@ -8,7 +8,7 @@ import { Split } from "./components/Split";
 import { StatePanel } from "./components/StatePanel";
 import { Toolbar } from "./components/Toolbar";
 import { VisualPanel } from "./components/VisualPanel";
-import { LANGUAGES, monacoLanguage, STARTER_EXAMPLE, TEMPLATES, type EditorLanguage } from "./editor/languages";
+import { canRun, LANGUAGES, monacoLanguage, RUNNABLE, STARTER_EXAMPLE, TEMPLATES, type EditorLanguage } from "./editor/languages";
 import type { Example } from "./home/examples";
 import { usePlayer } from "./player/usePlayer";
 import { useTheme } from "./theme";
@@ -27,15 +27,18 @@ const RUN_KEYS = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? "") ? 
  * App.tsx can load it, with Monaco, only when the sandbox is opened.
  */
 export default function Sandbox({ example }: { example?: Example }) {
-  // The language is a UI input: it picks the editor mode and the starter template.
-  // It is never passed to a renderer, the diff, or the state panel. Examples are C++.
+  // The language is a UI input: it picks the editor mode and the starter template, and is sent
+  // to the API with the code. It is never passed to a renderer, the diff, or the state panel.
+  // Examples are C++.
   const [language, setLanguage] = useState<EditorLanguage>("cpp");
   const [source, setSource] = useState(example?.code ?? TEMPLATES.cpp);
   const [showCalls, setShowCalls] = useState(true);
   const { theme, toggle: toggleTheme } = useTheme();
 
-  // Only C++ runs so far. The language picks the editor mode and whether the form is enabled.
-  const inputs = useInputs(source, language === "cpp");
+  // A language that cannot run yet (Java) disables the form.
+  const runs = canRun(language);
+  const cannotRun = `Only ${RUNNABLE} can run so far.`;
+  const inputs = useInputs(source, runs ? language : null, cannotRun);
   const done = inputs.run.status === "done" ? inputs.run : null;
   const trace = done?.result.trace ?? null;
   const running = inputs.run.status === "running";
@@ -47,7 +50,7 @@ export default function Sandbox({ example }: { example?: Example }) {
     () => (trace ? diffForStep(trace.steps, state.index, state.cameFrom) : null),
     [trace, state.index, state.cameFrom],
   );
-  const notice = !trace && language !== "cpp" ? { text: "Only C++ can run so far.", tone: "info" as const } : undefined;
+  const notice = !trace && !runs ? { text: cannotRun, tone: "info" as const } : undefined;
   const languageLabel = LANGUAGES.find((l) => l.id === language)?.label ?? "";
 
   const onLanguage = (l: EditorLanguage) => {
@@ -101,7 +104,7 @@ export default function Sandbox({ example }: { example?: Example }) {
               second={
                 <section className="panel">
                   <div className="panel-body">
-                    <InputsPanel inputs={inputs} example={language === "cpp" && !example ? STARTER_EXAMPLE : undefined} preset={example?.text} />
+                    <InputsPanel inputs={inputs} example={runs && !example ? STARTER_EXAMPLE : undefined} preset={example?.text} />
                   </div>
                 </section>
               }

@@ -15,7 +15,9 @@ describe("Home", () => {
     expect(html).toContain('href="#/sandbox"');
     expect(html).toContain("Paste a Solution");
     expect(html).toMatch(/C\+\+<\/span><span class="lang-note">Available now/);
+    expect(html).toMatch(/Python<\/span><span class="lang-note">Available now/);
     expect(html).toMatch(/Java<\/span><span class="lang-note">Coming soon/);
+    expect(html).toContain("C++ and Python today. Java is coming.");
   });
 
   it("shows the logo in the bar and the footer only, in both theme versions for CSS to pick", () => {

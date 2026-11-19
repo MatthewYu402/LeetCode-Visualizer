@@ -34,9 +34,12 @@ export interface Inputs {
 /**
  * The input form's state for one Solution: its signature (read again after
  * each pause in editing), the chosen method, one value per field, and the run.
- * `enabled` is false when the editor holds a language that cannot run yet.
+ * `language` is sent with both requests ("cpp" or "python"); null when the
+ * editor holds a language that cannot run yet, which disables the form, with
+ * `disabledReason` as the reason.
  */
-export function useInputs(source: string, enabled: boolean): Inputs {
+export function useInputs(source: string, language: string | null, disabledReason = "This language cannot run yet."): Inputs {
+  const enabled = language !== null;
   const [sig, setSig] = useState<Signature | null>(null);
   const [sigError, setSigError] = useState<ApiError | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -48,7 +51,7 @@ export function useInputs(source: string, enabled: boolean): Inputs {
     if (!enabled) return;
     const abort = new AbortController();
     const timer = setTimeout(async () => {
-      const answer = await signature(source, undefined, { signal: abort.signal });
+      const answer = await signature(source, undefined, { signal: abort.signal, language: language ?? undefined });
       if (abort.signal.aborted) return;
       if (answer.ok) {
         setSig(answer.value);
@@ -61,7 +64,7 @@ export function useInputs(source: string, enabled: boolean): Inputs {
       clearTimeout(timer);
       abort.abort();
     };
-  }, [source, enabled]);
+  }, [source, enabled, language]);
 
   const method = sig ? chooseMethod(sig, chosen) : null;
   const fields = fieldsFor(method);
@@ -71,7 +74,7 @@ export function useInputs(source: string, enabled: boolean): Inputs {
 
   const fillFromExample = useCallback(
     async (text: string): Promise<FillResult> => {
-      const answer = await signature(source, text);
+      const answer = await signature(source, text, { language: language ?? undefined });
       if (!answer.ok) return { ok: false, error: answer.error.message };
       setSig(answer.value);
       const target = fieldsFor(chooseMethod(answer.value, chosen));
@@ -81,11 +84,11 @@ export function useInputs(source: string, enabled: boolean): Inputs {
       setValues((v) => ({ ...v, ...cleared, ...filled }));
       return { ok: true, filled: target.map((f) => f.name).filter((n) => n in filled) };
     },
-    [source, chosen],
+    [source, chosen, language],
   );
 
   const blocked = !enabled
-    ? "Only C++ can run yet."
+    ? disabledReason
     : runState.status === "running"
       ? "Running…"
       : sig === null
@@ -100,11 +103,11 @@ export function useInputs(source: string, enabled: boolean): Inputs {
     const abort = new AbortController();
     runAbort.current = abort;
     setRunState({ status: "running" });
-    void run(runRequest(source, method, fields, shown), { signal: abort.signal }).then((answer) => {
+    void run(runRequest(source, method, fields, shown, language ?? undefined), { signal: abort.signal }).then((answer) => {
       if (abort.signal.aborted) return;
       setRunState(answer.ok ? { status: "done", result: answer.value, source } : { status: "failed", error: answer.error });
     });
-  }, [method, blocked, source, fields, shown]);
+  }, [method, blocked, source, fields, shown, language]);
 
   return {
     signature: sig,

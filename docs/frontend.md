@@ -102,7 +102,7 @@ Every split is resizable by dragging the border between panels: the left / right
 | `api/useInputs.ts` | The form's state: the signature re-read 400 ms after an edit, the method, the values, the run | Source |
 | `components/InputsPanel.tsx` | The form: method picker, one field per parameter, an example box that fills the fields on paste, Fill fields, why Run code waits, a failed run's error | The form's state |
 
-The only module that knows which language is selected is `App.tsx`, and it uses that only to pick the editor mode and the starter template, and to enable the inputs (only C++ runs so far) ([Section 10](#10-language-select)).
+The only module that knows which language is selected is `App.tsx`, and it uses that only to pick the editor mode and the starter template, and to enable the inputs (C++ and Python run; Java does not yet), and sends it with the API requests ([Section 10](#10-language-select)).
 
 ## 4. Loading traces
 
@@ -455,12 +455,12 @@ The player holds `{ index, cameFrom, playing }`. All transitions are a pure redu
 - The state panel lists no calls: the canvas draws them ([Section 6.6](#66-calls)).
 
 ## 10. Language select
-The select (C++, Java, Python) is a **UI input**. It changes the Monaco language mode, and later it will be sent with the run request. No renderer, diff, or state code reads it, and nothing reads `trace.language` (CLAUDE.md invariant 2).
+The select (C++, Java, Python) is a **UI input**. It changes the Monaco language mode and the starter, and is sent as `language` with the signature and run requests, where it picks the backend's driver and sandbox image ([`backend.md`](backend.md) §2). No renderer, diff, or state code reads it, and nothing reads `trace.language` (CLAUDE.md invariant 2).
 
 | Selected | Editor | Visual panel |
 |---|---|---|
-| C++ | The bare Two Sum `Solution` | "Run your code to see it here.", until a run |
-| Java / Python | The bare Two Sum `Solution` in that language | "Only C++ can run so far." The inputs are disabled |
+| C++, Python | The bare Two Sum `Solution` in that language | "Run your code to see it here.", until a run |
+| Java | The bare Two Sum `Solution` in Java | "Only C++ and Python can run so far." The inputs are disabled |
 
 Switching language replaces the source with that language's starter. The editor is editable. Editing does not change the trace until Run code is pressed again; until then the highlighted line still comes from `step.line`, so it may point at a different line of text.
 
@@ -471,7 +471,7 @@ The inputs panel turns the pasted Solution into a form ([`backend.md`](backend.m
 1. **The signature.** 400 ms after the source stops changing, `POST /api/signature` returns the public methods, each parameter's name and neutral type, and the method to preselect. A request still in flight when the source changes again is cancelled. If the new source cannot be read, the last good fields stay, with the error above them, so typing does not make the form flicker.
 2. **The fields.** One per parameter of the chosen method, labeled with its name and neutral type (`nums array<int>`), with LeetCode's notation for that type as the placeholder (`[1,2,3]`, `[3,9,20,null,null,15,7]`). For the starter's own method, `twoSum`, the placeholders are Two Sum's example (`[2,7,11,15]`, `9`), ghost text that goes as the user types. An extra such as `pos` is an optional field. A method picker appears only when the Solution has several public methods. A value typed earlier is kept when the signature changes but the field still exists.
 3. **Paste a LeetCode example.** Pasting the whole example block from the problem page (`Input: ... Output: ...`) into the box under the fields fills them at once: by name, or in order when none of the names match (Clone Graph's `adjList` for the parameter `node`), as the driver does. A note says which fields were filled. "Fill fields" under the box does the same for an example edited by hand. An example is the whole input, so an optional extra it leaves out is emptied: a `pos = 1` kept from Linked List Cycle would otherwise turn the next problem's list into a cycle, which ran Remove Nth Node to the step cap and made Middle of the Linked List fail with "pos = 1 is not an index of head" (`clearedExtras`).
-4. **Run code** is in the top bar (and Cmd/Ctrl + Enter). Disabled until every required field has a value; the inputs panel says why ("Fill in target."). It sends the source, the method, and the fields to `POST /api/run`, and shows a spinner meanwhile. The canvas shows the run is going (`RunningCanvas`): a line of trace points drawing itself on a loop, "Running your code in the sandbox", and "Compiling it, tracing every step, and checking the trace". The run is one request, so no stage is named as the current one. With reduced motion the line is drawn whole and still. A trace that comes back goes through the loader and replaces the last one in the player, which restarts at step 0. A failure shows a red card in the inputs panel with its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. A successful run adds nothing to the inputs panel: the canvas shows it.
+4. **Run code** is in the top bar (and Cmd/Ctrl + Enter). Disabled until every required field has a value; the inputs panel says why ("Fill in target."). It sends the source, the language, the method, and the fields to `POST /api/run`, and shows a spinner meanwhile. The canvas shows the run is going (`RunningCanvas`): a line of trace points drawing itself on a loop, "Running your code in the sandbox", and "Compiling it, tracing every step, and checking the trace". The run is one request, so no stage is named as the current one. With reduced motion the line is drawn whole and still. A trace that comes back goes through the loader and replaces the last one in the player, which restarts at step 0. A failure shows a red card in the inputs panel with its stage as a heading ("The code does not compile") and the message, such as Clang's error with the line. A successful run adds nothing to the inputs panel: the canvas shows it.
 
 ## 11. Theme tokens
 Two themes, dark (the default) and light, with the same tokens and meanings. Every colour is a CSS variable in `src/styles/theme.css`, and components use only the variables. The theme is the `data-theme` attribute on `<html>`: `:root` holds the dark values and `:root[data-theme="light"]` the light ones, so switching is one attribute and nothing re-renders to change colour.
@@ -544,7 +544,7 @@ The page scrolls (the sandbox does not), inside `.home`, since `body` never scro
 │                         Watch your Solution run,                         │  the pitch,
 │                           one line at a time.                            │  centered
 │              lede · [Paste a Solution] [Try an example]                  │
-│                               ● C++ today                                │
+│                  ● C++ and Python today. Java is coming.                 │
 │ ┌──────────────────────────────────────────────────────────────────────┐ │
 │ │ ● ● ●  Reverse Linked List                              Step 12 / 30 │ │
 │ │ code, running line highlighted │ the sandbox's canvas, same step     │ │  the preview
@@ -555,14 +555,14 @@ The page scrolls (the sandbox does not), inside `.home`, since `body` never scro
 ├──────────────────────────────────────────────────────────────────────────┤
 │ How it works   1 Solution + example › 2 sandbox › 3 trace › 4 canvas     │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ Languages      ● C++ available   ○ Java coming soon   ○ Python coming    │
+│ Languages      ● C++ available   ● Python available   ○ Java coming soon │
 │ eye · LeetCode Visualizer · Apache License 2.0      <> GitHub  ✉ email   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **The bar.** The brand at the left, links to the three sections in the middle (Examples, How it works, Languages), and the theme button and "Open the sandbox" at the right. The links scroll to their section; they never set a `#anchor`, because the hash is the route. Under 860 px the links are hidden.
 - **The pitch is centered**: the version badge, the title on two lines, the lede, the buttons, and the language note. The page has no large logo; the logo is in the bar and the footer.
-- **The version badge** shows the app's version with the same green dot as "C++ today". It is `version` in `frontend/package.json`, put in at build time (`__APP_VERSION__` in `vite.config.ts`), so `package.json` is the one place to change it. It is the app's version, not the trace format's (`v0.13`).
+- **The version badge** shows the app's version with the same green dot as the languages note ("C++ and Python today"). It is `version` in `frontend/package.json`, put in at build time (`__APP_VERSION__` in `vite.config.ts`), so `package.json` is the one place to change it. It is the app's version, not the trace format's (`v0.13`).
 - **The footer** has the logo, the name and licence, and links to the GitHub repository and the author's email.
 - **The two calls to action.** "Paste a Solution" (primary) opens `#/sandbox`; "Try an example" scrolls to the examples. The bar's "Open the sandbox" is the same as the first.
 - **The preview** (`home/Preview.tsx`) replays the Reverse Linked List golden trace (`fixtures/reverse-list.trace.json`) with the same `VisualPanel` the sandbox uses, beside its source (`fixtures/reverse_list_trace.cpp`) with the running line highlighted the way the editor highlights it. It plays by itself (1.1 s a step, a 2.6 s pause on the last step, then from the start), and the reader can pause or step it; stepping pauses it. With the system's "reduce motion" setting on it waits for the play button. It is at the page's full width, because a linked list of five nodes needs about 700 px; under 640 px the canvas is drawn at 70% (`zoom`, which shrinks the layout too, unlike a transform) and the code sits above it.

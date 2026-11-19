@@ -71,6 +71,7 @@ describe("values", () => {
       method: "twoSum",
       fields: { nums: "[2,7,11,15]", target: "9" },
     });
+    expect(runRequest("src", twoSum, fieldsFor(twoSum), { nums: "[1]", target: "9" }, "python").language).toBe("python");
   });
 });
 

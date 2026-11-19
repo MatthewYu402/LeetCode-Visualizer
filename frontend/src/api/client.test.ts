@@ -66,6 +66,12 @@ describe("signature", () => {
     expect(b.sent[0].body).toEqual({ source: "src", example: "nums = [1]" });
   });
 
+  it("sends the language when there is one", async () => {
+    const a = fakeFetch(200, { methods: [], method: null });
+    await signature("src", undefined, { fetch: a.f, language: "python" });
+    expect(a.sent[0].body).toEqual({ source: "src", language: "python" });
+  });
+
   it("a malformed answer is an error", async () => {
     const { f } = fakeFetch(200, { nope: true });
     expect((await signature("src", undefined, { fetch: f })).ok).toBe(false);

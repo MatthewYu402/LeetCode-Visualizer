@@ -1,6 +1,7 @@
 // The frontend's only way to reach the backend (docs/backend.md). Two calls:
 //
 //   signature(source, example?)  POST /api/signature: the Solution's methods and parameters
+//                                (options.language: "cpp", the default, or "python")
 //   run(request)                 POST /api/run: a validated trace, or why there is none
 //
 // Every answer is a discriminated union, never a thrown error, so a component
@@ -49,6 +50,8 @@ export interface ApiError {
 
 export interface RunRequest {
   source: string;
+  /** "cpp" or "python": which driver and sandbox the backend uses. Absent means C++. */
+  language?: string;
   method: string | null;
   /** One value per parameter (and per extra), as LeetCode writes it: {"nums": "[2,7,11,15]", "target": "9"}. */
   fields: Record<string, string>;
@@ -65,8 +68,13 @@ export type Answer<T> = { ok: true; value: T } | { ok: false; error: ApiError };
 
 type Fetch = typeof fetch;
 
-export async function signature(source: string, example?: string, options: { signal?: AbortSignal; fetch?: Fetch } = {}): Promise<Answer<Signature>> {
+export async function signature(
+  source: string,
+  example?: string,
+  options: { signal?: AbortSignal; fetch?: Fetch; language?: string } = {},
+): Promise<Answer<Signature>> {
   const body: Record<string, string> = { source };
+  if (options.language) body.language = options.language;
   if (example !== undefined && example.trim() !== "") body.example = example;
   const answer = await post("/api/signature", body, options);
   if (!answer.ok) return answer;

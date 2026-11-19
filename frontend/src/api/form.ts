@@ -50,8 +50,10 @@ export function missing(fields: Field[], values: Record<string, string>): string
   return empty.length ? `Fill in ${empty.join(", ")}.` : null;
 }
 
-export function runRequest(source: string, method: Method, fields: Field[], values: Record<string, string>): RunRequest {
-  return { source, method: method.name, fields: Object.fromEntries(fields.map((f) => [f.name, values[f.name] ?? ""])) };
+export function runRequest(source: string, method: Method, fields: Field[], values: Record<string, string>, language?: string): RunRequest {
+  const request: RunRequest = { source, method: method.name, fields: Object.fromEntries(fields.map((f) => [f.name, values[f.name] ?? ""])) };
+  if (language) request.language = language;
+  return request;
 }
 
 /** LeetCode's notation for a value of this neutral type. */
