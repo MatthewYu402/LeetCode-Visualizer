@@ -1,0 +1,3 @@
+# Build context for sandbox/java.Dockerfile: only what the image copies.
+*
+!adapters/java/src/

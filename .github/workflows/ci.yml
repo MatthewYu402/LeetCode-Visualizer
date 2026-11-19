@@ -6,6 +6,10 @@
 #                the Python adapter's tests (Python 3.12, as in its sandbox
 #                image): every Python fixture equals its golden trace and is
 #                like the C++ one
+#   java-adapter
+#                the Java adapter built and tested (JDK 21, as in its sandbox
+#                image): every Java fixture equals its golden trace and is like
+#                the C++ one, call by call
 #   rewriter-linux, rewriter-macos
 #                the rewriter's tests and the pipeline's, on each platform
 #   sandbox-linux
@@ -120,6 +124,27 @@ jobs:
       - name: Python adapter (every fixture, outcomes, kinds, limits)
         run: python3 -m unittest discover -s adapters/python/tests -v
 
+  java-adapter:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: python -m pip install jsonschema
+      - name: Build the Java adapter
+        run: make -C adapters/java
+      - name: Java adapter (every fixture, kinds, outcomes, limits)
+        run: python3 -m unittest discover -s adapters/java/tests -v
+      - name: Every fixture's twins, call by call
+        run: python3 tools/compare_traces.py --all --core
+
   rewriter-linux:
     # The rewriter links against Clang 18's libraries. Ubuntu 24.04 ships
     # clang 18; its development headers and libclang-cpp come from apt.
@@ -185,6 +210,7 @@ jobs:
         run: |
           docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
           docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
+          docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
       - name: Isolation tests (Docker)
         run: TRACE_SANDBOX=docker python3 -m unittest pipeline.tests.test_sandbox -v
       - name: Isolation tests (gVisor)

@@ -2,13 +2,13 @@
 
 One command from a pasted Solution and an example to a validated trace:
 driver, rewriter, compile, run, validate (pipeline/__init__.py). The language
-comes from --language, else from the file's extension (.py is Python, anything
-else C++).
+comes from --language, else from the file's extension (.py is Python, .java
+Java, anything else C++).
 
 Writes the trace to -o, or to stdout. A summary, and anything the program
 printed, go to stderr. Exit status: 0 when a valid trace was written; 2 when the
 Solution or the example cannot be used; 3 when the generated program does not
-build (or the Python tracer failed); 4 when the program crashed, timed out, or wrote no trace; 5 when the
+build (or the Python or Java tracer failed); 4 when the program crashed, timed out, or wrote no trace; 5 when the
 trace is invalid; 6 when the sandbox could not run.
 
 Without --sandbox the code runs directly on this machine, with only a time
@@ -19,6 +19,7 @@ must be built first:
 
     docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
     docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
+    docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
 """
 
 import argparse
@@ -50,7 +51,7 @@ def main(argv=None):
         return EXIT_INPUT
 
     try:
-        language = args.language or ("python" if args.solution.suffix == ".py" else "cpp")
+        language = args.language or {".py": "python", ".java": "java"}.get(args.solution.suffix, "cpp")
         result = run(source, args.example, language=language, source_name=str(args.solution), method=args.method,
                      rewriter=args.rewriter, timeout=args.timeout, keep=args.keep, sandbox=args.sandbox)
     except PipelineError as error:

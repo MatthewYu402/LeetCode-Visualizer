@@ -12,7 +12,9 @@ The stages for C++, in order (README "Pipeline", docs/driver-generation.md, docs
 
 For Python (docs/adapters/python.md) stages 2 to 4 are one: the driver writes
 run.json, and adapters/python/run.py instruments the Solution, runs it under
-the tracer, and writes the trace. Driver and validation are the same.
+the tracer, and writes the trace. For Java (docs/adapters/java.md) stages 2 and
+3 are one JVM (lvtrace.Build: the rewriter, then javac), and the driver writes
+LvMain.java and Nodes.java instead of a main. Driver and validation are the same.
 
 Every failure is a PipelineError that names the stage and says what went wrong
 in the user's terms, with an exit code for the command line.
@@ -39,17 +41,19 @@ from pathlib import Path
 
 from driver import DriverError
 from driver import cpp as cpp_driver
+from driver import java as java_driver
 from driver import python as python_driver
 
-from .runners import Container, Limits, Local, LocalPython, SandboxError, SandboxStopped, StageTimeout
+from .runners import Container, Limits, Local, LocalJava, LocalPython, SandboxError, SandboxStopped, StageTimeout
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / "adapters" / "cpp" / "runtime"
 REWRITER = Path(os.environ.get("TRACE_REWRITE", ROOT / "adapters" / "cpp" / "rewriter" / "build" / "trace-rewrite"))
 CHECK = ROOT / "tools" / "check_trace.py"
 PYTHON_ADAPTER = ROOT / "adapters" / "python"
+JAVA_CLASSES = Path(os.environ.get("TRACE_JAVA_CLASSES", ROOT / "adapters" / "java" / "build" / "classes"))
 
-LANGUAGES = ("cpp", "python")
+LANGUAGES = ("cpp", "python", "java")
 
 # Exit codes of the command line, one per stage that can fail.
 EXIT_INPUT = 2      # the Solution or the example cannot be used (driver, or the code does not compile)
@@ -60,6 +64,9 @@ EXIT_SANDBOX = 6    # the sandbox could not run: no Docker, no image, no gVisor 
 
 SANDBOXES = (None, "none", "docker", "gvisor")
 TRACE_CAP = 16 * 1024 * 1024        # bytes of trace read back; a larger trace is an error
+TOO_LARGE = (f"The trace is larger than {TRACE_CAP // (1024 * 1024)} MB, and was not read. Every step holds every call "
+             "in progress, so a recursion thousands of calls deep (or one that never reaches its base case) makes a very "
+             "large trace. Try a smaller example.")
 
 
 class PipelineError(Exception):
@@ -97,6 +104,14 @@ def python():
     raise PipelineError("run", "Python Solutions run with Python 3.12 or later. Install python3.12, or set TRACE_PYTHON.", EXIT_BUILD)
 
 
+def java():
+    """`java` from a JDK 21 or later, for running Java Solutions on this machine: TRACE_JAVA, else java on PATH."""
+    found = os.environ.get("TRACE_JAVA") or shutil.which("java")
+    if not found:
+        raise PipelineError("compile", "Java Solutions need a JDK (21 or later). Install one, or set TRACE_JAVA.", EXIT_BUILD)
+    return found
+
+
 def run(source, example, *, language="cpp", source_name=None, method=None, rewriter=REWRITER,
         cxx=None, timeout=10.0, compile_timeout=120.0, keep=False, sandbox=None, limits=None, pool=None):
     """Runs every stage. Returns a Result, or raises PipelineError.
@@ -116,6 +131,9 @@ def run(source, example, *, language="cpp", source_name=None, method=None, rewri
     try:
         if language == "python":
             result = _run_python(work, source, example, method, timeout, sandbox, limits or Limits(), pool)
+        elif language == "java":
+            result = _run_java(work, source, example, source_name or "Solution.java", method, timeout, compile_timeout,
+                               sandbox, limits or Limits(), pool)
         else:
             result = _run(work, source, example, source_name or "solution.cpp", method, Path(rewriter), cxx, timeout,
                           compile_timeout, sandbox, limits or Limits(), pool)
@@ -131,6 +149,10 @@ def _runner(work, sandbox, rewriter, cxx, compile_timeout, limits, pool, languag
     if sandbox in (None, "none"):
         if language == "python":
             return LocalPython(work, python(), PYTHON_ADAPTER)
+        if language == "java":
+            if not (JAVA_CLASSES / "lvtrace" / "Build.class").exists():
+                raise PipelineError("compile", f"The Java adapter is not built ({JAVA_CLASSES}). Run: make -C adapters/java", EXIT_BUILD)
+            return LocalJava(work, java(), JAVA_CLASSES, compile_timeout)
         if not rewriter.exists():
             raise PipelineError("rewriter", f"The rewriter is not built ({rewriter}). Run: make -C adapters/cpp/rewriter", EXIT_BUILD)
         return Local(work, rewriter, cxx or compiler(), RUNTIME, compile_timeout)
@@ -215,8 +237,62 @@ def _run_python(work, source, example, method, timeout, sandbox, limits, pool):
     if ran.returncode != 0 or trace_bytes is None:
         raise PipelineError("run", f"The program exited with status {ran.returncode} and wrote no trace." + _printed(output), EXIT_RUN)
     if len(trace_bytes) > TRACE_CAP:
-        raise PipelineError("run", f"The trace is larger than {TRACE_CAP // (1024 * 1024)} MB, and was not read.", EXIT_RUN)
+        raise PipelineError("run", TOO_LARGE, EXIT_RUN)
     return _validated(work, trace_bytes, output, program.warnings, who="the Python adapter")
+
+
+# The Java program's exit statuses (adapters/java/src/lvtrace/Trace.java)
+JAVA_RAISED = 1      # the user's code threw (the message has the exception and the user's frames)
+JAVA_ADAPTER_BUG = 3
+
+
+def _run_java(work, source, example, source_name, method, timeout, compile_timeout, sandbox, limits, pool):
+    # 1. driver: the problem, LvMain.java, and Nodes.java (outside the sandbox; it only reads the code)
+    try:
+        program = java_driver.generate(source, example, method)
+    except DriverError as error:
+        raise PipelineError("driver", str(error), EXIT_INPUT) from None
+    files = {"Solution.java": source, "LvMain.java": program.main, "Nodes.java": program.nodes,
+             "problem.json": program.problem_json()}
+    for name, text in files.items():
+        (work / name).write_text(text, encoding="utf-8")
+
+    runner = _runner(work, sandbox, None, None, compile_timeout, limits, pool, language="java")
+    try:
+        # 2 and 3. lvtrace.Build: the rewriter, then javac, in one JVM
+        built = runner.build_java(files)
+        if built.stage == "rewriter":
+            if built.stopped:
+                raise PipelineError("rewriter", f"Compiling took longer than {compile_timeout:g} seconds or used more "
+                                    f"than {limits.memory} of memory, and was stopped.", EXIT_INPUT)
+            raise PipelineError("rewriter", "The code does not compile:\n" + runner.shown(built.stderr, source_name), EXIT_INPUT)
+        if built.rewritten:
+            (work / "Solution.rewritten.java").write_text(built.rewritten, encoding="utf-8")
+        if built.stage == "compile":
+            raise PipelineError("compile", "The rewritten program does not compile. This is a bug in the Java rewriter or "
+                                f"the driver, not in your code:\n{built.stderr}", EXIT_BUILD)
+        # 4. run
+        ran = _execute(runner, timeout, limits, sandbox)
+        trace_bytes, collected = runner.collect(TRACE_CAP)
+    except SandboxError as error:
+        raise PipelineError("sandbox", str(error), EXIT_SANDBOX) from None
+    except StageTimeout:
+        raise PipelineError("sandbox", "The sandbox did not answer in time.", EXIT_SANDBOX) from None
+    finally:
+        runner.close()
+    output = ran.output if collected is None else collected
+    _check_ran(ran, output, limits, sandbox)
+    if ran.returncode == JAVA_ADAPTER_BUG:
+        raise PipelineError("adapter", "The Java tracer failed. This is a bug in the adapter, not in your code:\n"
+                            + output.strip(), EXIT_BUILD)
+    if ran.returncode == JAVA_RAISED:
+        raise PipelineError("run", "The code stopped with an error before it returned, so no trace was written:\n"
+                            + _tail(output), EXIT_RUN)
+    if ran.returncode != 0 or trace_bytes is None:
+        raise PipelineError("run", f"The program exited with status {ran.returncode} and wrote no trace." + _printed(output), EXIT_RUN)
+    if len(trace_bytes) > TRACE_CAP:
+        raise PipelineError("run", TOO_LARGE, EXIT_RUN)
+    return _validated(work, trace_bytes, output, program.warnings, who="the Java adapter")
 
 
 def _stages(runner, work, program, source, source_name, timeout, compile_timeout, limits, sandbox):
@@ -247,7 +323,7 @@ def _stages(runner, work, program, source, source_name, timeout, compile_timeout
     if ran.returncode != 0 or trace_bytes is None:
         raise PipelineError("run", f"The program exited with status {ran.returncode} and wrote no trace." + _printed(output), EXIT_RUN)
     if len(trace_bytes) > TRACE_CAP:
-        raise PipelineError("run", f"The trace is larger than {TRACE_CAP // (1024 * 1024)} MB, and was not read.", EXIT_RUN)
+        raise PipelineError("run", TOO_LARGE, EXIT_RUN)
     return trace_bytes, output
 
 

@@ -6,6 +6,7 @@ for a language are skipped without its image:
 
     docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
     docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
+    docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
     python3 -m unittest pipeline.tests.test_sandbox
     TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox
 
@@ -44,6 +45,8 @@ def _image_ready(image):
 
 needs_sandbox = unittest.skipUnless(_image_ready(IMAGES["cpp"]),
                                     f"no Docker, or the image {IMAGES['cpp']!r} is not built (see sandbox/cpp.Dockerfile)")
+needs_java_sandbox = unittest.skipUnless(_image_ready(IMAGES["java"]),
+                                         f"no Docker, or the image {IMAGES['java']!r} is not built (see sandbox/java.Dockerfile)")
 needs_python_sandbox = unittest.skipUnless(_image_ready(IMAGES["python"]),
                                            f"no Docker, or the image {IMAGES['python']!r} is not built (see sandbox/python.Dockerfile)")
 PYTHON_CASES = {
@@ -343,6 +346,91 @@ class PythonIsolation(unittest.TestCase):
         self.assertEqual(new_containers_after(before), set())
 
 
+def jv(body, signature="public int f(int n)", extra=""):
+    return f"class Solution {{\n    {signature} {{\n{body}\n    }}\n{extra}}}\n"
+
+
+@needs_java_sandbox
+class JavaIsolation(unittest.TestCase):
+    """The same limits for the Java image: lvtrace.Build as the tools' user, LvMain as the program's."""
+
+    def fails(self, source, **options):
+        with self.assertRaises(PipelineError) as caught:
+            run(source, "n = 3", language="java", sandbox=SANDBOX, **options)
+        return caught.exception
+
+    def result(self, source, **options):
+        return run(source, "n = 3", language="java", sandbox=SANDBOX, **options).trace["result"]
+
+    def test_fixtures(self):
+        for golden, (stem, example) in PYTHON_CASES.items():
+            with self.subTest(fixture=golden):
+                trace = run((FIXTURES / f"{stem}_trace.java").read_text(encoding="utf-8"), example, language="java",
+                            sandbox=SANDBOX).trace
+                with tempfile.TemporaryDirectory() as work:
+                    path = Path(work) / "trace.json"
+                    path.write_text(json.dumps(trace), encoding="utf-8")
+                    status, output = check_trace("--equals", FIXTURES / f"{golden}.java.trace.json", path)
+                self.assertEqual(status, 0, output)
+
+    def test_no_network(self):
+        source = jv("""        try (java.net.Socket s = new java.net.Socket()) {
+            s.connect(new java.net.InetSocketAddress("1.1.1.1", 53), 3000);
+            return 0;
+        } catch (Exception e) {
+            return -1;
+        }""")
+        self.assertEqual(self.result(source), -1)
+
+    def test_not_root_and_read_only(self):
+        source = jv("""        long uid = -1;
+        try {
+            for (String l : java.nio.file.Files.readAllLines(java.nio.file.Path.of("/proc/self/status"))) {
+                if (l.startsWith("Uid:")) uid = Long.parseLong(l.trim().split("[ \\t]+")[1]);
+            }
+        } catch (Exception e) {
+            uid = -1;
+        }
+        return (int) uid * 1000 + w("/opt/trace/java/lvtrace/Trace.class") * 100 + w("/etc/passwd") * 10 + w("scratch.txt");""",
+                    extra="""    static int w(String p) {
+        try (java.io.FileOutputStream f = new java.io.FileOutputStream(p, true)) {
+            return 1;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+""")
+        self.assertEqual(self.result(source), int(PROGRAM_USER.split(":")[0]) * 1000 + 1)
+
+    def test_memory_limit(self):
+        error = self.fails(jv("        byte[][] big = new byte[512][];\n        for (int i = 0; i < 512; i++) big[i] = new byte[1 << 20];\n        return big.length;"),
+                           limits=Limits(memory="256m"))
+        self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
+
+    def test_time_limit_removes_the_container(self):
+        before = containers()
+        error = self.fails(jv("        return Helper.spin();", extra="") + "class Helper { static int spin() { while (true) {} } }\n", timeout=3)
+        self.assertIn("did not finish within 3 seconds", str(error))
+        self.assertEqual(new_containers_after(before), set())
+
+    def test_a_forged_trace_is_rejected_outside(self):
+        source = jv("""        try {
+            java.nio.file.Files.writeString(java.nio.file.Path.of(System.getenv("TRACE_OUT")), "{\\"version\\": \\"0.7\\", \\"forged\\": true}");
+        } catch (Exception e) {
+            return 1;
+        }
+        Runtime.getRuntime().halt(0);
+        return 0;""")
+        error = self.fails(source)
+        self.assertEqual((error.stage, error.exit_code), ("validate", EXIT_INVALID), str(error))
+
+    def test_compile_errors_name_the_users_file(self):
+        with self.assertRaises(PipelineError) as caught:
+            run(jv("        int x = n\n        return x;"), "n = 3", language="java", source_name="Mine.java", sandbox=SANDBOX)
+        self.assertEqual(caught.exception.stage, "rewriter")
+        self.assertIn("Mine.java:3:", str(caught.exception))
+
+
 @unittest.skipUnless(shutil.which("docker"), "no Docker")
 class Setup(unittest.TestCase):
     def test_missing_image_is_a_sandbox_error(self):
@@ -352,6 +440,9 @@ class Setup(unittest.TestCase):
         with self.assertRaises(SandboxError) as caught:
             Container(image="leetcode-visualizer-no-such-image", language="python")
         self.assertIn("docker build -f sandbox/python.Dockerfile", str(caught.exception))
+        with self.assertRaises(SandboxError) as caught:
+            Container(image="leetcode-visualizer-no-such-image", language="java")
+        self.assertIn("docker build -f sandbox/java.Dockerfile", str(caught.exception))
 
     def test_missing_runtime_is_a_sandbox_error(self):
         if "runsc" in _runtimes():

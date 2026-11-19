@@ -4,6 +4,8 @@
                   with only time limits. For your own code.
     LocalPython   Python: runs adapters/python/run.py directly, with only a time
                   limit. For your own code.
+    LocalJava     Java: the rewriter and javac in one JVM (lvtrace.Build), then the
+                  program in another, with only time limits. For your own code.
     Container     runs them inside one locked-down container per run
                   (docs/sandboxing.md): no network, capped memory, CPU, processes,
                   and disk, a read-only image, not root, and an optional gVisor
@@ -13,6 +15,7 @@
 They have the same methods, so pipeline._run() does not know which it has:
 
     build(prelude, source, main)  -> Built   C++: rewrite the Solution, then compile it with main
+    build_java(files)             -> Built   Java: put the files in, rewrite, and compile
     prepare(files)                           Python: put {name: text} in the run folder
     execute(timeout)              -> Ran     the program, with TRACE_OUT set
     collect(trace_cap)            -> (trace bytes or None, output or None)
@@ -153,6 +156,58 @@ class Local:
         pass
 
 
+# The JVM for a run: one GC thread and the quick compiler only, so a run starts fast and keeps
+# under the sandbox's process limit (each JVM thread counts); no performance data file in /tmp.
+JAVA_FLAGS = ["-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-XX:-UsePerfData", "-XX:MaxRAMPercentage=50", "-Xshare:auto"]
+JAVA_BUILD_USER = 10   # lvtrace.Build: the user's code does not compile
+JAVA_BUILD_BUG = 20    # lvtrace.Build: the rewritten or generated code does not compile
+
+
+def _java_env():
+    """This environment, without the JVM options a host may set globally (they print a note on every start)."""
+    return {k: v for k, v in os.environ.items() if k not in ("JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS")}
+
+
+class LocalJava(Local):
+    """Java on this machine: lvtrace.Build, then LvMain, with `java` (JDK 21 or later)."""
+
+    def __init__(self, work, java, runtime_classes, compile_timeout):
+        self.work, self.java, self.runtime_classes = Path(work), java, str(runtime_classes)
+        self.compile_timeout = compile_timeout
+        self.command = [java, *JAVA_FLAGS, "-cp", f"{self.work / 'classes'}{os.pathsep}{self.runtime_classes}", "LvMain"]
+        self.source_file = "Solution.java"
+
+    def shown(self, text, user_name):
+        return text.replace("Solution.java:", f"{user_name}:")  # javac names the file without its folder
+
+    def build_java(self, files):
+        for name, text in files.items():
+            (self.work / name).write_text(text, encoding="utf-8")
+        try:
+            r = subprocess.run([self.java, *JAVA_FLAGS, "-cp", self.runtime_classes, "lvtrace.Build", str(self.work)],
+                               capture_output=True, text=True, timeout=self.compile_timeout, env=_java_env())
+        except subprocess.TimeoutExpired:
+            return Built("rewriter", "", "", stopped=True)
+        rewritten_file = self.work / "Solution.rewritten.java"
+        rewritten = rewritten_file.read_text(encoding="utf-8") if rewritten_file.exists() else ""
+        if r.returncode == JAVA_BUILD_USER:
+            return Built("rewriter", "", r.stderr)
+        if r.returncode != 0:
+            return Built("compile", rewritten, r.stderr or r.stdout)
+        return Built("", rewritten, "")
+
+    def execute(self, timeout):
+        env = {**_java_env(), "TRACE_OUT": str(self.work / "trace.json")}
+        try:
+            r = subprocess.run(self.command, cwd=self.work, env=env, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired as expired:
+            raise StageTimeout(timeout, _text(expired.stdout) + _text(expired.stderr)) from None
+        output = (r.stdout or "") + (r.stderr or "")
+        if r.returncode < 0:
+            return Ran(r.returncode, _signal_name(-r.returncode), output)
+        return Ran(r.returncode, "", output)
+
+
 class LocalPython(Local):
     """Python on this machine: run.py with the given interpreter (Python 3.12 or later)."""
 
@@ -174,20 +229,23 @@ class LocalPython(Local):
 IMAGES = {
     "cpp": os.environ.get("TRACE_SANDBOX_IMAGE_CPP", "leetcode-visualizer-sandbox-cpp"),
     "python": os.environ.get("TRACE_SANDBOX_IMAGE_PYTHON", "leetcode-visualizer-sandbox-python"),
+    "java": os.environ.get("TRACE_SANDBOX_IMAGE_JAVA", "leetcode-visualizer-sandbox-java"),
 }
 IMAGE = IMAGES["cpp"]
 LABEL = "org.leetcode-visualizer.sandbox"   # on every sandbox container, for cleaning up after a crash
 PCH_LABEL = "org.leetcode-visualizer.pch"   # on the image: where the precompiled header is
 
-# Inside the images (sandbox/cpp.Dockerfile, sandbox/python.Dockerfile).
+# Inside the images (sandbox/cpp.Dockerfile, sandbox/python.Dockerfile, sandbox/java.Dockerfile).
 REWRITER_IN = "/opt/trace/bin/trace-rewrite"
 RUNTIME_IN = "/opt/trace/runtime"
 CXX_IN = "clang++-18"
 PYTHON_IN = "/opt/trace/python/run.py"
+JAVA_IN = "/opt/trace/java"   # the runtime and the rewriter, compiled
 WORK_IN = "/work"
 # What execute() runs in the run folder, and the user's file there, per language.
-PROGRAM_IN = {"cpp": "./program", "python": f"python3 -I {PYTHON_IN} {WORK_IN}"}
-SOURCE_IN = {"cpp": "solution.cpp", "python": "solution.py"}
+PROGRAM_IN = {"cpp": "./program", "python": f"python3 -I {PYTHON_IN} {WORK_IN}",
+              "java": f"java {' '.join(JAVA_FLAGS)} -cp {WORK_IN}/classes:{JAVA_IN} LvMain"}
+SOURCE_IN = {"cpp": "solution.cpp", "python": "solution.py", "java": "Solution.java"}
 
 # Two unprivileged users with no names. The tools (tar, the rewriter, the
 # compiler) run as TOOLS_USER; the user's program runs as PROGRAM_USER, a user
@@ -465,6 +523,25 @@ s=$?; if [ $s -ne 0 ]; then cat stage.err >&2; [ $s -eq 137 ] && exit 21; exit 2
             raise SandboxError(f"Could not prepare the run in the sandbox (status {code}):\n" + err.strip())
         return Built("", rewritten, "")
 
+    def build_java(self, files):
+        """Copies the files in, rewrites, and compiles (lvtrace.Build, one JVM), in one `docker exec`.
+        The rewritten Solution comes back on stdout, as the C++ build's does."""
+        t = max(1, int(self.compile_timeout))
+        script = f"""cd {WORK_IN} && tar -x -f - || exit 2
+timeout -s KILL {t} java {' '.join(JAVA_FLAGS)} -cp {JAVA_IN} lvtrace.Build {WORK_IN} 2> stage.err
+s=$?; cat Solution.rewritten.java 2>/dev/null
+if [ $s -ne 0 ]; then cat stage.err >&2; [ $s -eq 137 ] && exit 11; [ $s -eq {JAVA_BUILD_USER} ] && exit 10; exit 20; fi
+"""
+        code, out, err = self._exec(["sh", "-c", script], timeout=t + 30, input=_tar(files))
+        rewritten = _text(out)
+        if code in (10, 11):
+            return Built("rewriter", "", err, stopped=code == 11)
+        if code == 20:
+            return Built("compile", rewritten, err)
+        if code != 0:
+            raise SandboxError(f"Could not prepare the run in the sandbox (status {code}):\n" + err.strip())
+        return Built("", rewritten, "")
+
     def prepare(self, files):
         """Copies {name: text} into the run folder, in one `docker exec`."""
         code, _, err = self._exec(["sh", "-c", f"cd {WORK_IN} && tar -x -f -"], timeout=30, input=_tar(files))
@@ -535,6 +612,8 @@ printf '%s %s\\n' "$t" "$(wc -c < /tmp/o)"; cat /tmp/t /tmp/o"""
         return (trace if code == 0 else None), output
 
     def shown(self, text, user_name):
+        if self.language == "java":  # javac names the file without its folder
+            return text.replace("Solution.java:", f"{user_name}:")
         return text.replace(f"{WORK_IN}/{SOURCE_IN[self.language]}", user_name)
 
     def close(self):

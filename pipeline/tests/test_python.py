@@ -91,7 +91,7 @@ class Python(unittest.TestCase):
 
     def test_unknown_language(self):
         with self.assertRaises(ValueError):
-            run("", "", language="java")
+            run("", "", language="go")
 
 
 if __name__ == "__main__":
