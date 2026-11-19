@@ -80,7 +80,7 @@ class GoldenThroughGeneratedDriver(unittest.TestCase):
                 self.assertEqual(status, 0, output)
 
     def test_every_golden_fixture_is_covered(self):
-        goldens = {p.name[:-len(".trace.json")] for p in FIXTURES.glob("*.trace.json") if not p.name.endswith(".python.trace.json")}
+        goldens = {p.name[:-len(".trace.json")] for p in FIXTURES.glob("*.trace.json") if p.name.count(".") == 2}  # not the Python or Java twins
         self.assertEqual(goldens, set(CASES))
 
 

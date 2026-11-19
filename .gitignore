@@ -10,6 +10,11 @@ adapters/cpp/rewriter/build/
 .cache/
 compile_commands.json
 
+# ---- Java adapter ----
+# make -C adapters/java output
+adapters/java/build/
+*.class
+
 # ---- Generated traces ----
 # Recorder output from local runs. Golden fixtures live in fixtures/ and stay tracked.
 *.trace.json

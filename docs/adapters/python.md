@@ -76,7 +76,7 @@ The test of an `if`, `elif`, `while`, and a conditional expression is wrapped in
 
 ### 4.2 Stores
 
-After an assignment, an augmented assignment, an annotated assignment with a value, or at the start of a `for` body, `__trace__.store(...)` records the target's new value as a `store` outcome. The target is read again to get the value, so only a *pure* target is recorded: names, attributes, subscripts, and arithmetic of those (`dp[i - 1]`, `self.count`), which can be evaluated twice with no effect. A target like `a[f()]` is left out rather than run twice.
+After an assignment, an augmented assignment, an annotated assignment with a value, or at the start of a `for` body, `__trace__.store(...)` records the target's new value as a `store` outcome. A `for` loop's store is written with its header as the code (`i in range(n)`), as C++ writes `int x : nums`. The target is read again to get the value, so only a *pure* target is recorded: names, attributes, subscripts, and arithmetic of those (`dp[i - 1]`, `self.count`), which can be evaluated twice with no effect. A target like `a[f()]` is left out rather than run twice.
 
 ### 4.3 Reads
 
@@ -96,6 +96,8 @@ The same pass reads two things from the source:
 - **heapq lists.** A name passed as the first argument to `heappush`, `heappop`, `heapify`, `heappushpop`, or `heapreplace` (through `heapq.` or imported bare) is drawn as a `priority-queue` with `order: "min"`, in the function that passes it. The same holds for a member (`heappush(self.heap, x)`). Elsewhere a list is an `array`.
 
 > **Key insight 2: heapq is the one place a type does not decide the kind.** A heapq heap is a plain `list` whose order is a binary heap, so by type alone it is an `array` in an order that means nothing to a reader. The code that calls `heapq` says what it is, and the priority-queue card shows what the reader expects: the smallest item on top.
+
+This is a deliberate exception to "the type decides the kind" (CLAUDE.md invariant 11), shared with the Java adapter's `Deque` used as a stack. It does not show the list as Python holds it, which C++ never has to choose between. The spec records both ([`trace-format.md`](../trace-format.md), Where use decides the kind) as an open question to revisit.
 
 ## 5. Members
 

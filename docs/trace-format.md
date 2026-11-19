@@ -188,11 +188,9 @@ Inside a type name, arguments are separated by `", "`, one comma and one space: 
 
 `returns` is optional and describes the method's return value: a `type`, written with the same neutral names as a parameter's, and an optional `hint` with the same meaning. A method with no return value has the type `"void"`, which is how a `null` result is told apart from a returned null pointer ([The return value](#the-return-value)). An adapter that reads the signature should always write `returns`, and must write it for a `void` method.
 
-`returns` is optional and describes the method's return value: a `type`, written with the same neutral names as a parameter's, and an optional `hint` with the same meaning. A method with no return value has the type `"void"`, which is how a `null` result is told apart from a returned null pointer ([The return value](#the-return-value)). An adapter that reads the signature should always write `returns`, and must write it for a `void` method.
-
 `hint` is optional and resolves ambiguity. An `array<array<int>>` could be a grid, an adjacency matrix, an edge list, or intervals, and the data alone cannot say which. Allowed hints: `grid`, `adjacency-matrix`, `adjacency-list`, `edge-list`, `intervals`, `tree`, `linked-list`, `graph`, `priority-queue`, `stack`, `queue`.
 
-The last three cover languages where those structures are plain arrays: a Python list used through `heapq` is an `array` with the `priority-queue` hint, and a list used with `append`/`pop` is an `array` with the `stack` hint.
+The last three cover a parameter whose type is a plain array but whose problem treats it as one of those structures. A local the code itself uses as one is a different case, covered by [Where use decides the kind](#where-use-decides-the-kind).
 
 Hints are **inferred by the adapter**, never supplied by the user. Sources, from most to least certain:
 1. **Signature types**: a `TreeNode` parameter is a tree.
@@ -351,6 +349,16 @@ Bare JSON primitives: numbers, strings, `true`/`false`, `null`. Everything else 
 | `iterator` | `container`, and `index`, `key`, or `end` | C++ iterators (`vector<int>::iterator`, `map<K, V>::iterator`), Java `Iterator` | A position in a local of the same frame. Only directly in `locals` |
 
 > **Key Insight 6: a kind is for what the type tells the adapter. A hint is for what only the problem knows.** `stack<int>` is a stack from its type alone, so it has a kind. A `vector<vector<int>>` could be a grid, an adjacency matrix, or an edge list, and nothing in the data says which, so that is a hint.
+
+### Where use decides the kind
+Two adapters let the code's use of a value decide its kind where its type says something else, because the type says nothing a reader would recognize:
+
+| Adapter | Value | Kind written | Why |
+|---|---|---|---|
+| Python | a `list` the code passes to `heapq` | `priority-queue`, `order: "min"` | heapq keeps a binary heap in a plain list; drawn as an array, its order means nothing |
+| Java | a `Deque` (`ArrayDeque`, `LinkedList`) the code uses only through `push`, `pop`, and `peek` | `stack` | Java's documentation recommends a `Deque` for a stack, so LeetCode's Java Solutions write one |
+
+Each is decided by the adapter's rewriter from the code, never guessed by the frontend, and written only where the rule is certain (every call on the value is one the kind has). This departs from "the type decides the kind" (Key Insight 6, CLAUDE.md invariant 11) and does not show the value's real representation, which C++ never needs to do. It is kept on purpose, recorded in each adapter's doc ([`python.md`](adapters/python.md) §4.4, [`java.md`](adapters/java.md) §5), and is an open question to revisit.
 
 ## 6. Steps
 A step is one snapshot of program state: the call stack, and the objects every frame on it can reach.
