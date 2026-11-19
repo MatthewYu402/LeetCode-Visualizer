@@ -230,14 +230,33 @@ namespace rewriter {
     return names.count(record->getNameAsString()) != 0;
   }
 
-  // An integer variable (not bool, not a character) local to the function: a parameter or
-  // a variable declared in its body.
-  static const VarDecl *integerLocal(const Expr *expr) {
+  // A name local to the function, named directly: a parameter, a variable declared
+  // in its body, or one name of a structured binding declared there (`u` in
+  // `auto [d, u] = heap.top();`, `v` in `for (auto& [v, w] : graph[u])`). A binding is
+  // a BindingDecl, not a VarDecl, but the instrumented code names it like any
+  // other local, so for indexes and reads it is one. The DecompositionDecl
+  // itself has no name and is never one.
+  static const ValueDecl *localNamed(const Expr *expr) {
     const auto *ref = dyn_cast<DeclRefExpr>(expr->IgnoreParenImpCasts());
-    const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
+    if (ref == nullptr) return nullptr;
+    if (const auto *binding = dyn_cast<BindingDecl>(ref->getDecl())) {
+      const auto *owner = dyn_cast_or_null<VarDecl>(binding->getDecomposedDecl());
+      if (owner == nullptr || !owner->isLocalVarDecl() || binding->getName().empty()) return nullptr;
+      return binding;
+    }
+    const auto *var = dyn_cast<VarDecl>(ref->getDecl());
     if (var == nullptr || !var->isLocalVarDeclOrParm() || var->getName().empty() || isa<DecompositionDecl>(var)) return nullptr;
+    return var;
+  }
+
+  // An integer local (not bool, not a character, not an enum), as localNamed finds it.
+  static const ValueDecl *integerLocal(const Expr *expr) {
+    const ValueDecl *var = localNamed(expr);
+    if (var == nullptr) return nullptr;
     const QualType type = var->getType().getNonReferenceType();
-    if (!type->isIntegerType() || type->isBooleanType() || type->isAnyCharacterType() || type->isEnumeralType()) return nullptr;
+    if (type.isNull() || type->isDependentType() || !type->isIntegerType() || type->isBooleanType() || type->isAnyCharacterType() ||
+        type->isEnumeralType())
+      return nullptr;
     return var;
   }
 
@@ -258,8 +277,13 @@ namespace rewriter {
     std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
       if (node == nullptr) return;
       if (const auto *decls = dyn_cast<DeclStmt>(node))
-        for (const Decl *d : decls->decls())
-          if (const auto *v = dyn_cast<VarDecl>(d)) names.insert(v->getNameAsString());
+        for (const Decl *d : decls->decls()) {
+          if (const auto *dd = dyn_cast<DecompositionDecl>(d)) {
+            for (const BindingDecl *b : dd->bindings()) names.insert(b->getNameAsString());  // auto [a, b] = ...
+          } else if (const auto *v = dyn_cast<VarDecl>(d)) {
+            names.insert(v->getNameAsString());
+          }
+        }
       for (const Stmt *child : node->children()) walk(child);
     };
     walk(fn->getBody());
@@ -287,11 +311,9 @@ namespace rewriter {
 
   // A container local to the function, named directly: the `nums` of nums[i].
   // grid[r] is not one, so in grid[r][c] only r indexes grid.
-  static const VarDecl *containerLocal(const Expr *expr) {
-    const auto *ref = dyn_cast<DeclRefExpr>(expr->IgnoreParenImpCasts());
-    const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
-    if (var == nullptr || !var->isLocalVarDeclOrParm() || var->getName().empty() || isa<DecompositionDecl>(var)) return nullptr;
-    return indexable(var->getType()) ? var : nullptr;
+  static const ValueDecl *containerLocal(const Expr *expr) {
+    const ValueDecl *var = localNamed(expr);
+    return var != nullptr && indexable(var->getType()) ? var : nullptr;
   }
 
   // Every subscript of a local container in the body, `v[expr]` or `v.at(expr)`,
@@ -315,7 +337,7 @@ namespace rewriter {
 
     // The integer local an index expression points with: `i`, or `i + K`, `K + i`, `i - K`
     // for an integer constant K (a literal, a constexpr, `i + 1 - 1` again), else none.
-    std::function<const VarDecl *(const Expr *)> pointerOf = [&](const Expr *expr) -> const VarDecl * {
+    std::function<const ValueDecl *(const Expr *)> pointerOf = [&](const Expr *expr) -> const ValueDecl * {
       if (expr == nullptr) return nullptr;
       expr = expr->IgnoreParenImpCasts();
       if (isa<DeclRefExpr>(expr)) return integerLocal(expr);
@@ -327,7 +349,7 @@ namespace rewriter {
       return nullptr;
     };
     auto indexesIn = [&](const Expr *index, const std::string &container) {
-      if (const VarDecl *var = pointerOf(index)) pair(var->getNameAsString(), container);
+      if (const ValueDecl *var = pointerOf(index)) pair(var->getNameAsString(), container);
     };
 
     std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
@@ -346,7 +368,7 @@ namespace rewriter {
         }
       }
       if (base != nullptr) {
-        if (const VarDecl *container = containerLocal(base)) indexesIn(index, container->getNameAsString());
+        if (const ValueDecl *container = containerLocal(base)) indexesIn(index, container->getNameAsString());
         else if (const auto member = memberTarget(base, locals); member && indexable(member->type)) indexesIn(index, member->name);
       }
       for (const Stmt *child : node->children()) walk(child);
@@ -387,14 +409,6 @@ namespace rewriter {
       return Holds::Nothing;
     }
 
-    // A local or parameter of the function, named directly.
-    const VarDecl *localVar(const Expr *expr) {
-      const auto *ref = dyn_cast<DeclRefExpr>(expr->IgnoreParenImpCasts());
-      const auto *var = ref ? dyn_cast<VarDecl>(ref->getDecl()) : nullptr;
-      if (var == nullptr || !var->isLocalVarDeclOrParm() || var->getName().empty() || isa<DecompositionDecl>(var)) return nullptr;
-      return var;
-    }
-
     // `base[index]` in any of its forms: a built-in array, operator[], or at().
     bool subscript(const Expr *expr, const Expr *&base, const Expr *&index) {
       expr = expr->IgnoreParens();
@@ -432,7 +446,7 @@ namespace rewriter {
       Holds kind = Holds::Nothing;
     };
     auto containerOf = [&](const Expr *expr) -> std::optional<Container> {
-      if (const VarDecl *var = localVar(expr)) return Container{var->getNameAsString(), var->getNameAsString(), holds(var->getType())};
+      if (const ValueDecl *var = localNamed(expr)) return Container{var->getNameAsString(), var->getNameAsString(), holds(var->getType())};
       if (const auto member = memberTarget(expr, locals)) return Container{member->name, member->access, holds(member->type)};
       return std::nullopt;
     };
@@ -499,6 +513,18 @@ namespace rewriter {
           return true;
         }
         if (const auto *decls = dyn_cast<DeclStmt>(parent)) {
+          // A range-for's range (`for (auto& [v, w] : graph[u])`) is bound to a hidden
+          // `auto&&`, which would count as a write. Iterating a row reads it, so it is a
+          // read, unless the loop variable is a plain non-const reference
+          // (`for (int& x : dp[i]) x = 0;`), the usual way to write through a row.
+          // `auto& [v, w]` is a structured binding, the usual way to read pairs, so a read.
+          if (const auto next = std::next(it); next != up.rend())
+            if (const auto *loop = dyn_cast<CXXForRangeStmt>(*next); loop && loop->getRangeStmt() == decls) {
+              const VarDecl *var = loop->getLoopVariable();
+              if (var == nullptr || isa<DecompositionDecl>(var)) return true;
+              const QualType type = var->getType();
+              return !(type->isLValueReferenceType() && !type.getNonReferenceType().isConstQualified());
+            }
           for (const Decl *d : decls->decls())
             if (const auto *var = dyn_cast<VarDecl>(d); var && var->getInit() && var->getInit()->IgnoreImplicit() == child->IgnoreImplicit())
               return !(var->getType()->isReferenceType() && !var->getType().getNonReferenceType().isConstQualified());
@@ -517,6 +543,18 @@ namespace rewriter {
       rewriter_.InsertText(begin, open, /*InsertAfter=*/true, /*indentNewLines=*/false);   // inside wrappers already opened here
       rewriter_.InsertText(end, close, /*InsertAfter=*/false, /*indentNewLines=*/false);   // inside wrappers already closed here
     };
+
+    // The range of each range-for (`graph[u]` in `for (auto& [v, w] : graph[u])`):
+    // its read is taken before the loop's first step, so it goes through rr, which
+    // holds it for that step.
+    std::set<const Expr *> ranges;
+    std::function<void(const Stmt *)> findRanges = [&](const Stmt *node) {
+      if (node == nullptr || isa<LambdaExpr>(node)) return;
+      if (const auto *loop = dyn_cast<CXXForRangeStmt>(node); loop && loop->getRangeInit())
+        ranges.insert(loop->getRangeInit()->IgnoreImplicit());
+      for (const Stmt *child : node->children()) findRanges(child);
+    };
+    findRanges(fn->getBody());
 
     std::vector<const Stmt *> up;
     std::function<void(const Stmt *)> walk = [&](const Stmt *node) {
@@ -545,6 +583,8 @@ namespace rewriter {
             const std::string name = target->name, access = target->access;
             if (kind == Holds::Map) {
               wrap(expr, "::trace::rk(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", ", ")");
+            } else if (ranges.count(expr) != 0) {
+              if (!expr->isPRValue()) wrap(expr, "::trace::rr(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", ", ")");
             } else if (!expr->isPRValue()) {
               wrap(expr, "::trace::rd(" + where + ", " + literal(code) + ", " + literal(name) + ", " + access + ", ", ")");
             } else {

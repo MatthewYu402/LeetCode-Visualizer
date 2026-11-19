@@ -2115,7 +2115,7 @@ Output: true
 
 **Exercises:** array, heap, pair · **Steps:** 56 · **Ends:** returns
 
-**Watch for:** `times` drawn as a weighted graph from its edge list (each weight beside its edge); weighted adjacency of pairs, a min-heap of (distance, node), and `dist` with `INT_MAX` values.
+**Watch for:** `times` drawn as a weighted graph from its edge list (each weight beside its edge); weighted adjacency of pairs, a min-heap of (distance, node), and `dist` with `INT_MAX` values. `u` and `v` (structured bindings) get markers under `dist`, and `u` one under `graph`; on the first step of `for (auto& [v, w] : graph[u])` the row `graph[u]` has a dashed read outline (a ring on node `u` in the graph view). Nodes 1 and 4 have no outgoing edges, so their loops have no step and no read.
 
 **Code**
 

@@ -718,12 +718,22 @@ namespace trace {
     std::function<Json(Ctx&)> value;
   };
 
+  // A read of a range-for's range (rr), waiting for the loop's first step: the
+  // range is evaluated before that step is taken.
+  struct PendingRead {
+    std::size_t depth;          // tracer.frames.size() when it was read
+    int line;
+    std::size_t step;           // the index the loop's first step must have: nothing recorded in between
+    std::function<Json(Ctx&)> outcome;
+  };
+
   // State for the whole run. One global instance
   struct Tracer {
     IdTable id_table;        // lives for the whole run, so ids stay stable across steps 
     std::vector<Json> steps; // finished step JSON; steps.size() is the next step index
     std::vector<StepSource> sources; // what each step was built from, same indices as steps
     std::vector<PendingStore> pending; // stores tracked in the statement now running
+    std::vector<PendingRead> range_reads; // range-for reads waiting for the loop's first step (rr)
     static constexpr std::size_t max_steps = 2000;
     // trace-format.md, Outcomes: at most this many reads per step; later ones are dropped.
     static constexpr std::size_t max_reads = 16;
@@ -1152,6 +1162,10 @@ namespace trace {
     tracer.members = [vars...](Ctx& ctx) { return write_locals(ctx, vars...); };
   }
 
+  namespace detail {
+    inline void take_range_reads(int line);  // defined with the reads, below
+  }
+
   // Records one pre-execution snapshot: the running frame is about to execute
   // `line`, with these variables in scope. Every frame below it is written too.
   template <RecordedVar... Vs>
@@ -1160,6 +1174,7 @@ namespace trace {
     if (!step_allowed()) return;
     set_frame(frame, line, vars...);
     push_step();
+    if (!tracer.range_reads.empty()) detail::take_range_reads(line);
   }
 
   // A return step: the running frame is returning `value` from `line`. The
@@ -1406,6 +1421,44 @@ namespace trace {
       }
     }
     return std::forward<E>(elem);
+  }
+
+  // The range of a range-for, `for (auto& [v, w] : graph[u])`, when it is a row
+  // of a local container. The range is evaluated before the loop's first step,
+  // whose line is the loop's header, so the read cannot go on a step yet: it
+  // waits, and take_range_reads puts it on that step, recorded at the start of
+  // the first iteration. An empty row runs no iteration and gets no step there,
+  // so its read is dropped by the next step, as any outcome without a step is.
+  template <typename C, typename E>
+  E& rr(int line, const char* code, const char* target, const C& container, E& elem) {
+    if constexpr (Serializable<std::remove_cvref_t<C>> && Serializable<std::remove_cvref_t<E>>) {
+      if (!tracer.frames.empty()) {
+        std::vector<long long> at;
+        if (detail::locate(container, std::addressof(elem), at)) {
+          const std::remove_reference_t<E>* row = std::addressof(elem);
+          tracer.range_reads.push_back(PendingRead{tracer.frames.size(), line, tracer.steps.size(), [code, target, at, row](Ctx& ctx) {
+            return detail::read_outcome(code, target, detail::at_field(at), serialize(*row, ctx));
+          }});
+        }
+      }
+    }
+    return elem;
+  }
+
+  namespace detail {
+    // After each record(): the running frame's waiting range reads go on the
+    // step just taken when it is the very next step and on their line. All of
+    // that frame's, and any left by deeper frames, are then forgotten. Nothing
+    // is recorded between rr() and that step, so the row is still the one read.
+    inline void take_range_reads(int line) {
+      const std::size_t depth = tracer.frames.size();
+      const std::size_t step = tracer.steps.size() - 1;
+      std::vector<PendingRead> mine;
+      for (PendingRead& p : tracer.range_reads)
+        if (p.depth == depth && p.line == line && p.step == step) mine.push_back(std::move(p));
+      std::erase_if(tracer.range_reads, [depth](const PendingRead& p) { return p.depth >= depth; });
+      for (const PendingRead& p : mine) add_read(line, p.outcome);
+    }
   }
 
   // A map's value read through [] or at(): records its key and value.

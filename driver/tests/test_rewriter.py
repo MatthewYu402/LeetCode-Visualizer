@@ -684,6 +684,34 @@ public:
         trace, _ = run_source(src, "nums = [1,2]")
         self.assertEqual(trace["indexes"], {"helper": {"p": ["v"]}})
 
+    def test_structured_bindings_index(self):
+        """A name from `auto [d, u] = ...` or `for (auto& [v, w] : ...)` is a BindingDecl, not a VarDecl, and pairs like any local."""
+        src = """class Solution {
+public:
+    int f(vector<vector<int>>& edges, vector<int>& dist) {
+        vector<vector<pair<int, int>>> graph(dist.size());
+        for (auto& e : edges) graph[e[0]].push_back({e[1], e[2]});
+        priority_queue<pair<int, int>> heap;
+        heap.push({0, 0});
+        int total = 0;
+        while (!heap.empty()) {
+            auto [d, u] = heap.top();
+            heap.pop();
+            for (auto& [v, w] : graph[u]) {
+                total += dist[v] + w + d;
+                if (dist[u] < 0) heap.push({w, v});
+            }
+        }
+        pair<int, int> p = {1, 0};
+        auto [a, b] = p;
+        return total + dist[b + 1];
+    }
+};"""
+        trace, _ = run_source(src, "edges = [[0,1,2]], dist = [0,3]")
+        self.assertEqual(trace["indexes"], {"f": {"u": ["graph", "dist"], "v": ["dist"], "b": ["dist"]}})
+        # w and d are values, never inside brackets; a is never used as an index
+        self.assertEqual(trace["result"], 3 + 2 + 0 + 3)
+
     def test_absent_when_nothing_is_indexed(self):
         src = """class Solution {
 public:
@@ -855,3 +883,38 @@ public:
         trace, _ = run_source(src, "nums = [1,2]")
         reads = [(step["frames"][-1]["function"], o["target"], o["at"]) for step in trace["steps"] for o in step["frames"][-1].get("outcomes", []) if o["kind"] == "read"]
         self.assertEqual(reads, [("go", "nums", [0]), ("go", "nums", [1]), ("go", "nums", [1])])
+
+    def test_a_range_for_reads_its_row(self):
+        """The range of a range-for is read on the loop's first step; an empty row has none; a write loop is no read."""
+        src = """class Solution {
+public:
+    int f(vector<vector<int>>& edges) {
+        vector<vector<pair<int, int>>> graph(3);
+        for (auto& e : edges) graph[e[0]].push_back({e[1], e[2]});
+        int total = 0;
+        vector<vector<int>> dp(2, vector<int>(2, 1));
+        for (int u = 0; u < (int)graph.size(); u++) {
+            for (auto& [v, w] : graph[u]) {
+                total += v * w;
+            }
+        }
+        for (int x : dp[1]) total += x;
+        for (const int& x : dp[0]) total += x;
+        for (int& x : dp[0]) x = 0;
+        return total;
+    }
+};"""
+        trace, _ = run_source(src, "edges = [[0,1,2],[0,2,3],[2,0,1]]")
+        self.assertEqual(trace["result"], 1 * 2 + 2 * 3 + 0 * 1 + 2 + 2)
+        reads = []
+        for step in trace["steps"]:
+            frame = step["frames"][-1]
+            for o in frame.get("outcomes", []):
+                if o["kind"] == "read" and o["target"] != "e":  # line 5 only builds the graph
+                    reads.append((frame["line"], o["code"], o["at"], "v" in frame["locals"] or "x" in frame["locals"]))
+        self.assertEqual(reads, [
+            (9, "graph[u]", [0], True),   # on the first iteration's step, where v and w are bound
+            (9, "graph[u]", [2], True),   # graph[1] is empty: no iteration, so no step and no read
+            (13, "dp[1]", [1], True),
+            (14, "dp[0]", [0], True),     # a const reference reads
+        ])                                # int& x : dp[0] writes through x, so no read

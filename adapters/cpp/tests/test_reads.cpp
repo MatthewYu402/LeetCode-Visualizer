@@ -1,6 +1,6 @@
 // Tests for read outcomes: which cell or entry a line read, added to its step
 // after the line ran (trace-format.md, Outcomes): trace::rd, trace::rk,
-// trace::rf, and trace::rc.
+// trace::rf, trace::rc, and trace::rr (a range-for's range).
 //
 // Run from the repository root:
 //   make -C adapters/cpp test T=reads
@@ -186,6 +186,41 @@ int main() {
     int a = f(1) + trace::rd(41, "nums[1]", "nums", nums, nums[1]);
     check_true("a read after a call goes on the caller's step for the line",
                has(steps()[0], R"J({"kind": "read", "code": "nums[1]", "target": "nums", "at": [1], "value": 6})J") && a == 7);
+  }
+
+  // ------------------------------------------------------------------
+  std::cout << "a range-for's range waits for the loop's first step\n";
+  reset();
+  {
+    // for (auto& [v, w] : graph[u]) { ... }   in Network Delay Time
+    trace::Frame frame("dijkstra");
+    std::vector<std::vector<std::pair<int, int>>> graph{{}, {{2, 5}, {3, 1}}, {}};
+    int u = 1;
+    record(15, var("graph", graph), var("u", u));
+    bool first = true;
+    for (auto& [v, w] : trace::rr(16, "graph[u]", "graph", graph, graph[u])) {
+      record(16, var("graph", graph), var("u", u), var("v", v), var("w", w));
+      if (first) {
+        check_true("not on the step before the loop", !has(steps()[0], "outcomes"));
+        check_true("on the loop's first step, at the row's index",
+                   has(steps()[1], R"J({"kind": "read", "code": "graph[u]", "target": "graph", "at": [1], "value": {"kind": "array", "items": [{"kind": "tuple", "items": [2, 5]}, {"kind": "tuple", "items": [3, 1]}]}})J"));
+      }
+      first = false;
+    }
+    check_true("only once: not on later iterations", !has(steps()[2], "graph[u]"));
+    check_true("nothing left waiting", tracer.range_reads.empty());
+  }
+  reset();
+  {
+    trace::Frame frame("dijkstra");
+    std::vector<std::vector<int>> graph{{}, {2}};
+    int u = 0;
+    record(15, var("graph", graph), var("u", u));
+    for (int v : trace::rr(16, "graph[u]", "graph", graph, graph[u])) record(16, var("v", v));
+    record(13, var("graph", graph), var("u", u));  // the next step, on another line
+    check_true("an empty row runs no iteration, so its read goes on no step",
+               steps().size() == 2 && !has(steps()[0], "outcomes") && !has(steps()[1], "outcomes"));
+    check_true("dropped by the next step", tracer.range_reads.empty());
   }
 
   std::cout << "\n" << passed << " passed, " << failed << " failed\n";
