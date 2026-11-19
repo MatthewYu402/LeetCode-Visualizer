@@ -37,6 +37,7 @@ needs_fastapi = unittest.skipUnless(TestClient, "FastAPI is not installed (pip i
 
 TWO_SUM = (FIXTURES / "two_sum_trace.cpp").read_text(encoding="utf-8") if FIXTURES.exists() else ""
 TWO_SUM_PY = (FIXTURES / "two_sum_trace.py").read_text(encoding="utf-8") if FIXTURES.exists() else ""
+TWO_SUM_JAVA = (FIXTURES / "two_sum_trace.java").read_text(encoding="utf-8") if FIXTURES.exists() else ""
 FIELDS = {"nums": "[2,7,11,15]", "target": "9"}
 
 
@@ -104,8 +105,13 @@ class Signature(unittest.TestCase):
         r = self.client.post("/api/signature", json={"source": TWO_SUM_PY})
         self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "driver"))
 
+    def test_java(self):
+        r = self.client.post("/api/signature", json={"source": TWO_SUM_JAVA, "language": "java"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["methods"][0]["params"], [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}])
+
     def test_an_unknown_language_is_refused(self):
-        r = self.client.post("/api/signature", json={"source": TWO_SUM, "language": "java"})
+        r = self.client.post("/api/signature", json={"source": TWO_SUM, "language": "go"})
         self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "request"))
         self.assertIn("language", r.json()["error"]["message"])
 
@@ -135,13 +141,13 @@ class Run(unittest.TestCase):
         self.assertEqual(fake.calls[0][2]["language"], "python")
 
     def test_a_pool_per_language(self):
-        saved = {k: os.environ.pop(k, None) for k in ("TRACE_POOL", "TRACE_POOL_PYTHON")}
+        saved = {k: os.environ.pop(k, None) for k in ("TRACE_POOL", "TRACE_POOL_PYTHON", "TRACE_POOL_JAVA")}
         try:
             app = create_app(sandbox="docker")
-            self.assertEqual((app.state.pool.size, app.state.pool.sizes), (1, {IMAGES["python"]: 1}))
-            os.environ.update(TRACE_POOL="2", TRACE_POOL_PYTHON="0")
+            self.assertEqual((app.state.pool.size, app.state.pool.sizes), (1, {IMAGES["python"]: 1, IMAGES["java"]: 1}))
+            os.environ.update(TRACE_POOL="2", TRACE_POOL_PYTHON="0", TRACE_POOL_JAVA="1")
             app = create_app(sandbox="docker")
-            self.assertEqual((app.state.pool.size, app.state.pool.sizes), (2, {IMAGES["python"]: 0}))
+            self.assertEqual((app.state.pool.size, app.state.pool.sizes), (2, {IMAGES["python"]: 0, IMAGES["java"]: 1}))
             app.state.pool.close()
         finally:
             for k, v in saved.items():
@@ -320,6 +326,27 @@ class RealPythonRun(unittest.TestCase):
                                           "language": "python", "fields": {"n": "3"}})
         self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "run"))
         self.assertIn("ZeroDivisionError", r.json()["error"]["message"])
+
+
+@needs_fastapi
+@unittest.skipUnless(_image_ready(IMAGES["java"]), "no Docker, or the Java sandbox image is not built")
+class RealJavaRun(unittest.TestCase):
+    def test_two_sum_through_the_sandbox(self):
+        client = TestClient(create_app(sandbox=os.environ.get("TRACE_SANDBOX", "docker"), pool_size=0))
+        r = client.post("/api/run", json={"source": TWO_SUM_JAVA, "language": "java", "fields": FIELDS})
+        self.assertEqual(r.status_code, 200, r.text)
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "trace.json"
+            path.write_text(json.dumps(r.json()["trace"]), encoding="utf-8")
+            status, output = check_trace("--equals", FIXTURES / "two-sum.java.trace.json", path)
+        self.assertEqual(status, 0, output)
+
+    def test_a_compile_error_comes_back_as_422(self):
+        client = TestClient(create_app(sandbox=os.environ.get("TRACE_SANDBOX", "docker"), pool_size=0))
+        r = client.post("/api/run", json={"source": "class Solution {\n    public int f(int n) {\n        return m;\n    }\n}\n",
+                                          "language": "java", "fields": {"n": "3"}})
+        self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "rewriter"))
+        self.assertIn("Solution.java:3:", r.json()["error"]["message"])
 
 
 if __name__ == "__main__":

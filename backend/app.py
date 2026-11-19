@@ -4,13 +4,13 @@
     POST /api/signature   a Solution -> its methods and parameters, for the input form
     POST /api/run         a Solution and its inputs -> a validated trace
 
-Both take a `language`, "cpp" (the default) or "python", which picks the driver
-and the sandbox image.
+Both take a `language`, "cpp" (the default), "python", or "java", which picks the
+driver and the sandbox image.
 
 It is a thin layer over two things that already exist: the driver's describe()
 (reads declarations, runs nothing) and pipeline.run() (driver, then rewrite,
 compile, and run inside the sandbox, then validation; for Python, run.py
-inside the sandbox). The service itself
+inside the sandbox; for Java, the rewriter and javac, then the program). The service itself
 never compiles or runs the user's code.
 
 Run it from the repository root:
@@ -27,6 +27,7 @@ Settings, from the environment (docs/backend.md §5):
                              measured pace. Beyond that, a run is refused at once with "Busy".
     TRACE_POOL               containers started ahead of time, per language (default 1; 0 for none).
     TRACE_POOL_PYTHON        the same for Python only, when it should differ (default: TRACE_POOL).
+    TRACE_POOL_JAVA          the same for Java only (default: TRACE_POOL).
     TRACE_RUN_MEMORY, TRACE_RUN_CPUS, TRACE_RUN_PIDS
                              each run's limits (pipeline/runners.py, Limits).
     TRACE_TRUSTED_PROXIES    peers whose X-Forwarded-For header names the visitor
@@ -50,14 +51,15 @@ from pydantic import BaseModel, Field
 
 from driver import DriverError
 from driver import cpp as cpp_driver
+from driver import java as java_driver
 from driver import python as python_driver
 from driver.cpp import example_fields, example_text
 from pipeline import EXIT_BUILD, EXIT_INPUT, EXIT_INVALID, EXIT_RUN, EXIT_SANDBOX, PipelineError
 from pipeline import run as pipeline_run
 from pipeline.runners import IMAGES, Limits, Pool
 
-DESCRIBE = {"cpp": cpp_driver.describe, "python": python_driver.describe}
-Language = Literal["cpp", "python"]
+DESCRIBE = {"cpp": cpp_driver.describe, "python": python_driver.describe, "java": java_driver.describe}
+Language = Literal["cpp", "python", "java"]
 
 MAX_SOURCE = 64 * 1024      # characters of pasted Solution
 MAX_VALUE = 16 * 1024       # characters of one input value, or of a pasted example
@@ -179,7 +181,7 @@ async def wait_for_slot(line, request, seconds):
 
 
 def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, pool_size=None, limits=None,
-               python_pool_size=None):
+               python_pool_size=None, java_pool_size=None):
     """The app. Tests pass a fake `run`; the real one is pipeline.run."""
     sandbox = sandbox or os.environ.get("TRACE_SANDBOX", "gvisor")
     if sandbox not in ("gvisor", "docker", "none"):
@@ -193,9 +195,11 @@ def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, 
     pool_size = pool_size if pool_size is not None else int(os.environ.get("TRACE_POOL", "1"))
     if python_pool_size is None:
         python_pool_size = int(os.environ.get("TRACE_POOL_PYTHON", str(pool_size)))
+    if java_pool_size is None:
+        java_pool_size = int(os.environ.get("TRACE_POOL_JAVA", str(pool_size)))
     # One pool, kept per image: each language has its own containers waiting.
-    pooled = sandbox != "none" and run is pipeline_run and (pool_size > 0 or python_pool_size > 0)
-    pool = Pool(pool_size, sizes={IMAGES["python"]: python_pool_size}) if pooled else None
+    pooled = sandbox != "none" and run is pipeline_run and max(pool_size, python_pool_size, java_pool_size) > 0
+    pool = Pool(pool_size, sizes={IMAGES["python"]: python_pool_size, IMAGES["java"]: java_pool_size}) if pooled else None
     limits = limits or Limits()
     lines = {}  # one Line per event loop (tests may run several)
 
