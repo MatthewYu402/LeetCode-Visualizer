@@ -7,6 +7,7 @@ tools/check_trace.py, then looks at the part it is about.
 """
 
 import subprocess
+import sys
 import unittest
 
 from support import ROOT, python, solution, trace
@@ -41,6 +42,11 @@ class Fixtures(unittest.TestCase):
                 self.assertEqual(status, 0, output)
                 status, output = run.check("--like", str(ROOT / "fixtures" / f"{name}.trace.json"))
                 self.assertEqual(status, 0, output)
+                # Call by call: every shared local's values, returns, indexes, and members as in C++.
+                compare = subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "compare_traces.py"), "--core",
+                                          str(ROOT / "fixtures" / f"{name}.trace.json"), str(run.path)],
+                                         capture_output=True, text=True)
+                self.assertEqual(compare.returncode, 0, compare.stdout + compare.stderr)
 
 
 class Steps(unittest.TestCase):

@@ -4,10 +4,10 @@ class Solution:
         numMap = {}
 
         for i in range(len(nums)):
-            compliment = target - nums[i]
+            complement = target - nums[i]
 
-            if compliment in numMap:
-                return [numMap[compliment], i]
+            if complement in numMap:
+                return [numMap[complement], i]
 
             # If not found, insert current number and its index into the map
             numMap[nums[i]] = i

@@ -210,6 +210,17 @@ class _Rewriter:
         text = ast.get_source_segment(self.source, node)
         return text if text else ast.unparse(node)
 
+    def span(self, first, last):
+        """The source from the start of `first` to the end of `last`, as written."""
+        lines = self.source.splitlines(True)
+        if first.lineno == last.end_lineno:
+            text = lines[first.lineno - 1].encode()[first.col_offset:last.end_col_offset].decode()
+        else:
+            text = (lines[first.lineno - 1].encode()[first.col_offset:].decode()
+                    + "".join(lines[first.lineno:last.end_lineno - 1])
+                    + lines[last.end_lineno - 1].encode()[:last.end_col_offset].decode())
+        return " ".join(text.split()) or f"{ast.unparse(first)} in {ast.unparse(last)}"
+
     # ---- structure
 
     def class_body(self, cls):
@@ -239,8 +250,9 @@ class _Rewriter:
             s.body, s.orelse = self.body(s.body), self.body(s.orelse)
             return [s]
         if isinstance(s, (ast.For, ast.AsyncFor)):
+            header = self.span(s.target, s.iter)  # `i in range(n)`, as C++ shows `int x : nums`
             s.iter = self.expr(s.iter)
-            s.body = self.store_calls(s, [s.target], self.code(s.target)) + self.body(s.body)
+            s.body = self.store_calls(s, [s.target], header) + self.body(s.body)
             s.orelse = self.body(s.orelse)
             return [s]
         if isinstance(s, ast.Assign):
