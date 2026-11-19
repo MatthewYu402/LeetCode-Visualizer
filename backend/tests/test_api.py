@@ -30,11 +30,13 @@ if TestClient:
 from driver.tests.support import check_trace
 from driver.tests.test_fixtures import FIXTURES
 from pipeline import EXIT_BUILD, EXIT_INPUT, EXIT_INVALID, EXIT_RUN, EXIT_SANDBOX, PipelineError
+from pipeline.runners import IMAGES
 from pipeline.tests.test_sandbox import _image_ready
 
 needs_fastapi = unittest.skipUnless(TestClient, "FastAPI is not installed (pip install -r backend/requirements.txt)")
 
 TWO_SUM = (FIXTURES / "two_sum_trace.cpp").read_text(encoding="utf-8") if FIXTURES.exists() else ""
+TWO_SUM_PY = (FIXTURES / "two_sum_trace.py").read_text(encoding="utf-8") if FIXTURES.exists() else ""
 FIELDS = {"nums": "[2,7,11,15]", "target": "9"}
 
 
@@ -94,6 +96,19 @@ class Signature(unittest.TestCase):
         self.assertEqual(r.status_code, 422)
         self.assertEqual(r.json()["error"]["stage"], "driver")
 
+    def test_python(self):
+        r = self.client.post("/api/signature", json={"source": TWO_SUM_PY, "language": "python"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["methods"][0]["params"], [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}])
+        # The C++ driver does not read Python, and says so as a driver error.
+        r = self.client.post("/api/signature", json={"source": TWO_SUM_PY})
+        self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "driver"))
+
+    def test_an_unknown_language_is_refused(self):
+        r = self.client.post("/api/signature", json={"source": TWO_SUM, "language": "java"})
+        self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "request"))
+        self.assertIn("language", r.json()["error"]["message"])
+
     def test_a_source_too_long_is_refused(self):
         r = self.client.post("/api/signature", json={"source": "x" * (api.MAX_SOURCE + 1)})
         self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "request"))
@@ -110,7 +125,29 @@ class Run(unittest.TestCase):
         self.assertEqual(r.json(), {"trace": {"version": "0.7", "steps": []}, "output": "hi\n", "warnings": ["a note"]})
         [(source, example, options)] = fake.calls
         self.assertEqual(example, "nums = [2,7,11,15], target = 9")
-        self.assertEqual((options["method"], options["sandbox"]), ("twoSum", "gvisor"))
+        self.assertEqual((options["method"], options["sandbox"], options["language"]), ("twoSum", "gvisor", "cpp"))
+
+    def test_the_language_reaches_the_pipeline(self):
+        fake = FakeRun()
+        client = TestClient(create_app(sandbox="docker", run=fake))
+        r = client.post("/api/run", json={"source": TWO_SUM_PY, "language": "python", "fields": FIELDS})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(fake.calls[0][2]["language"], "python")
+
+    def test_a_pool_per_language(self):
+        saved = {k: os.environ.pop(k, None) for k in ("TRACE_POOL", "TRACE_POOL_PYTHON")}
+        try:
+            app = create_app(sandbox="docker")
+            self.assertEqual((app.state.pool.size, app.state.pool.sizes), (1, {IMAGES["python"]: 1}))
+            os.environ.update(TRACE_POOL="2", TRACE_POOL_PYTHON="0")
+            app = create_app(sandbox="docker")
+            self.assertEqual((app.state.pool.size, app.state.pool.sizes), (2, {IMAGES["python"]: 0}))
+            app.state.pool.close()
+        finally:
+            for k, v in saved.items():
+                os.environ.pop(k, None)
+                if v is not None:
+                    os.environ[k] = v
 
     def test_a_bad_value_never_reaches_the_pipeline(self):
         fake = FakeRun()
@@ -244,7 +281,7 @@ class Line(unittest.TestCase):
 
 
 @needs_fastapi
-@unittest.skipUnless(_image_ready(), "no Docker, or the sandbox image is not built")
+@unittest.skipUnless(_image_ready(IMAGES["cpp"]), "no Docker, or the C++ sandbox image is not built")
 class RealRun(unittest.TestCase):
     def test_two_sum_through_the_sandbox(self):
         client = TestClient(create_app(sandbox=os.environ.get("TRACE_SANDBOX", "docker"), pool_size=0))
@@ -262,6 +299,27 @@ class RealRun(unittest.TestCase):
                                           "fields": {"n": "3"}})
         self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "rewriter"))
         self.assertIn("solution.cpp:4:", r.json()["error"]["message"])
+
+
+@needs_fastapi
+@unittest.skipUnless(_image_ready(IMAGES["python"]), "no Docker, or the Python sandbox image is not built")
+class RealPythonRun(unittest.TestCase):
+    def test_two_sum_through_the_sandbox(self):
+        client = TestClient(create_app(sandbox=os.environ.get("TRACE_SANDBOX", "docker"), pool_size=0))
+        r = client.post("/api/run", json={"source": TWO_SUM_PY, "language": "python", "fields": FIELDS})
+        self.assertEqual(r.status_code, 200, r.text)
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "trace.json"
+            path.write_text(json.dumps(r.json()["trace"]), encoding="utf-8")
+            status, output = check_trace("--equals", FIXTURES / "two-sum.python.trace.json", path)
+        self.assertEqual(status, 0, output)
+
+    def test_an_exception_comes_back_as_422(self):
+        client = TestClient(create_app(sandbox=os.environ.get("TRACE_SANDBOX", "docker"), pool_size=0))
+        r = client.post("/api/run", json={"source": "class Solution:\n    def f(self, n: int) -> int:\n        return 1 // 0\n",
+                                          "language": "python", "fields": {"n": "3"}})
+        self.assertEqual((r.status_code, r.json()["error"]["stage"]), (422, "run"))
+        self.assertIn("ZeroDivisionError", r.json()["error"]["message"])
 
 
 if __name__ == "__main__":

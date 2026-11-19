@@ -1,6 +1,6 @@
 # API service
 
-> **Status:** Draft v0.2. Implemented in `backend/` (FastAPI). Not hosted anywhere yet.
+> **Status:** Draft v0.3. Implemented in `backend/` (FastAPI), for C++ and Python. Not hosted anywhere yet.
 > **Related:** [`sandboxing.md`](sandboxing.md) (where the code runs), [`driver-generation.md`](driver-generation.md) (what reads the Solution and the example), [`frontend.md`](frontend.md) (the page that calls this), [`trace-format.md`](trace-format.md) (what comes back)
 
 The API service is the frontend's only way to run code. It is a thin layer over two things that already exist: the driver's `describe()`, which reads a Solution's declarations, and `pipeline.run()`, which runs the driver, then rewrites, compiles, and runs inside the sandbox, then validates the trace. The service itself never compiles or runs the user's code.
@@ -23,7 +23,7 @@ replay the trace  ◄────────  {trace, output, warnings}
 
 ## 2. Endpoints
 
-All bodies are JSON. Errors have one shape, in §3.
+All bodies are JSON. Errors have one shape, in §3. `/api/signature` and `/api/run` both take an optional `language`: `"cpp"` (the default) or `"python"`. It picks the driver (`driver.cpp` or `driver.python`) and, for a run, the sandbox image ([`sandboxing.md`](sandboxing.md) §6). Any other value is a `request` error.
 
 ### 2.1 `GET /api/health`
 
@@ -40,7 +40,7 @@ Reads the Solution's public methods. Nothing is compiled or run, so this is answ
  "example": "Input: nums = [2,7,11,15], target = 9\nOutput: [0,1]"}
 ```
 
-`example` is optional. When present, the answer also has `fields`: the example's values by name, rewritten compactly, for filling the form.
+`example` is optional. For Python, add `"language": "python"`; a method whose body is not written yet (LeetCode's empty template) is still read. When present, the answer also has `fields`: the example's values by name, rewritten compactly, for filling the form.
 
 ```json
 {"methods": [{"name": "twoSum",
@@ -64,7 +64,7 @@ Reads the Solution's public methods. Nothing is compiled or run, so this is answ
  "timeout": 10}
 ```
 
-`method` is optional (the driver then chooses as it does for the CLI). `timeout` is optional, in seconds, and at most 10. An empty field is left out, so an optional extra can stay blank.
+`method` is optional (the driver then chooses as it does for the CLI). Add `"language": "python"` for a Python Solution. `timeout` is optional, in seconds, and at most 10. An empty field is left out, so an optional extra can stay blank.
 
 ```json
 {"trace": {"version": "0.14", "problem": {"method": "twoSum", ...}, "steps": [...], "result": {...}},
@@ -83,8 +83,9 @@ Every error is `{"error": {"stage": ..., "message": ...}}`. The message is writt
 | `request` | 422 | The request itself is wrong: a field missing, a value too long, a timeout over 10 s |
 | `driver` | 422 | The Solution or the inputs cannot be used: no `class Solution`, a value that is not valid JSON, names that do not match the method |
 | `rewriter` | 422 | The code does not compile. The message is Clang's, naming `solution.cpp` and the line |
-| `run` | 422 | The program crashed, ran out of time, used too much memory, or wrote no trace |
+| `run` | 422 | The program crashed, ran out of time, used too much memory, or wrote no trace. For Python, also an exception the code raised, with its traceback |
 | `compile` | 500 | The generated program did not compile: a bug in the driver or the rewriter |
+| `adapter` | 500 | The Python tracer failed: a bug in the adapter |
 | `validate` | 500 | The trace failed validation: a bug in the runtime, or a trace the code forged |
 | `sandbox` | 503 | The sandbox cannot run: no Docker, no image, no gVisor |
 | `already-running` | 429 | This visitor already has a run waiting or in progress (a second tab, a double click) |
@@ -119,7 +120,8 @@ Limits per minute or per day per visitor are not here. They only matter against 
 | `TRACE_SANDBOX` | `gvisor` | `gvisor` or `docker`. `none` runs code on this machine, and is refused unless `TRACE_ALLOW_UNSANDBOXED=1` is also set |
 | `TRACE_MAX_RUNS` | `2` | Slots: runs in progress at once |
 | `TRACE_MAX_WAITING` | 10 per slot | Most runs that may wait for a slot (fewer when runs are slow: see §4) |
-| `TRACE_POOL` | `1` | Containers started ahead of time ([`sandboxing.md`](sandboxing.md) §4.1); `0` for none |
+| `TRACE_POOL` | `1` | Containers started ahead of time, per language ([`sandboxing.md`](sandboxing.md) §4.1); `0` for none |
+| `TRACE_POOL_PYTHON` | `TRACE_POOL` | The same for Python alone, when it should differ |
 | `TRACE_RUN_MEMORY`, `TRACE_RUN_CPUS`, `TRACE_RUN_PIDS` | `1g`, `1`, `64` | Each run's limits ([`sandboxing.md`](sandboxing.md) §3) |
 | `TRACE_TRUSTED_PROXIES` | `127.0.0.1,::1` | Peers whose `X-Forwarded-For` names the visitor (§4.1) |
 | `TRACE_ALLOWED_ORIGINS` | (none) | Comma-separated origins for CORS. Unset is right in development, where the page's dev server proxies `/api` |

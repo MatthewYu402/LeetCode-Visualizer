@@ -4,9 +4,13 @@
     POST /api/signature   a Solution -> its methods and parameters, for the input form
     POST /api/run         a Solution and its inputs -> a validated trace
 
+Both take a `language`, "cpp" (the default) or "python", which picks the driver
+and the sandbox image.
+
 It is a thin layer over two things that already exist: the driver's describe()
 (reads declarations, runs nothing) and pipeline.run() (driver, then rewrite,
-compile, and run inside the sandbox, then validation). The service itself
+compile, and run inside the sandbox, then validation; for Python, run.py
+inside the sandbox). The service itself
 never compiles or runs the user's code.
 
 Run it from the repository root:
@@ -21,7 +25,8 @@ Settings, from the environment (docs/backend.md §5):
     TRACE_MAX_WAITING        at most this many runs wait for a slot (default 10 per
                              slot), and never more than can start within 30 s at the
                              measured pace. Beyond that, a run is refused at once with "Busy".
-    TRACE_POOL               containers started ahead of time (default 1; 0 for none).
+    TRACE_POOL               containers started ahead of time, per language (default 1; 0 for none).
+    TRACE_POOL_PYTHON        the same for Python only, when it should differ (default: TRACE_POOL).
     TRACE_RUN_MEMORY, TRACE_RUN_CPUS, TRACE_RUN_PIDS
                              each run's limits (pipeline/runners.py, Limits).
     TRACE_TRUSTED_PROXIES    peers whose X-Forwarded-For header names the visitor
@@ -35,6 +40,7 @@ import contextlib
 import math
 import os
 import time
+from typing import Literal
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
@@ -43,10 +49,15 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from driver import DriverError
-from driver.cpp import describe, example_fields, example_text
+from driver import cpp as cpp_driver
+from driver import python as python_driver
+from driver.cpp import example_fields, example_text
 from pipeline import EXIT_BUILD, EXIT_INPUT, EXIT_INVALID, EXIT_RUN, EXIT_SANDBOX, PipelineError
 from pipeline import run as pipeline_run
-from pipeline.runners import Limits, Pool
+from pipeline.runners import IMAGES, Limits, Pool
+
+DESCRIBE = {"cpp": cpp_driver.describe, "python": python_driver.describe}
+Language = Literal["cpp", "python"]
 
 MAX_SOURCE = 64 * 1024      # characters of pasted Solution
 MAX_VALUE = 16 * 1024       # characters of one input value, or of a pasted example
@@ -65,11 +76,13 @@ STATUS = {
 
 class SignatureRequest(BaseModel):
     source: str = Field(max_length=MAX_SOURCE)
+    language: Language = "cpp"
     example: str | None = Field(default=None, max_length=MAX_VALUE)
 
 
 class RunRequest(BaseModel):
     source: str = Field(max_length=MAX_SOURCE)
+    language: Language = "cpp"
     method: str | None = Field(default=None, max_length=200)
     # One value per parameter, as LeetCode writes it: {"nums": "[2,7,11,15]", "target": "9"}.
     fields: dict[str, str] = Field(max_length=MAX_FIELDS)
@@ -165,7 +178,8 @@ async def wait_for_slot(line, request, seconds):
         raise
 
 
-def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, pool_size=None, limits=None):
+def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, pool_size=None, limits=None,
+               python_pool_size=None):
     """The app. Tests pass a fake `run`; the real one is pipeline.run."""
     sandbox = sandbox or os.environ.get("TRACE_SANDBOX", "gvisor")
     if sandbox not in ("gvisor", "docker", "none"):
@@ -177,7 +191,11 @@ def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, 
     max_waiting = max_waiting if max_waiting is not None else int(os.environ.get("TRACE_MAX_WAITING", str(10 * slots)))
     trusted = {p.strip() for p in os.environ.get("TRACE_TRUSTED_PROXIES", "127.0.0.1,::1").split(",") if p.strip()}
     pool_size = pool_size if pool_size is not None else int(os.environ.get("TRACE_POOL", "1"))
-    pool = Pool(pool_size) if sandbox != "none" and pool_size > 0 and run is pipeline_run else None
+    if python_pool_size is None:
+        python_pool_size = int(os.environ.get("TRACE_POOL_PYTHON", str(pool_size)))
+    # One pool, kept per image: each language has its own containers waiting.
+    pooled = sandbox != "none" and run is pipeline_run and (pool_size > 0 or python_pool_size > 0)
+    pool = Pool(pool_size, sizes={IMAGES["python"]: python_pool_size}) if pooled else None
     limits = limits or Limits()
     lines = {}  # one Line per event loop (tests may run several)
 
@@ -216,7 +234,7 @@ def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, 
     @app.post("/api/signature")
     def signature(body: SignatureRequest):
         try:
-            described = describe(body.source)
+            described = DESCRIBE[body.language](body.source)
             if body.example is not None and body.example.strip():
                 described["fields"] = example_fields(body.example)
         except DriverError as e:
@@ -254,7 +272,8 @@ def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, 
                          retry_after=wait)
         started = time.monotonic()
         try:
-            result = await run_in_threadpool(run, body.source, example, method=body.method or None, timeout=body.timeout,
+            result = await run_in_threadpool(run, body.source, example, language=body.language,
+                                             method=body.method or None, timeout=body.timeout,
                                              compile_timeout=60.0, sandbox=sandbox, limits=limits, pool=pool)
         except PipelineError as e:
             return error(STATUS.get(e.exit_code, 500), e.stage, str(e))
