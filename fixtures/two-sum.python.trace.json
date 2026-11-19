@@ -1,0 +1,19 @@
+{
+  "version": "0.14",
+  "language": "python",
+  "problem": {"method": "twoSum", "params": [{"name": "nums", "type": "array<int>"}, {"name": "target", "type": "int"}], "returns": {"type": "array<int>"}, "input": {"nums": [2, 7, 11, 15], "target": 9}},
+  "indexes": {"twoSum": {"i": ["nums"]}},
+  "steps": [
+    {"step": 0, "frames": [{"id": "f1", "function": "twoSum", "line": 4, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9}, "outcomes": [{"kind": "store", "code": "numMap = {}", "target": "numMap", "value": {"kind": "map", "entries": []}}]}], "heap": {}},
+    {"step": 1, "frames": [{"id": "f1", "function": "twoSum", "line": 6, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}}, "outcomes": [{"kind": "store", "code": "i", "target": "i", "value": 0}]}], "heap": {}},
+    {"step": 2, "frames": [{"id": "f1", "function": "twoSum", "line": 7, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0}, "outcomes": [{"kind": "read", "code": "nums[i]", "target": "nums", "at": [0], "value": 2}, {"kind": "store", "code": "compliment = target - nums[i]", "target": "compliment", "value": 7}]}], "heap": {}},
+    {"step": 3, "frames": [{"id": "f1", "function": "twoSum", "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "compliment": 7}, "outcomes": [{"kind": "condition", "code": "compliment in numMap", "value": false}]}], "heap": {}},
+    {"step": 4, "frames": [{"id": "f1", "function": "twoSum", "line": 13, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": []}, "i": 0, "compliment": 7}, "outcomes": [{"kind": "read", "code": "nums[i]", "target": "nums", "at": [0], "value": 2}, {"kind": "store", "code": "numMap[nums[i]] = i", "target": "numMap[nums[i]]", "value": 0}]}], "heap": {}},
+    {"step": 5, "frames": [{"id": "f1", "function": "twoSum", "line": 6, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 0, "compliment": 7}, "outcomes": [{"kind": "store", "code": "i", "target": "i", "value": 1}]}], "heap": {}},
+    {"step": 6, "frames": [{"id": "f1", "function": "twoSum", "line": 7, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "compliment": 7}, "outcomes": [{"kind": "read", "code": "nums[i]", "target": "nums", "at": [1], "value": 7}, {"kind": "store", "code": "compliment = target - nums[i]", "target": "compliment", "value": 2}]}], "heap": {}},
+    {"step": 7, "frames": [{"id": "f1", "function": "twoSum", "line": 9, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "compliment": 2}, "outcomes": [{"kind": "read", "code": "compliment in numMap", "target": "numMap", "key": 2, "value": 0}, {"kind": "condition", "code": "compliment in numMap", "value": true}]}], "heap": {}},
+    {"step": 8, "frames": [{"id": "f1", "function": "twoSum", "line": 10, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "compliment": 2}, "outcomes": [{"kind": "read", "code": "numMap[compliment]", "target": "numMap", "key": 2, "value": 0}]}], "heap": {}},
+    {"step": 9, "frames": [{"id": "f1", "function": "twoSum", "line": 10, "locals": {"nums": {"kind": "array", "items": [2, 7, 11, 15]}, "target": 9, "numMap": {"kind": "map", "entries": [[2, 0]]}, "i": 1, "compliment": 2}, "return_value": {"kind": "array", "items": [0, 1]}}], "heap": {}}
+  ],
+  "result": {"kind": "array", "items": [0, 1]}
+}

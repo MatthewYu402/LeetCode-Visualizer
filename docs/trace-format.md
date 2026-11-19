@@ -432,7 +432,7 @@ public:
 
 - **Values, like locals.** A member is serialized like a local of the same type, into the step's one `heap`. An iterator is never a member.
 - **State, not constants.** A member that cannot change (`const int MOD = 1e9 + 7;`) is left out; one that can, static or not, is written. A member with no serializer is left out, as a local would be.
-- **Every step, or none.** Once a method of the object has been called, every step has `members`, even one taken in a helper function outside the class. A trace whose object has no members writes no `members` anywhere, never `{}`.
+- **Every step, or none.** Once a method of the object has been called, every step has `members`, even one taken in a helper function outside the class. A trace whose object has no members writes no `members` anywhere, never `{}`. In a language whose members come into being when first assigned (Python's `self.memo = {}`), a member is written from the first step after its assignment, so the steps before the first one have no `members`.
 - **One object.** The object whose method the driver calls. Objects of other classes the solution creates are values like any other (an `object` in the heap, through a `ref`).
 - **A local hides a member of the same name.** A `read` outcome and `indexes` name their container by name, so either may name a member (`memo[n]` reads the member `memo`, `dp[i]` pairs `i` with the member `dp`) when no local of that frame has the name. A read of a member that a local of the same name hides (`this->nums[1]` beside a parameter `nums`) is left out, since its target would name the local.
 

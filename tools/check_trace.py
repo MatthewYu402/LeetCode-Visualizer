@@ -46,6 +46,14 @@ Options add checks:
                       multimap are compared in any order, because their
                       order is unspecified (trace-format.md). Everything
                       else, including types (1 is not 1.0 or true), must match.
+  --like FIXTURE      the trace is structurally equivalent to FIXTURE, a trace of
+                      the same solution in another language: the same problem
+                      (method, parameters, types), the same result (refs followed,
+                      object ids and container ids ignored, sets and maps in any
+                      order), the same ending, the same functions and object types,
+                      and, for each local both traces have in a function, kinds
+                      that agree. A Python list may stand for a C++ stack, and a
+                      deque or list for a queue. Steps, lines, and values differ.
   --expect-truncated  "truncated" is true, "result" is absent, and there are
                       exactly 2000 steps numbered 0 to 1999.
   --expect-result-heap  "result" contains a ref and "result_heap" is present.
@@ -411,7 +419,100 @@ def check_void(doc):
         raise CheckError(f'"result" is {json.dumps(doc["result"])}, expected null')
 
 
-def check_file(path, validator, fixture, expect):
+# Kinds two languages may write for one concept, because one language has no type for it:
+# Python has no stack or queue type, so a list used as a stack is an array, and a deque or
+# list used as a queue is a deque or an array (trace-format.md §8, "the type decides the kind").
+LIKE = [{"stack", "array"}, {"queue", "deque", "array"}]
+
+
+def kind_of(v):
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "bool"
+    if isinstance(v, int):
+        return "int"
+    if isinstance(v, float):
+        return "float"
+    if isinstance(v, str):
+        return "string"
+    if isinstance(v, dict) and v.get("kind") in ("int", "float"):
+        return v["kind"]
+    return v.get("kind", "?") if isinstance(v, dict) else "?"
+
+
+def compatible(a, b):
+    return a == b or any({a, b} <= group for group in LIKE)
+
+
+def expand(value, heap, order):
+    """A value with its refs followed into the heap, for comparing answers across
+    languages: objects are numbered in the order met (so ids may differ), containers
+    lose their `id`, and set and map members are compared in any order."""
+    if isinstance(value, list):
+        return [expand(v, heap, order) for v in value]
+    if not isinstance(value, dict):
+        return value
+    kind = value.get("kind")
+    if kind == "ref":
+        oid = value["id"]
+        if oid in order:
+            return {"node": order[oid]}
+        order[oid] = len(order)
+        obj = heap.get(oid, {})
+        return {"node": order[oid], "type": obj.get("type"),
+                "fields": {k: expand(v, heap, order) for k, v in sorted(obj.get("fields", {}).items())}}
+    out = {k: expand(v, heap, order) for k, v in value.items() if k != "id"}
+    field = UNORDERED.get(kind)
+    if field and isinstance(out.get(field), list):
+        out[field] = sorted(out[field], key=lambda x: json.dumps(x, sort_keys=True))
+    if kind in ("stack", "queue", "deque"):
+        out["kind"] = "array" if kind == "stack" else "deque"
+    return out
+
+
+def like_difference(doc, other):
+    """None when two traces are structurally equivalent (`--like`): the same problem, the
+    same answer and ending, the same functions and object types, and compatible kinds for
+    every local both have. Steps, lines, and values along the way may differ."""
+    def problem(d):
+        p = d["problem"]
+        return (p["method"], [(q["name"], q["type"]) for q in p["params"]], p.get("returns", {}).get("type"))
+    if problem(doc) != problem(other):
+        return f"the problems differ: {problem(doc)} and {problem(other)}"
+    for key in ("result", "truncated"):
+        if (key in doc) != (key in other):
+            return f'"{key}" is in one trace and not the other'
+    if "result" in doc:
+        a = expand(doc["result"], doc.get("result_heap", {}), {})
+        b = expand(other["result"], other.get("result_heap", {}), {})
+        if a != b:
+            return f"the results differ: {json.dumps(a)[:300]} and {json.dumps(b)[:300]}"
+
+    def summary(d):
+        functions, types, kinds = set(), set(), {}
+        for step in d["steps"]:
+            for frame in step["frames"]:
+                functions.add(frame["function"])
+                for name, v in frame["locals"].items():
+                    kinds.setdefault((frame["function"], name), set()).add(kind_of(v))
+            types |= {obj["type"] for obj in step["heap"].values()}
+        return functions, types, kinds
+    fa, ta, ka = summary(doc)
+    fb, tb, kb = summary(other)
+    if fa != fb:
+        return f"the functions differ: {sorted(fa)} and {sorted(fb)}"
+    if ta != tb:
+        return f"the object types differ: {sorted(ta)} and {sorted(tb)}"
+    for key in sorted(ka.keys() & kb.keys()):
+        for mine, theirs in ((ka[key], kb[key]), (kb[key], ka[key])):
+            for k in mine:
+                if not any(compatible(k, t) for t in theirs):
+                    return f"local {key[1]!r} in {key[0]} is {sorted(ka[key])} in one trace and {sorted(kb[key])} in the other"
+    return None
+
+
+def check_file(path, validator, fixture, expect, like=None):
     doc = load(path)
 
     errors = sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
@@ -432,6 +533,10 @@ def check_file(path, validator, fixture, expect):
         diff = first_difference(doc, fixture[1], [])
         if diff:
             raise CheckError(f"differs from {fixture[0]} at {diff}")
+    if like is not None:
+        diff = like_difference(doc, like[1])
+        if diff:
+            raise CheckError(f"is not like {like[0]}: {diff}")
 
     for check in expect:
         check(doc)
@@ -441,6 +546,9 @@ def main():
     parser = argparse.ArgumentParser(description="Check trace files against the trace format.")
     parser.add_argument("traces", nargs="+", metavar="TRACE", help="trace files to check")
     parser.add_argument("--equals", metavar="FIXTURE", help="also require equality with this fixture")
+    parser.add_argument("--like", metavar="FIXTURE",
+                        help="also require structural equivalence with this trace, from another language: the same "
+                             "problem, answer, ending, functions, and object types, and compatible kinds for shared locals")
     parser.add_argument("--expect-truncated", action="store_true",
                         help=f"also require a trace cut off at the {STEP_CAP}-step cap")
     parser.add_argument("--expect-result-heap", action="store_true",
@@ -460,6 +568,12 @@ def main():
         sys.exit(f"check_trace: cannot load the schema {SCHEMA_PATH}: {e}")
     validator = Draft202012Validator(schema)
 
+    like = None
+    if args.like:
+        try:
+            like = (args.like, load(args.like))
+        except CheckError as e:
+            sys.exit(f"check_trace: {args.like}: {e}")
     fixture = None
     if args.equals:
         try:
@@ -470,7 +584,7 @@ def main():
     failed = 0
     for path in args.traces:
         try:
-            check_file(path, validator, fixture, expect)
+            check_file(path, validator, fixture, expect, like)
             print(f"OK    {path}")
         except CheckError as e:
             failed += 1
