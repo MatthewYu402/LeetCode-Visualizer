@@ -1,10 +1,12 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Inputs } from "../api/useInputs";
 
 interface Props {
   inputs: Inputs;
   /** Placeholder (ghost) text by field name, for the method named here: the starter's example. */
   example?: { method: string; values: Record<string, string>; text: string };
+  /** An example to start with (a home page link): put in the box, and the fields filled from it once. */
+  preset?: string;
 }
 
 type Note = { tone: "ok" | "info" | "error"; text: string } | null;
@@ -15,20 +17,29 @@ type Note = { tone: "ok" | "info" | "error"; text: string } | null;
  * edits typed by hand. Run code is in the top bar; this panel says why it is disabled, and
  * shows a failed run's error under the inputs that caused it.
  */
-export function InputsPanel({ inputs, example }: Props) {
-  const [text, setText] = useState("");
+export function InputsPanel({ inputs, example, preset }: Props) {
+  const [text, setText] = useState(preset ?? "");
   const [note, setNote] = useState<Note>(null);
   const pasted = useRef(false);
+  const presetFilled = useRef(false);
   const { signature, method, fields, values, blocked, run } = inputs;
   const methods = signature?.methods ?? [];
   const ghost = example && method?.name === example.method ? example.values : {};
 
-  const fill = async (from: string, how: "paste" | "button") => {
+  const fill = async (from: string, how: "paste" | "button" | "preset") => {
     if (!from.trim()) return;
     const answer = await inputs.fillFromExample(from);
     if (!answer.ok) setNote({ tone: "error", text: answer.error });
-    else setNote({ tone: "ok", text: `${how === "paste" ? "Pasted, so " : ""}${names(answer.filled)} ${answer.filled.length === 1 ? "was" : "were"} filled` });
+    else setNote({ tone: "ok", text: `${how === "paste" ? "Pasted, so " : how === "preset" ? "From the example, " : ""}${names(answer.filled)} ${answer.filled.length === 1 ? "was" : "were"} filled` });
   };
+
+  // A preset fills the fields once, when the panel first shows (the ref survives StrictMode's second effect).
+  useEffect(() => {
+    if (!preset || presetFilled.current) return;
+    presetFilled.current = true;
+    void fill(preset, "preset");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, for the code the page opened with
+  }, []);
 
   return (
     <form

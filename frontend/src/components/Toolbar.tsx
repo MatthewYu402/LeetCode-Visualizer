@@ -1,5 +1,7 @@
 import { LANGUAGES, type EditorLanguage } from "../editor/languages";
+import { href } from "../route";
 import type { Theme } from "../theme";
+import { Logo } from "./Logo";
 
 interface Props {
   language: EditorLanguage;
@@ -27,10 +29,10 @@ export function Toolbar({ language, onLanguage, showCalls, onShowCalls, onRun, r
   const runTitle = running ? "Running in the sandbox…" : (blocked ?? `Run your Solution on these inputs (${runShortcut})`);
   return (
     <header className="topbar">
-      <div className="brand">
-        <Logo />
+      <a className="brand" href={href({ page: "home" })} title="Home">
+        <Logo height={18} />
         <span className="brand-name">LeetCode Visualizer</span>
-      </div>
+      </a>
       <span className="topbar-sep" aria-hidden="true" />
 
       <label className="select-wrap">
@@ -83,20 +85,6 @@ export function Toolbar({ language, onLanguage, showCalls, onShowCalls, onRun, r
   );
 }
 
-/** A rising line of trace points: a run stepping forward. Original mark. */
-function Logo() {
-  return (
-    <svg className="logo" role="img" aria-label="LeetCode Visualizer" width="26" height="26" viewBox="0 0 26 26">
-      <rect className="logo-tile" x="0.5" y="0.5" width="25" height="25" rx="8" />
-      <path className="logo-line" d="M7 17.5 11 12l4 3.5 4-6.5" />
-      <circle className="logo-point" cx="7" cy="17.5" r="1.8" />
-      <circle className="logo-point" cx="11" cy="12" r="1.8" />
-      <circle className="logo-point" cx="15" cy="15.5" r="1.8" />
-      <circle className="logo-head" cx="19" cy="9" r="2.2" />
-    </svg>
-  );
-}
-
 export function StackIcon() {
   return (
     <svg className="icon-stroke" aria-hidden="true" width="15" height="15" viewBox="0 0 18 18">
@@ -107,7 +95,7 @@ export function StackIcon() {
   );
 }
 
-function SunIcon() {
+export function SunIcon() {
   return (
     <svg className="icon-stroke" aria-hidden="true" width="15" height="15" viewBox="0 0 16 16">
       <circle cx="8" cy="8" r="3" />
@@ -116,7 +104,7 @@ function SunIcon() {
   );
 }
 
-function MoonIcon() {
+export function MoonIcon() {
   return (
     <svg className="icon-stroke" aria-hidden="true" width="15" height="15" viewBox="0 0 16 16">
       <path d="M13.2 9.6A5.5 5.5 0 0 1 6.4 2.8a5.5 5.5 0 1 0 6.8 6.8z" />

@@ -39,7 +39,7 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.13: a dark and a light theme, a canvas that shows the sandbox at work during a run, an Output tab for what the program printed, a renderer for every container kind, pointer markers under an array for the locals the code indexes it with (v0.9 `indexes`), linked lists, trees, and graphs drawn from the heap with pointer tags and highlights, a dashed outline on the cells and entries the running line read (`read` outcomes), strings as strips of characters with their pointers, the `Solution`'s members as cards tagged `member`, a recursion card (tree or stack view) that folds large runs, a call-stack card for void recursion, a state panel with the running statement and what it produced (from v0.8 outcomes), and motion throughout |
 | Frontend: input form and real runs | Done, redesigned. The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
 | Frontend: hint renderers and "view as" | Done: a 2D array as a graph (adjacency list, edge list, adjacency matrix) or as intervals, from the parameter's hint or the card's View menu |
-| Frontend: home page | Planned |
+| Frontend: home page | First version. The default route (`#/`, a hash route; the sandbox is `#/sandbox`): the pitch, a live preview that replays the Reverse Linked List golden trace through the real canvas, six example problems that open the sandbox with their Solution and inputs filled in, how a run works, and the languages. The sandbox is loaded only when opened |
 | API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
 
 ---
@@ -58,7 +58,7 @@ Start with the trace format. Everything else hangs off it.
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
-| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, linked structures, calls cards, diffing, motion, playback, dark and light themes | Draft v0.16 |
+| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, linked structures, calls cards, diffing, motion, playback, dark and light themes; and the home page and its routes | Draft v0.17 |
 | [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
 | [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs, how a run can end, gVisor on macOS | Draft v0.2, implemented |
 | [`docs/backend.md`](docs/backend.md) | The API service: endpoints, errors and status codes, limits, settings, running it with the frontend | Draft v0.1, implemented |
@@ -454,7 +454,7 @@ Items marked *(planned)* do not exist yet.
 │   ├── native-tracing.md      runtime hooks and source instrumentation
 │   ├── dap.md                 DAP-based tracing
 │   ├── driver-generation.md   signatures, example parsing, helper types
-│   ├── frontend.md            the sandbox page: registry, diff, playback
+│   ├── frontend.md            the sandbox and home pages: registry, diff, playback, routes
 │   ├── sandboxing.md          isolation, limits, where validation runs
 │   ├── backend.md             the API service: endpoints, errors, limits
 │   ├── hint-inference.md      (proposal) inferring hints
@@ -509,13 +509,17 @@ Items marked *(planned)* do not exist yet.
 │               ├── loop_forever.cpp    never returns; proves the step cap
 │               ├── return_pointer.cpp  returns a ListNode*; proves result_heap
 │               └── void_method.cpp     returns void; proves the null result
-├── frontend/                  sandbox page (React + TypeScript + Vite)
+├── frontend/                  home page and sandbox page (React + TypeScript + Vite)
 │   ├── CLAUDE.md              commands, structure, rules
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── src/
-│       ├── App.tsx            the page: layout, language select, shortcuts
+│       ├── App.tsx            the switch between the pages; loads the sandbox lazily
+│       ├── Sandbox.tsx        the sandbox page: layout, language select, shortcuts
+│       ├── route.ts           the hash route: #/ home, #/sandbox, #/sandbox/<example>
 │       ├── theme.ts           the page's theme: dark or light, the system's setting, the toggle
+│       ├── home/              the home page, its live preview, and its example problems
+│       ├── assets/            the logo, one file per theme
 │       ├── api/               API client, input form logic, useInputs hook
 │       ├── trace/             types, loader, value formatting, diff, heap edges, call tree
 │       ├── player/            playback reducer and Run timer

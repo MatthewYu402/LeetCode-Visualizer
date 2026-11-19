@@ -6,7 +6,9 @@ Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and 
 
 ## What this is
 
-The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). It has a dark theme and a light one (`theme.ts`, `docs/frontend.md` §11). While a run is going, the canvas shows `RunningCanvas`. When the program printed something, the state panel has an Output tab. A 2D array can be drawn as a graph or as intervals, from the parameter's hint or the card's View menu (`docs/frontend.md` §5.1). There is no home page yet.
+Two pages, chosen by the URL's hash (`route.ts`, `docs/frontend.md` §12): the home page (`#/`, the default) and the sandbox (`#/sandbox`, or `#/sandbox/<example>` with an example's Solution and inputs filled in). The home page says what the tool is, replays the Reverse Linked List golden trace through the real canvas, and links to six example problems copied from `docs/manual-test-suite.md`. The sandbox is loaded lazily, so the home page does not download Monaco.
+
+The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). It has a dark theme and a light one (`theme.ts`, `docs/frontend.md` §11). While a run is going, the canvas shows `RunningCanvas`. When the program printed something, the state panel has an Output tab. A 2D array can be drawn as a graph or as intervals, from the parameter's hint or the card's View menu (`docs/frontend.md` §5.1).
 
 The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000.
 
@@ -31,7 +33,9 @@ React + TypeScript + Vite, `@monaco-editor/react` with `monaco-editor` bundled l
 
 ```
 src/
-├── App.tsx              the sandbox page: layout, language, keyboard shortcuts (Cmd/Ctrl + Enter runs)
+├── App.tsx              the switch between the pages, inside MotionConfig; loads Sandbox lazily
+├── Sandbox.tsx          the sandbox page: layout, language, keyboard shortcuts (Cmd/Ctrl + Enter runs); an optional example to open with
+├── route.ts             the hash route: parseRoute, href, titleFor, useRoute
 ├── main.tsx             entry: fonts, theme, styles
 ├── theme.ts             the page's theme: data-theme on <html>, the system's setting, the toggle, remembering the choice
 ├── api/
@@ -63,7 +67,12 @@ src/
 │   ├── pointers.ts      pointer markers: integer locals the trace's `indexes` pairs with an array, and iterators
 │   ├── reads.ts         readsFrom(ctx.reads): the cells and keys the running line read, for the dashed outline
 │   └── types.ts         Renderer, RendererProps, RenderContext
-├── components/          Toolbar (top bar), PlaybackBar, CodePanel, PasteHint (the info button beside the Code title), ViewMenu (a card's "View as" button and menu), InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
+├── home/
+│   ├── Home.tsx         the home page: bar, pitch, preview, example cards, how it works, languages
+│   ├── Preview.tsx      the golden Reverse Linked List trace replayed by VisualPanel beside its code; plays, pauses, steps
+│   └── examples.ts      the six example problems, verbatim from docs/manual-test-suite.md (examples.test.ts checks it)
+├── assets/              the author's logo: the eye, white for the dark theme, black for the light one
+├── components/          Logo (both logo files, CSS shows the theme's), Toolbar (top bar), PlaybackBar, CodePanel, PasteHint (the info button beside the Code title), ViewMenu (a card's "View as" button and menu), InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -74,14 +83,14 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 
 1. **Renderers are pure.** A renderer is a function of `(value, diff, ctx)` for one step. No state, no access to other steps, and it must draw correctly with `diff = null`.
 2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`), the call tree (`callTree`), which 2D locals are ever ragged (`raggedLocals`, so a local keeps one drawing), which bare-string locals are strings rather than chars (`stringLocals`, so a string keeps its card), and which integer locals never change (`steadyLocals`, whose pointer markers are muted). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
-3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `App.tsx` may use it, to pick the editor mode and the starter template. Renderers, diff, and the state panel never see it.
+3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `Sandbox.tsx` may use it, to pick the editor mode and the starter template. Renderers, diff, and the state panel never see it.
 4. **A diff is shown only after a one-step move forward** (`cameFrom === index - 1`). Step 0, jumps, and moving back draw with no diff.
 5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`, or its value (`3.0`); read a number out of one with `asNumber`. The 32- and 64-bit integer limits show as `2³¹−1` and the like (`formatValue`); tooltips use `fullValue`, which keeps every digit.
 6. **Map order is the trace's order.** Never sort map entries (or set, multiset, multimap members) for display. Diffs match by key, never by position; multiset and multimap match by count. `canonical` sorts members only to compare.
 7. **Pointer markers** come from one rule only: an integer local that the trace's `indexes` pairs with that array in the running function (`indexes[frame.function][name]` lists the array; spec §3, Indexes) and whose value is a valid index into it, and an `iterator` local whose `container` is that array and whose `index` is in range. An iterator's marker is labeled with its own name, so `it` points at `nums[2]`; one at `end` gets no marker. A local that never changes in the run (`amount` in `dp[amount]`) keeps its marker, muted (`steady`).
 8. **Unknown kinds go to the fallback**, never crash.
 9. **Colours come from the theme tokens.** No hex values in components or CSS outside `styles/theme.css` (the one exception is a fully transparent constant in `editor/monaco.ts`), and no colour or shadow that is right in one theme only. A new token gets a value in both the dark `:root` block and the `:root[data-theme="light"]` block. The Monaco theme reads the same variables.
-10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`. Only tests import them: the page opens with no trace.
+10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`. Tests import them, and so does one page: the home page's preview replays the Reverse Linked List trace (`docs/frontend.md` Q27). The sandbox always opens with no trace.
 11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`.
 12. **Wherever the problem's title is shown, it is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`. (The top bar shows the app's name, not the problem's.)
 13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel shows the running frame's line, its outcomes, and its locals; the calls are drawn on the canvas, not listed in the state panel. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
@@ -115,6 +124,8 @@ Fonts: `--font-ui` (Geist) for text, `--font-mono` (Geist Mono) for code and val
 
 ## Gotchas
 
+- The body never scrolls (the sandbox is one screen); the home page scrolls inside `.home`. Scroll it with `document.querySelector('.home')`, not `window`.
+- An in-page jump on the home page uses `scrollIntoView`, never a `#anchor` link: the hash is the route.
 - Monaco uses the class `.current-line` for its own cursor-line overlay. The trace line uses `.trace-line` and `.trace-line-gutter`. Do not rename them back.
 - Monaco accepts only hex colours. `editor/monaco.ts` converts `rgba(...)` tokens with `toHex`.
 - Keyboard shortcuts are ignored inside Monaco and form controls. Space on a focused button is left to the button.

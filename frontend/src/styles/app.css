@@ -231,6 +231,9 @@ textarea {
   display: flex;
   align-items: center;
   gap: 10px;
+  color: inherit;
+  text-decoration: none;
+  border-radius: 8px;
 }
 
 .brand-name {
@@ -240,25 +243,22 @@ textarea {
   white-space: nowrap;
 }
 
-.logo-tile {
-  fill: color-mix(in srgb, var(--accent) 14%, var(--bg));
-  stroke: color-mix(in srgb, var(--accent) 40%, var(--bg));
+/* The author's eye logo (components/Logo.tsx): one file per theme, the other hidden. */
+.logo-eye {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
-.logo-line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.logo-eye img {
+  display: block;
+  height: 100%;
+  width: auto;
 }
 
-.logo-point {
-  fill: var(--accent);
-}
-
-.logo-head {
-  fill: var(--fg);
+:root[data-theme="light"] .logo-eye-dark,
+:root:not([data-theme="light"]) .logo-eye-light {
+  display: none;
 }
 
 .topbar-sep,
@@ -3274,5 +3274,603 @@ select.field-input {
   .string-scroll {
     scrollbar-width: thin;
     scrollbar-color: var(--border-strong) var(--bg-inset);
+  }
+}
+
+/* ---- Home page (home/Home.tsx, docs/frontend.md §13) ---- */
+
+/* While the sandbox's code (Monaco) loads after a link from the home page. */
+.page-loading {
+  background: var(--bg);
+}
+
+/* The home page scrolls; the body does not (the sandbox is one screen), so this box does. */
+.home {
+  height: 100%;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  background: var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home {
+    scroll-behavior: auto;
+  }
+}
+
+.home-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 24px;
+  background: color-mix(in srgb, var(--bg-subtle) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.home-bar .run-button,
+.hero-cta {
+  text-decoration: none;
+}
+
+.home-main {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+/* The pitch on top, then the preview at the page's full width: the real canvas is the picture. */
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 44px;
+  padding: 52px 0 64px;
+}
+
+.hero-text {
+  max-width: 760px;
+}
+
+.hero-text {
+  animation: rise-in 520ms ease-out both;
+}
+
+.hero-logo {
+  margin-bottom: 22px;
+}
+
+.hero-title {
+  margin: 0;
+  font-size: clamp(34px, 5vw, 56px);
+  line-height: 1.06;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  color: var(--fg);
+}
+
+.hero-accent {
+  color: var(--accent-fg);
+}
+
+.hero-lede {
+  margin: 20px 0 0;
+  max-width: 34em;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+.hero-lede code,
+.section-lede code,
+.how-text code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--fg-soft);
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 30px;
+}
+
+.hero-cta {
+  height: 42px;
+  padding: 0 18px 0 15px;
+  font-size: 14px;
+  border-radius: 11px;
+}
+
+.hero-secondary {
+  height: 42px;
+  padding: 0 18px;
+  font-size: 14px;
+  border-radius: 11px;
+  background: transparent;
+}
+
+.hero-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 22px 0 0;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+/* The live preview: a small window onto the sandbox. */
+.preview {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-subtle);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  animation: rise-in 620ms 120ms ease-out both;
+}
+
+.preview-bar {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+}
+
+.preview-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.preview-dots span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+
+.preview-title {
+  font-weight: 600;
+  color: var(--fg-soft);
+}
+
+.preview-step {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-body {
+  display: grid;
+  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+  height: 380px;
+}
+
+.preview-code {
+  margin: 0;
+  padding: 14px 0 12px;
+  overflow: hidden;
+  background: var(--bg-inset);
+  border-right: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 21px;
+  color: var(--fg-soft);
+}
+
+.preview-line {
+  display: flex;
+  position: relative;
+  padding-right: 10px;
+  white-space: pre;
+  transition: background-color 220ms ease-out;
+}
+
+.preview-line.is-current {
+  background: var(--line-highlight);
+}
+
+.preview-line.is-current::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.preview-gutter {
+  width: 30px;
+  flex-shrink: 0;
+  padding-right: 10px;
+  text-align: right;
+  color: var(--fg-faint);
+}
+
+.preview-line.is-current .preview-gutter {
+  color: var(--accent-fg);
+}
+
+.preview-text {
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+/* The sandbox's canvas, inside the preview: it fills the pane and scrolls on its own. */
+.preview-canvas {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.preview-controls .icon-control {
+  width: 30px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.preview-progress {
+  flex: 1;
+  height: 3px;
+  margin: 0 8px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.preview-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 260ms ease-out;
+}
+
+.preview-caption {
+  font-size: 11.5px;
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+
+/* Sections below the hero. */
+.home-section {
+  padding: 56px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.section-head {
+  margin-bottom: 26px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+.section-lede {
+  margin: 8px 0 0;
+  max-width: 44em;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.example-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.example-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: var(--card-shadow);
+  transition: border-color 180ms ease-out, transform 180ms ease-out;
+}
+
+.example-card:hover {
+  border-color: var(--edge);
+  transform: translateY(-2px);
+}
+
+.example-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.example-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.difficulty {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.difficulty.is-easy {
+  color: var(--success-fg);
+}
+
+.difficulty.is-medium {
+  color: var(--attention);
+}
+
+.difficulty.is-hard {
+  color: var(--danger-fg);
+}
+
+.example-card-blurb {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.example-card-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.example-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.example-tag {
+  padding: 2px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-inset);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-soft);
+}
+
+.example-open {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--accent-fg);
+  opacity: 0.75;
+  transition: opacity 180ms ease-out, gap 180ms ease-out;
+}
+
+.example-card:hover .example-open {
+  opacity: 1;
+  gap: 8px;
+}
+
+.how {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  counter-reset: how;
+}
+
+.how-step {
+  position: relative;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+}
+
+/* An arrow from each step to the next. */
+.how-step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 30px;
+  right: -11px;
+  width: 8px;
+  height: 8px;
+  border-top: 1.5px solid var(--edge);
+  border-right: 1.5px solid var(--edge);
+  transform: rotate(45deg);
+}
+
+.how-n {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-fg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.how-title {
+  margin: 14px 0 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.how-text {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-muted);
+}
+
+.lang-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.lang-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  padding: 14px 18px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  color: var(--fg-muted);
+}
+
+.lang-item.is-ready {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+
+.lang-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--fg-faint);
+}
+
+.lang-dot.is-ready {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent);
+}
+
+.lang-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lang-note {
+  margin-left: auto;
+  font-size: 12.5px;
+}
+
+.home-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 0 40px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+  color: var(--fg-faint);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-text,
+  .preview {
+    animation: none;
+  }
+  .example-card:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 1040px) {
+  .hero {
+    gap: 40px;
+    padding-top: 48px;
+  }
+  .how {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .how-step::after {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-main {
+    padding: 0 16px;
+  }
+  .home-bar {
+    padding: 0 16px;
+  }
+  .home-bar .brand-name {
+    display: none;
+  }
+  .preview-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 300px;
+    height: auto;
+  }
+  /* zoom, unlike a transform, shrinks the layout too, so a whole list still fits a phone */
+  .preview-canvas {
+    zoom: 0.7;
+  }
+  .preview-code {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .preview-caption {
+    display: none;
+  }
+  .how {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lang-item {
+    min-width: 0;
+    flex: 1 1 100%;
   }
 }

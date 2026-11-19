@@ -1,10 +1,10 @@
 # Frontend
-> **Status:** Draft v0.16 (reads trace format v0.13)
+> **Status:** Draft v0.17 (reads trace format v0.13)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
 
-This document covers a single **sandbox page**. It opens on the bare Two Sum Solution with no trace, and with the API service running it traces the user's own Solution on their inputs ([Section 10.1](#101-inputs-and-runs)). It describes what exists in `frontend/` and the decisions behind it. Later pages are listed in [Section 12](#12-out-of-scope) and are only proposals.
+This document covers two pages. The **sandbox page** opens on the bare Two Sum Solution with no trace, and with the API service running it traces the user's own Solution on their inputs ([Section 10.1](#101-inputs-and-runs)). The **home page** says what the tool is, replays a real trace, and links into the sandbox with example problems filled in ([Section 12](#12-home-page)). It describes what exists in `frontend/` and the decisions behind it. What is planned is listed in [Section 13](#13-out-of-scope) and is only proposals.
 
 ```
 POST /api/run ──► loader ──► step player ──► code panel
@@ -17,7 +17,7 @@ POST /api/run ──► loader ──► step player ──► code panel
 
 | In | Out |
 |---|---|
-| One sandbox page at `/` | The home page |
+| A sandbox page (`#/sandbox`) and a home page (`#/`), chosen by a hash route ([Section 12](#12-home-page)) | A router library, and paths without `#` |
 | Replaying the trace of each run | |
 | An inputs panel: one field per parameter, Run code through the API | Design problems (LRU Cache, Min Stack) |
 | Monaco code panel with the current line highlighted | |
@@ -501,15 +501,66 @@ The Monaco theme (`monaco.editor.defineTheme`, base `vs-dark` or `vs` to match t
 
 Fonts: Geist for text and Geist Mono for code and values, bundled from npm (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`, SIL Open Font License) and imported in `main.tsx`, so no font is fetched from a CDN. The editor re-measures its glyphs once the fonts have loaded.
 
-## 12. Out of scope
+## 12. Home page
+The first version of the home page (2026-11-18). It is the default route, and the page a visitor lands on.
+
+### 12.1 Routes
+The page is chosen by the URL's hash (`src/route.ts`): no router dependency, no rule on the server (every path serves the same `index.html`, and the hash never reaches the server), and the back button and shared links work because the hash is part of the URL.
+
+| Hash | Page |
+|---|---|
+| none, `#`, `#/`, or anything unknown | The home page |
+| `#/sandbox` | The sandbox, on the bare Two Sum Solution, as before |
+| `#/sandbox/<slug>` | The sandbox with an example's Solution in the editor and its example in the inputs ([Section 12.3](#123-examples)); a slug that names no example opens the bare sandbox |
+
+`App.tsx` is only the switch, inside `MotionConfig`. The sandbox moved to `Sandbox.tsx` and is loaded with `React.lazy`: it carries Monaco, most of the bundle, so the home page loads about 0.5 MB of script and the editor arrives only when the sandbox is opened. The sandbox is keyed by the example, so following a second example link starts a fresh sandbox. The window title is "LeetCode Visualizer" on the home page and "LeetCode Visualizer · Sandbox" in the sandbox. The top bar's logo and name link home.
+
+### 12.2 Layout
+The page scrolls (the sandbox does not), inside `.home`, since `body` never scrolls. Top to bottom:
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│ BAR  eye · LeetCode Visualizer                  ☀  [Open the sandbox]   │  sticky, 52 px
+├──────────────────────────────────────────────────────────────────────────┤
+│ eye logo                                                                 │
+│ Watch your Solution run, one line at a time.                             │  the pitch
+│ lede · [Paste a Solution] [Try an example] · ● C++ today                 │
+│ ┌──────────────────────────────────────────────────────────────────────┐ │
+│ │ ● ● ●  Reverse Linked List                              Step 12 / 30 │ │
+│ │ code, running line highlighted │ the sandbox's canvas, same step     │ │  the preview
+│ │ ‹  ❚❚  ›  ───────────                    A real trace, drawn by ...  │ │
+│ └──────────────────────────────────────────────────────────────────────┘ │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Start from an example        six cards, three to a row                   │
+├──────────────────────────────────────────────────────────────────────────┤
+│ How it works   1 Solution + example › 2 sandbox › 3 trace › 4 canvas     │
+├──────────────────────────────────────────────────────────────────────────┤
+│ Languages      ● C++ available   ○ Java coming soon   ○ Python coming    │
+│ footer                                                                   │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+- **The two calls to action.** "Paste a Solution" (primary) opens `#/sandbox`; "Try an example" scrolls to the examples. The bar's "Open the sandbox" is the same as the first.
+- **The preview** (`home/Preview.tsx`) replays the Reverse Linked List golden trace (`fixtures/reverse-list.trace.json`) with the same `VisualPanel` the sandbox uses, beside its source (`fixtures/reverse_list_trace.cpp`) with the running line highlighted the way the editor highlights it. It plays by itself (1.1 s a step, a 2.6 s pause on the last step, then from the start), and the reader can pause or step it; stepping pauses it. With the system's "reduce motion" setting on it waits for the play button. It is at the page's full width, because a linked list of five nodes needs about 700 px; under 640 px the canvas is drawn at 70% (`zoom`, which shrinks the layout too, unlike a transform) and the code sits above it.
+- **Logo.** The author's eye, two files in `src/assets/` (white for the dark theme, black for the light one). `components/Logo.tsx` puts both in the page and CSS shows the one for `data-theme`. It replaces the earlier rising-line mark in the sandbox's top bar too.
+- **Theme.** The bar has the same theme button as the sandbox, and every colour comes from the tokens ([Section 11](#11-theme-tokens)): no new token was needed.
+- **Below 1040 px** the four "how it works" steps go two to a row; **below 640 px** one, and the bar drops the name.
+
+### 12.3 Examples
+`home/examples.ts` lists six problems, each chosen to show a different drawing: Two Sum (map), Valid Palindrome (a string and two pointers), Daily Temperatures (a stack), Reverse Linked List, Invert Binary Tree (a tree, and the recursion card), and Network Delay Time (a graph and a priority queue). Each card shows the title, the difficulty, one sentence on what to watch, and tags in the canvas's words.
+
+- **Copied from the manual suite.** Each example's code and `Input:`/`Output:` text are the verbatim text of its case in `docs/manual-test-suite.md`, so every one is known to run. `examples.test.ts` reads the suite and fails if they drift apart.
+- **A link preloads, it does not run.** The sandbox opens with the Solution in the editor and the example text in the inputs panel's box, and fills the fields from it once (the same call as pasting, so the note says "From the example, … were filled"). The reader presses Run code. Running on arrival would spend a sandbox run on every click, including clicks from someone only looking.
+
+## 13. Out of scope
 Planned for later versions, not designed here:
-- The home page, and any routing.
 - Design problems (LRU Cache, Min Stack), whose example is a sequence of calls.
 - Several examples at once (one run and one trace each).
 - Hints for locals, and a "view as" for structures other than 2D arrays of numbers (a `vector<vector<pair<int, int>>>` weighted graph).
 - Laying out graphs larger than about 30 nodes well. Layers by distance are readable, not pretty.
+- On the home page: a picture of each example's canvas on its card, and Java and Python examples once those adapters exist.
 
-## 13. Design questions
+## 14. Design questions
 
 > **Q1. Why is the diff shown only after a one-step move forward?** A diff answers "what did this line just do?". That question only makes sense when the previous displayed step is the one before it. After a jump from step 0 to step 7, colouring everything that differs would highlight work done by six lines at once, which looks like a single change and misleads. Showing nothing is honest, and it keeps the rule simple: diff iff `cameFrom === index - 1`.
 
@@ -560,3 +611,9 @@ Planned for later versions, not designed here:
 > **Q24. Why does a dimmed view stay in the menu instead of being hidden?** A menu that shows three options for one array and two for the next looks broken, and the reader cannot tell whether "Graph (adjacency matrix)" exists. Keeping it, dimmed, with "Needs a square of 0s and 1s", says both that it exists and why this value is not one, which is also a small lesson about the shapes.
 
 > **Q25. Why do locals start on the drawing by kind instead of following a hinted parameter?** Course Schedule's `adj` looks like an adjacency list because of how the code fills it, which the frontend cannot see; a rule like "a local whose rows look like a hinted parameter's gets its view" would be a guess made where guesses are not allowed (CLAUDE.md invariant 11). The kind drawing is always true, and one click turns it into a graph. Hints for locals, inferred by the adapter, are the clean way if this proves too many clicks.
+
+> **Q26. Why a hash route instead of a router library or state in `App.tsx`?** State in `App.tsx` would need no dependency either, but the URL would not change: the back button would leave the site, and an example could not be linked to. A router library gives real paths, which need the server to answer every path with `index.html`, and it is a dependency for two pages. A hash route is twenty lines, has neither cost, and can be replaced by a router later without changing a link's meaning.
+
+> **Q27. Why does the home page replay a golden fixture, when only tests import fixtures?** The rule exists so the sandbox never opens on a canned trace and fixtures are never copied into `frontend/`. Both still hold: the sandbox opens with no trace, and the preview imports the fixture from `../fixtures` like the tests. A drawing of the canvas would have to be redrawn by hand whenever a renderer changes and could show things the canvas does not do; the golden trace through the real `VisualPanel` is always exactly what the sandbox draws, and CI already checks the trace against the schema.
+
+> **Q28. Why does an example link not run the example?** A run takes a few seconds of sandbox time and holds one of the visitor's slots. Many visitors click an example to see what it is, and the trace is one button away; the field note and the filled inputs say the example is ready.
