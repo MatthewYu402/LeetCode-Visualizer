@@ -39,6 +39,26 @@ describe("sharedPlaces", () => {
     expect(sharedGroups("#members/seen", shared)).toEqual([{ kind: "map", places: ["seen (member)", "Node.children (a node's field)"] }]);
   });
 
+  it("notes only the outermost of nested shared containers: sink, given grid, shares its rows too", () => {
+    const r = (id: string): Value => ({ kind: "array", id, items: [1, 0] });
+    const grid = (): Value => ({ kind: "array", id: "g", items: [r("r0"), r("r1")] });
+    const step = (extra: Record<string, Value> = {}): Step => ({
+      step: 0,
+      frames: [
+        { id: "f1", function: "numIslands", line: 4, locals: { grid: grid(), ...extra } },
+        { id: "f2", function: "sink", line: 9, locals: { grid: grid() } },
+      ],
+      heap: {},
+    });
+    expect(sharedGroups("grid", sharedPlaces(step()))).toEqual([{ kind: "array", places: ["grid", "grid (in numIslands)"] }]);
+    // A row also held on its own is not implied by grid's note, so it keeps one.
+    const aliased = sharedPlaces(step({ row: r("r0") }));
+    expect(sharedGroups("grid", aliased)).toEqual([
+      { kind: "array", places: ["grid", "grid (in numIslands)"] },
+      { kind: "array", places: ["grid[0]", "grid[0] (in numIslands)", "row (in numIslands)"] },
+    ]);
+  });
+
   it("finds nothing when no container has an id", () => {
     expect(sharedPlaces({ step: 0, frames: [{ id: "f1", function: "f", line: 1, locals: { a: { kind: "array", items: [1] } } }], heap: {} }).size).toBe(0);
   });

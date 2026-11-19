@@ -379,6 +379,7 @@ dp    array · 3 × 3                       first   array · 3
 ```
 
 - **The places** come from `sharedPlaces(step)` (`trace/shared.ts`), once per step: the running frame's locals as their names and paths (`dp[0]`, `m[3]`, `an item of s`), a caller's with its function (`path (in backtrack)`), members as `memo (member)`, and a node's field as `Node.children (a node's field)`. The card's own places come first, and each name appears once (a recursion's callers often hold one list under one name).
+- **Only the outermost of nested shared containers is noted.** Passing `grid` to `sink` shares each of its rows too, and the trace gives every row an id; a note per row would only repeat the one for `grid`. A container is left out when every place it is reached from lies inside a container that is itself shared. A row also held on its own (`int[] row = grid[0]`) has a place outside `grid`, so it keeps its note.
 - **One line per shared container**, named by its kind ("Same array", "Same map"), at most five places with "+N more" and the full list in the tooltip.
 - **No new colour.** A write through one name changes every place, and the diff already flashes each one, so `dp[0][0] = 1` lights up all three rows; the note says why.
 - **The id is identity, not content.** `canonical` leaves a container's `id` out, so a list that becomes shared at a step is not "changed" by that. A `ref`'s `id` is kept: it is what the ref is.

@@ -13,6 +13,8 @@ export interface Place {
   card: string | null;
   /** The container's kind ("array", "map"), the same at every place. */
   kind: string;
+  /** The id of the nearest container with an id that holds this place (`grid` for `grid[0]`), when there is one. */
+  within?: string;
 }
 
 /** One shared container as a card notes it: its kind, and every place it is reached from, each named once. */
@@ -28,46 +30,58 @@ export function sharedPlaces(step: Step): Map<string, Place[]> {
   for (const frame of step.frames) {
     const running = frame === top;
     for (const [name, v] of Object.entries(frame.locals)) {
-      walk(v, name, running ? "" : ` (in ${frame.function})`, running ? name : null, out);
+      walk(v, name, running ? "" : ` (in ${frame.function})`, running ? name : null, out, undefined);
     }
   }
   // A member is hidden on the canvas while a running local has its name, so then no card draws it.
   for (const [name, v] of Object.entries(step.members ?? {})) {
-    walk(v, name, " (member)", name in top.locals ? null : `#members/${name}`, out);
+    walk(v, name, " (member)", name in top.locals ? null : `#members/${name}`, out, undefined);
   }
   for (const obj of Object.values(step.heap)) {
-    for (const [field, v] of Object.entries(obj.fields)) walk(v, `${obj.type}.${field}`, " (a node's field)", null, out);
+    for (const [field, v] of Object.entries(obj.fields)) walk(v, `${obj.type}.${field}`, " (a node's field)", null, out, undefined);
   }
   return out;
 }
 
-function walk(v: Value, path: string, where: string, card: string | null, out: Map<string, Place[]>): void {
+function walk(v: Value, path: string, where: string, card: string | null, out: Map<string, Place[]>, within: string | undefined): void {
   if (!isTagged(v)) return;
+  let inner = within;
   if (v.kind !== "ref" && "id" in v && typeof v.id === "string") {
     const list = out.get(v.id) ?? [];
-    list.push({ label: path + where, card, kind: v.kind });
+    list.push(within === undefined ? { label: path + where, card, kind: v.kind } : { label: path + where, card, kind: v.kind, within });
     out.set(v.id, list);
+    inner = v.id;
   }
   if (v.kind === "map" || v.kind === "multimap") {
     for (const [k, x] of v.entries) {
-      walk(k, `a key of ${path}`, where, card, out);
-      walk(x, `${path}[${formatValue(k)}]`, where, card, out);
+      walk(k, `a key of ${path}`, where, card, out, inner);
+      walk(x, `${path}[${formatValue(k)}]`, where, card, out, inner);
     }
   } else if ("items" in v && Array.isArray(v.items)) {
     const unordered = v.kind === "set" || v.kind === "multiset";
-    v.items.forEach((x, i) => walk(x, unordered ? `an item of ${path}` : `${path}[${i}]`, where, card, out));
+    v.items.forEach((x, i) => walk(x, unordered ? `an item of ${path}` : `${path}[${i}]`, where, card, out, inner));
   }
 }
 
 /**
+ * A nested container's sharing is implied when every place it is reached from lies inside a
+ * container that is itself shared: Java's `grid` passed to `sink` shares each of its rows too,
+ * and "Same array: grid[0] · grid[0] (in sink)" would only repeat the note for `grid`. A row
+ * that is also reached on its own (`int[] row = grid[0]`) is not implied, so it keeps its note.
+ */
+function implied(places: Place[], shared: Map<string, Place[]>): boolean {
+  return places.every((p) => p.within !== undefined && (shared.get(p.within)?.length ?? 0) >= 2);
+}
+
+/**
  * The notes under one card: for each shared container inside the card's value (itself
- * included), every place it is reached from, this card's own places first, each named once
+ * included) whose sharing is not implied by an enclosing one, every place it is reached from, this card's own places first, each named once
  * (a recursion's callers often hold the same list under the same name).
  */
 export function sharedGroups(cardKey: string, shared: Map<string, Place[]>): SharedGroup[] {
   const groups: SharedGroup[] = [];
   for (const places of shared.values()) {
-    if (!places.some((p) => p.card === cardKey)) continue;
+    if (!places.some((p) => p.card === cardKey) || implied(places, shared)) continue;
     const ordered = [...places.filter((p) => p.card === cardKey), ...places.filter((p) => p.card !== cardKey)].map((p) => p.label);
     groups.push({ kind: places[0].kind, places: [...new Set(ordered)] });
   }
