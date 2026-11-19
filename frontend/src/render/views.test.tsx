@@ -7,7 +7,7 @@ import type { Step, Trace, Value } from "../trace/types";
 import { edgesOf, GraphRowsRenderer, placeNodes } from "./GraphRowsRenderer";
 import { IntervalsRenderer, tickStep } from "./IntervalsRenderer";
 import { selectRenderer } from "./registry";
-import { autoView, fits, viewOptions } from "./views";
+import { adjacencyOf, autoView, fits, pairsOf, viewOptions } from "./views";
 
 const rows = (r: number[][]): Value => ({ kind: "array", items: r.map((items) => ({ kind: "array", items })) });
 const count = (html: string, part: string) => html.split(part).length - 1;
@@ -140,5 +140,29 @@ describe("the View menu on the canvas", () => {
     expect(html).toContain('aria-label="View adj as: Graph (adjacency list)"');
     expect(html).toContain(">Graph<");
     expect(html).not.toContain("auto");
+  });
+});
+
+describe("weighted graphs from pairs", () => {
+  const tuple = (...items: number[]): Value => ({ kind: "tuple", items });
+  const adj: Value = { kind: "array", items: [{ kind: "array", items: [] }, { kind: "array", items: [tuple(2, 5)] }, { kind: "array", items: [tuple(1, 5), tuple(0, 3)] }] };
+
+  it("an array of rows of (node, weight) pairs is a weighted adjacency list", () => {
+    expect(fits("adjacency-list", adj)).toBe(true);
+    const { edges } = edgesOf(adjacencyOf(adj)!, "adjacency-list");
+    expect(edges.map((e) => [e.from, e.to, e.weight, e.directed])).toEqual([
+      [1, 2, 5, false],
+      [2, 0, 3, true],
+    ]);
+    expect(viewOptions(adj, "Array").filter((o) => o.fits).map((o) => o.view)).toEqual(["kind", "adjacency-list"]);
+  });
+
+  it("a 1D array of pairs is an edge list", () => {
+    const pairs: Value = { kind: "array", items: [tuple(0, 1), tuple(1, 2)] };
+    expect(fits("edge-list", pairs)).toBe(true);
+    expect(pairsOf(pairs)).toEqual([
+      [0, 1],
+      [1, 2],
+    ]);
   });
 });

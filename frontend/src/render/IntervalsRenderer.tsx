@@ -39,7 +39,7 @@ export function IntervalsRenderer({ name, value, diff, ctx }: RendererProps) {
   const ticks: number[] = [];
   for (let t = Math.ceil(lo / step) * step; t <= hi; t += step) ticks.push(t);
   const reads = readsFrom(ctx.reads);
-  const pointers = pointersFor(ctx.locals, rows.length, name, ctx.indexes);
+  const pointers = pointersFor(ctx.locals, rows.length, name, ctx.indexes, ctx.steady);
   const height = all.length * ROW_PX + 22;
 
   return (

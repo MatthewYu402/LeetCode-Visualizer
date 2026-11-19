@@ -1,5 +1,5 @@
 import { diffValue, type Change, type ValueDiff } from "../trace/diff";
-import { formatValue } from "../trace/format";
+import { formatValue, fullValue } from "../trace/format";
 import { hasItems, isTagged, type Trace, type Value } from "../trace/types";
 import { CardHeader, Empty } from "./Card";
 import { pointersFor, type Pointer } from "./pointers";
@@ -39,16 +39,16 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
       <section className="structure" aria-label={`${name}: array`}>
         <CardHeader name={name} meta={meta} op={ctx.op} />
         {grid ? (
-          <Grid name={name} rows={rows} diff={diff} reads={reads} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes)} />
+          <Grid name={name} rows={rows} diff={diff} reads={reads} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes, ctx.steady)} />
         ) : (
-          <RaggedRows name={name} rows={rows} diff={diff} reads={reads} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes)} />
+          <RaggedRows name={name} rows={rows} diff={diff} reads={reads} pointers={pointersFor(ctx.locals, rows.length, name, ctx.indexes, ctx.steady)} />
         )}
       </section>
     );
   }
 
   const removed = diff?.removedItems ?? [];
-  const pointers = pointersFor(ctx.locals, items.length, name, ctx.indexes);
+  const pointers = pointersFor(ctx.locals, items.length, name, ctx.indexes, ctx.steady);
   const cell = cellWidth([...items, ...removed.map((r) => r.value)]);
   return (
     <section className="structure" aria-label={`${name}: array`}>
@@ -59,7 +59,7 @@ export function ArrayRenderer({ name, value, diff, ctx }: RendererProps) {
         <div className="array" style={{ ["--cell" as string]: `${cell}px` }}>
           <div className="array-strip">
             {items.map((v, i) => (
-              <div key={i} className={`cell ${diffClass(diff?.items?.[i])}${reads.at(i) || reads.within(i) ? " is-read" : ""}`} title={formatValue(v)}>
+              <div key={i} className={`cell ${diffClass(diff?.items?.[i])}${reads.at(i) || reads.within(i) ? " is-read" : ""}`} title={fullValue(v)}>
                 {formatValue(v)}
               </div>
             ))}
@@ -119,7 +119,7 @@ export function PointerRow({ pointers, step = CELL_STEP_PX }: { pointers: Pointe
   return (
     <div className="pointers" style={{ height: rows * TAG_ROW_PX }}>
       {placed.map((p) => (
-        <div key={p.name} className="pointer" style={{ transform: `translate(${p.index * step}px, ${p.row * TAG_ROW_PX}px)` }} title={`${p.name} = ${p.index}`}>
+        <div key={p.name} className={`pointer${p.steady ? " is-steady" : ""}`} style={{ transform: `translate(${p.index * step}px, ${p.row * TAG_ROW_PX}px)` }} title={`${p.name} = ${p.index}`}>
           <svg className="pointer-arrow" aria-hidden="true" width="9" height="5" viewBox="0 0 10 6">
             <path d="M5 0 10 6H0z" />
           </svg>
@@ -136,7 +136,7 @@ function RowTags({ pointers, row }: { pointers: Pointer[]; row: number }) {
   return (
     <span className="grid-row-tags">
       {here.map((p) => (
-        <span key={p.name} className="row-tag" title={`${p.name} = ${p.index}`}>
+        <span key={p.name} className={`row-tag${p.steady ? " is-steady" : ""}`} title={`${p.name} = ${p.index}`}>
           <span className="tag-pill">{p.name}</span>
           <svg className="pointer-arrow" aria-hidden="true" width="5" height="9" viewBox="0 0 6 10">
             <path d="M6 5 0 0v10z" />
@@ -177,7 +177,7 @@ function Grid({ name, rows, diff, reads, pointers }: { name: string; rows: Value
               role="cell"
               className={`grid-cell ${diffClass(cells[r]?.[c])}${reads.at(r, c) ? " is-read" : ""}`}
               style={{ gridRow: r + 1, gridColumn: c + 1 }}
-              title={`${name}[${r}][${c}] = ${formatValue(v)}`}
+              title={`${name}[${r}][${c}] = ${fullValue(v)}`}
             >
               {formatValue(v)}
             </div>
@@ -206,7 +206,7 @@ function RaggedRows({ name, rows, diff, reads, pointers }: { name: string; rows:
           ) : (
             <div className={`array-strip${reads.at(r) ? " is-read" : ""}`}>
               {row.map((v, c) => (
-                <div key={c} className={`cell ${diffClass(cells[r]?.[c])}${reads.at(r, c) ? " is-read" : ""}`} title={`${name}[${r}][${c}] = ${formatValue(v)}`}>
+                <div key={c} className={`cell ${diffClass(cells[r]?.[c])}${reads.at(r, c) ? " is-read" : ""}`} title={`${name}[${r}][${c}] = ${fullValue(v)}`}>
                   {formatValue(v)}
                 </div>
               ))}

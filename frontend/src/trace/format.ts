@@ -3,6 +3,27 @@ import { isTagged, isUnorderedKind, UNORDERED_KINDS, type Value } from "./types"
 const FLOAT_TEXT = { NaN: "NaN", Infinity: "∞", "-Infinity": "-∞" } as const;
 
 /**
+ * The limits of 32- and 64-bit integers, written as powers of two: `2³¹−1` instead of
+ * 2147483647, the "infinity" Dijkstra and DP solutions start from. Ten digits in every cell
+ * of a `dist` array hide the few that matter; these say what the value is in any language
+ * (INT_MAX, Integer.MAX_VALUE, sys.maxsize). The full number stays in the cell's tooltip
+ * (`fullValue`). Matched by text, so the 64-bit ones, which are tagged ints, keep every digit.
+ */
+const LIMITS: Record<string, string> = {
+  "2147483647": "2³¹−1",
+  "-2147483648": "−2³¹",
+  "4294967295": "2³²−1",
+  "9223372036854775807": "2⁶³−1",
+  "-9223372036854775808": "−2⁶³",
+  "18446744073709551615": "2⁶⁴−1",
+};
+
+/** A value's text with every digit, for tooltips: formatValue but with integer limits written out. */
+export function fullValue(v: Value, node?: (id: string) => string | undefined): string {
+  return formatIn(v, node, false);
+}
+
+/**
  * Compact text for any value: `[2, 7, 11, 15]`, `{2: 0}`, `9007199254740993`, `∞`.
  *
  * Tagged ints are shown by their string. They are never converted to a JS number,
@@ -12,19 +33,20 @@ const FLOAT_TEXT = { NaN: "NaN", Infinity: "∞", "-Infinity": "-∞" } as const
  * when it has no name for an id, a ref shows its id: `→ n1`.
  */
 export function formatValue(v: Value, node?: (id: string) => string | undefined): string {
-  return formatIn(v, node);
+  return formatIn(v, node, true);
 }
 
 /** formatValue's body. Inside it, `formatValue` is the one-argument version for nested values, carrying `node` along. */
-function formatIn(v: Value, node: ((id: string) => string | undefined) | undefined): string {
-  const formatValue = (x: Value) => formatIn(x, node);
+function formatIn(v: Value, node: ((id: string) => string | undefined) | undefined, limits: boolean): string {
+  const formatValue = (x: Value) => formatIn(x, node, limits);
   if (v === null) return "null";
   if (typeof v === "string") return JSON.stringify(v);
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "boolean") return String(v);
+  if (typeof v === "number") return (limits && Number.isInteger(v) && LIMITS[String(v)]) || String(v);
 
   switch (v.kind) {
     case "int":
-      return v.value;
+      return (limits && LIMITS[v.value]) || v.value;
     case "float":
       return FLOAT_TEXT[v.value] ?? v.value;
     case "array":

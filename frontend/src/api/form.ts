@@ -78,6 +78,15 @@ export function placeholderFor(type: string): string {
 }
 
 /**
+ * The optional extras (`pos`) a pasted example leaves out, emptied. An example is the whole input,
+ * so a `pos = 1` kept from the Linked List Cycle example before it must not turn the next list into
+ * a cycle (a run that never ends, or "pos = 1 is not an index of head").
+ */
+export function clearedExtras(fields: Field[], example: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(fields.filter((f) => f.optional && !(f.name in example)).map((f) => [f.name, ""]));
+}
+
+/**
  * A pasted example's values, placed in the fields. By name when the names
  * match; otherwise, when none of the names match a parameter and the counts
  * are equal, in order (as the driver does for Clone Graph, whose example says

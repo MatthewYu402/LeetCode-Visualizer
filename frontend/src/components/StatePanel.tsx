@@ -1,7 +1,7 @@
 import { useId, useMemo, useState } from "react";
 import { voidFunctions } from "../trace/calls";
 import type { StepDiff } from "../trace/diff";
-import { formatValue, kindOf } from "../trace/format";
+import { formatValue, fullValue, kindOf } from "../trace/format";
 import { nodeLabel } from "../trace/heap";
 import { isReturning, returnsVoid, runEnd, topFrame, type ObjectValue, type Outcome, type RunEnd, type Step, type Trace, type Value } from "../trace/types";
 
@@ -240,7 +240,7 @@ function Row({ name, value, cls, node, note }: { name: string; value: Value; cls
     <tr className={cls || undefined}>
       <td className="state-name">{name}</td>
       <td className="state-kind">{kindOf(value)}</td>
-      <td className="state-value" title={formatValue(value)}>
+      <td className="state-value" title={fullValue(value)}>
         {text}
         {note && <span className="state-note">{note}</span>}
       </td>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { run, signature, type ApiError, type Method, type RunResult, type Signature } from "./client";
-import { chooseMethod, fieldsFor, keepValues, missing, runRequest, valuesFromExample, type Field } from "./form";
+import { chooseMethod, clearedExtras, fieldsFor, keepValues, missing, runRequest, valuesFromExample, type Field } from "./form";
 
 /** How long the Solution must stay unchanged before its signature is read again. */
 export const SIGNATURE_DELAY_MS = 400;
@@ -77,7 +77,8 @@ export function useInputs(source: string, enabled: boolean): Inputs {
       const target = fieldsFor(chooseMethod(answer.value, chosen));
       const filled = valuesFromExample(target, answer.value.fields ?? {});
       if (Object.keys(filled).length === 0) return { ok: false, error: "None of the example's names match this method's parameters." };
-      setValues((v) => ({ ...v, ...filled }));
+      const cleared = clearedExtras(target, answer.value.fields ?? {});
+      setValues((v) => ({ ...v, ...cleared, ...filled }));
       return { ok: true, filled: target.map((f) => f.name).filter((n) => n in filled) };
     },
     [source, chosen],

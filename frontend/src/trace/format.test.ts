@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonical, formatValue, kindOf, valuesEqual } from "./format";
+import { canonical, formatValue, fullValue, kindOf, valuesEqual } from "./format";
 import { loadTrace } from "./loader";
 import type { Value } from "./types";
 
@@ -33,7 +33,7 @@ describe("tagged numbers", () => {
     const r = loadTrace(JSON.stringify(t));
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(formatValue(r.trace.steps[0].frames[0].locals.a)).toBe("18446744073709551615");
+    expect(fullValue(r.trace.steps[0].frames[0].locals.a)).toBe("18446744073709551615");
     expect(formatValue(r.trace.steps[0].frames[0].locals.b)).toBe("-∞");
   });
 });
@@ -79,5 +79,17 @@ describe("canonical ignores the order of unordered kinds", () => {
     const a = { kind: "array", items: [{ kind: "set", items: [1, 2] }] } as const;
     const b = { kind: "array", items: [{ kind: "set", items: [2, 1] }] } as const;
     expect(canonical(a)).toBe(canonical(b));
+  });
+});
+
+describe("integer limits", () => {
+  it("writes the 32- and 64-bit limits as powers of two, and keeps every digit in fullValue", () => {
+    expect(formatValue(2147483647)).toBe("2³¹−1");
+    expect(formatValue(-2147483648)).toBe("−2³¹");
+    expect(formatValue({ kind: "int", value: "9223372036854775807" })).toBe("2⁶³−1");
+    expect(formatValue({ kind: "array", items: [0, 2147483647] })).toBe("[0, 2³¹−1]");
+    expect(fullValue(2147483647)).toBe("2147483647");
+    expect(formatValue(2147483646)).toBe("2147483646");
+    expect(formatValue(2147483647.5)).toBe("2147483647.5");
   });
 });

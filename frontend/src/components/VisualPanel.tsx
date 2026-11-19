@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { LinkedCard, NullPointersCard, nullPointers, refId, shownComponents } from "../render/HeapView";
 import { layoutTrace } from "../render/layout";
 import { operation } from "../render/ops";
@@ -12,7 +12,12 @@ import { callLayout, RecursionTree } from "./RecursionTree";
 import { RunningCanvas } from "./RunningCanvas";
 import { raggedLocals } from "../render/ArrayRenderer";
 import { stringLocals } from "../render/StringRenderer";
-import { MemberCard } from "../render/Card";
+import { steadyLocals } from "../render/pointers";
+import { CardControls, MemberCard } from "../render/Card";
+import { autoView, fits, hintOfView, numberRows, viewOptions, type View, type ViewChoice } from "../render/views";
+import type { RenderContext } from "../render/types";
+import type { ValueDiff } from "../trace/diff";
+import { ViewMenu } from "./ViewMenu";
 
 interface Props {
   trace: Trace | null;
@@ -42,8 +47,12 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const views = useMemo(() => {
     if (!trace) return null;
     const calls = callTree(trace);
-    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls), ragged: raggedLocals(trace), strings: stringLocals(trace) };
+    return { layout: layoutTrace(trace), calls, callPositions: callLayout(calls), callsKind: callsCardKind(calls), ragged: raggedLocals(trace), strings: stringLocals(trace), steady: steadyLocals(trace) };
   }, [trace]);
+  // What the reader picked in each card's View menu, by local name, for this trace only: a new run starts on auto.
+  const [chosen, setChosen] = useState<{ trace: Trace | null; map: Record<string, ViewChoice> }>({ trace: null, map: {} });
+  const choices = chosen.trace === trace ? chosen.map : {};
+  const choose = (key: string, c: ViewChoice) => setChosen({ trace, map: { ...choices, [key]: c } });
 
   if (running) return <RunningCanvas />;
 
@@ -90,13 +99,29 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
   const last = step.step === trace.steps.length - 1;
   const resultId = last ? refId(trace.result) : null;
   const reads = readsOf(frame);
-  const ctxBase = { locals, heap: step.heap, indexes: trace.indexes?.[frame.function] };
+  const ctxBase = { locals, heap: step.heap, indexes: trace.indexes?.[frame.function], steady: views.steady.get(frame.function) };
   const linked = shownComponents(step, views.layout);
   const nulls = nullPointers(step, views.layout);
   const params = new Set(views.calls.calls.get(frame.id)?.params ?? []);
   const heapProps = { step, diff: diff?.heap ?? null, layout: views.layout, resultId, params };
   const callsCard =
     views.callsKind === "tree" ? "tree" : views.callsKind === "stack" && showCalls && step.frames.length > 1 ? "stack" : null;
+  // Every container card of this step, the running call's then the members, with the drawing it
+  // gets: the reader's pick from its View menu when that fits the value now, else auto (render/views.ts).
+  const cards = [
+    ...current.map(([name, value]) => ({ key: name, name, value, diff: diff?.locals[name] ?? null, member: false, hint: hints.get(name) })),
+    ...members.map(([name, value]) => ({ key: `#members/${name}`, name, value, diff: diff?.members[name] ?? null, member: true, hint: undefined as Hint | undefined })),
+  ].map((c) => {
+    const auto = autoView(c.value, c.hint);
+    const choice: ViewChoice = choices[c.key] ?? { view: auto };
+    const view: View = fits(choice.view, c.value) ? choice.view : "kind";
+    const rows = numberRows(c.value);
+    const kindLabel = rows && !(!c.member && views.ragged.has(`${frame.function}/${c.name}`)) && rows.every((r) => r.length === rows[0].length && r.length > 0) ? "Grid" : rows ? "Rows" : "Array";
+    return { ...c, diff: c.diff as ValueDiff | null, auto, choice: { ...choice, view }, view, options: viewOptions(c.value, kindLabel) };
+  });
+  // One number line for every intervals card of the step, so their bars line up.
+  const intervalRows = cards.filter((c) => c.view === "intervals").flatMap((c) => numberRows(c.value) ?? []);
+  const scale = intervalRows.length ? { lo: Math.min(0, ...intervalRows.map((r) => r[0])), hi: Math.max(...intervalRows.map((r) => r[1])) } : undefined;
   const nothing = current.length === 0 && members.length === 0 && linked.length === 0 && nulls.length === 0 && !callsCard;
 
   return (
@@ -120,24 +145,26 @@ export function VisualPanel({ trace, step, diff, notice, runKeys = ["Ctrl", "Ent
               <NullPointersCard nulls={nulls} />
             </Card>
           )}
-          {current.map(([name, value]) => {
-            const d = diff?.locals[name] ?? null;
-            const own = d && d.status !== "added" ? d : null;
-            const R = selectRenderer(value, hints.get(name));
+          {cards.map((c) => {
+            const own = c.diff && c.diff.status !== "added" ? c.diff : null;
+            const R = selectRenderer(c.value, hintOfView(c.view));
+            const ctx: RenderContext = {
+              ...ctxBase,
+              hint: hintOfView(c.view),
+              direction: c.choice.direction,
+              scale: c.view === "intervals" ? scale : undefined,
+              op: operation(c.value, own, step.heap),
+              ragged: !c.member && views.ragged.has(`${frame.function}/${c.name}`),
+              reads: reads.get(c.name),
+            };
+            const controls =
+              c.options.length > 0 ? <ViewMenu name={c.name} options={c.options} current={c.choice} auto={c.auto} fromHint={c.auto !== "kind"} onPick={(choice) => choose(c.key, choice)} /> : null;
             return (
-              <Card key={name} added={d?.status === "added"}>
-                <R name={name} value={value} diff={own} ctx={{ ...ctxBase, hint: hints.get(name), op: operation(value, own, step.heap), ragged: views?.ragged.has(`${frame.function}/${name}`), reads: reads.get(name) }} />
-              </Card>
-            );
-          })}
-          {members.map(([name, value]) => {
-            const d = diff?.members[name] ?? null;
-            const own = d && d.status !== "added" ? d : null;
-            const R = selectRenderer(value);
-            return (
-              <Card key={`#member-${name}`} added={d?.status === "added"}>
-                <MemberCard.Provider value>
-                  <R name={name} value={value} diff={own} ctx={{ ...ctxBase, op: operation(value, own, step.heap), reads: reads.get(name) }} />
+              <Card key={c.key} added={c.diff?.status === "added"}>
+                <MemberCard.Provider value={c.member}>
+                  <CardControls.Provider value={controls}>
+                    <R name={c.name} value={c.value} diff={own} ctx={ctx} />
+                  </CardControls.Provider>
                 </MemberCard.Provider>
               </Card>
             );

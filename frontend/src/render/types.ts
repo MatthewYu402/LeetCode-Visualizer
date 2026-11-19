@@ -12,6 +12,8 @@ export interface RenderContext {
   heap?: Record<string, ObjectValue>;
   /** The drawing chosen for this value: the parameter's hint, or what the reader picked in the View menu (render/views.ts). */
   hint?: Hint;
+  /** The running function's integer locals that never change in the run: their pointer markers are muted. */
+  steady?: ReadonlySet<string>;
   /** An edge list's direction, from the View menu: [a, b] as a → b, b → a, or no direction. */
   direction?: Direction;
   /** The number line every intervals card shares at this step, so their bars line up. */

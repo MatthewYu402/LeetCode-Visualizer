@@ -24,7 +24,7 @@ export function StringRenderer({ name, value, diff, ctx }: RendererProps) {
   if (typeof value !== "string") throw new Error(`StringRenderer got a ${typeof value} value for ${name}`);
   const chars = [...value];
   const reads = readsFrom(ctx.reads);
-  const pointers = pointersFor(ctx.locals, chars.length, name, ctx.indexes);
+  const pointers = pointersFor(ctx.locals, chars.length, name, ctx.indexes, ctx.steady);
   const changes = charChanges(chars, diff?.prev);
   const removed = typeof diff?.prev === "string" ? [...diff.prev].slice(chars.length) : [];
   const read = chars.flatMap((_, i) => (reads.at(i) ? [i] : []));

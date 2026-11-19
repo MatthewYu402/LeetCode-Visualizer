@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { CardHeader } from "./Card";
 import { pointersFor } from "./pointers";
 import type { RendererProps } from "./types";
-import { numberRows, type Direction } from "./views";
+import { adjacencyOf, pairsOf, type Direction } from "./views";
 
 /** Node circle size, and the space between layers and between nodes in a layer, in px. */
 const NODE = 36;
@@ -25,29 +25,40 @@ interface Edge {
   col?: number;
 }
 
-/** Edges of rows read as `source`: one per row entry, an edge whose reverse is also listed drawn once without an arrow. */
-export function edgesOf(rows: number[][], source: Source, direction: Direction = "none"): { nodes: number[]; edges: Edge[] } {
+/** The rows a value gives `source`: (node, weight) entries for an adjacency list, number rows otherwise. */
+type Rows = { to: number; weight?: number }[][] | number[][];
+
+/** Edges of rows read as `source`: one per row entry, an edge whose reverse is also listed (with the same weight) drawn once without an arrow. */
+export function edgesOf(rows: Rows, source: Source, direction: Direction = "none"): { nodes: number[]; edges: Edge[] } {
   const raw: Edge[] = [];
-  if (source === "adjacency-list") rows.forEach((r, u) => r.forEach((v, k) => raw.push({ key: "", from: u, to: v, directed: true, row: u, col: k })));
+  if (source === "adjacency-list")
+    (rows as { to: number; weight?: number }[][] | number[][]).forEach((r, u) =>
+      r.forEach((entry: number | { to: number; weight?: number }, k: number) => {
+        const e = typeof entry === "number" ? { to: entry } : entry;
+        raw.push({ key: "", from: u, to: e.to, directed: true, weight: e.weight, row: u, col: k });
+      }),
+    );
+  const numbers = rows as number[][];
+  if (source === "adjacency-matrix") numbers.forEach((r, i) => r.forEach((v, j) => v !== 0 && i !== j && raw.push({ key: "", from: i, to: j, directed: true, row: i, col: j })));
   if (source === "adjacency-matrix") rows.forEach((r, i) => r.forEach((v, j) => v !== 0 && i !== j && raw.push({ key: "", from: i, to: j, directed: true, row: i, col: j })));
   if (source === "edge-list")
-    rows.forEach((r, i) => {
+    numbers.forEach((r, i) => {
       const [a, b] = direction === "backward" ? [r[1], r[0]] : [r[0], r[1]];
       raw.push({ key: "", from: a, to: b, directed: direction !== "none", weight: r.length === 3 ? r[2] : undefined, row: i });
     });
   // An edge listed both ways (an undirected adjacency list or a symmetric matrix) is one line.
-  const has = new Set(raw.map((e) => `${e.from}>${e.to}`));
+  const has = new Set(raw.map((e) => `${e.from}>${e.to}:${e.weight ?? ""}`));
   const out: Edge[] = [];
   const seen = new Set<string>();
   for (const e of raw) {
-    const both = e.directed && source !== "edge-list" && has.has(`${e.to}>${e.from}`);
-    const key = both || !e.directed ? `${Math.min(e.from, e.to)}-${Math.max(e.from, e.to)}${e.weight !== undefined ? `:${e.row}` : ""}` : `${e.from}>${e.to}`;
+    const both = e.directed && source !== "edge-list" && has.has(`${e.to}>${e.from}:${e.weight ?? ""}`);
+    const key = both || !e.directed ? `${Math.min(e.from, e.to)}-${Math.max(e.from, e.to)}${e.weight !== undefined ? `:${source === "edge-list" ? e.row : e.weight}` : ""}` : `${e.from}>${e.to}${e.weight !== undefined ? `:${e.weight}` : ""}`;
     if (seen.has(key) && source !== "edge-list") continue;
     seen.add(key);
     out.push({ ...e, key: source === "edge-list" ? `${key}#${e.row}` : key, directed: e.directed && !both });
   }
   const nodes =
-    source === "edge-list" ? [...new Set(rows.flatMap((r) => [r[0], r[1]]))].sort((a, b) => a - b) : rows.map((_, i) => i);
+    source === "edge-list" ? [...new Set(numbers.flatMap((r) => [r[0], r[1]]))].sort((a, b) => a - b) : rows.map((_, i) => i);
   return { nodes, edges: out };
 }
 
@@ -95,17 +106,18 @@ export function placeNodes(nodes: number[], edges: Edge[]): Map<number, { x: num
  * (`u` in graph[u]) are tags on their node; a read lights the edge or node it read.
  */
 export function GraphRowsRenderer({ name, value, diff, ctx }: RendererProps) {
-  const rows = numberRows(value);
   const source = (ctx.hint ?? "adjacency-list") as Source;
+  const read = (v: typeof value) => (source === "adjacency-list" ? adjacencyOf(v) : pairsOf(v));
+  const rows = read(value);
   if (!rows) throw new Error(`GraphRowsRenderer got a value that is not rows of numbers for ${name}`);
   const direction = ctx.direction ?? "none";
   const { nodes, edges } = edgesOf(rows, source, direction);
   const pos = placeNodes(nodes, edges);
-  const prevRows = diff?.prev ? numberRows(diff.prev) : null;
+  const prevRows = diff?.prev ? read(diff.prev) : null;
   const before = prevRows ? new Set(edgesOf(prevRows, source, direction).edges.map((e) => e.key)) : null;
 
   // What the running line touches: rows a local points at (adjacency list, matrix) or edges (edge list), and reads.
-  const pointers = pointersFor(ctx.locals, rows.length, name, ctx.indexes);
+  const pointers = pointersFor(ctx.locals, rows.length, name, ctx.indexes, ctx.steady);
   const readRows = new Set<number>();
   const readCells = new Set<string>();
   for (const r of ctx.reads ?? []) if ("at" in r) (r.at.length === 1 ? readRows.add(r.at[0]) : readCells.add(`${r.at[0]},${r.at[1]}`));
@@ -120,7 +132,10 @@ export function GraphRowsRenderer({ name, value, diff, ctx }: RendererProps) {
   const width = (xs.length ? Math.max(...xs) : 0) + NODE + PAD * 2;
   const height = (ys.length ? Math.max(...ys) : 0) + NODE + PAD * 2 + 18;
   const at = (n: number) => ({ x: pos.get(n)!.x + PAD + NODE / 2, y: pos.get(n)!.y + PAD + 18 + NODE / 2 });
-  const from = source === "edge-list" ? `from ${rows.length} ${rows.length === 1 ? "pair" : "pairs"}` : source === "adjacency-matrix" ? `from a ${rows.length} × ${rows.length} matrix` : "from an adjacency list";
+  const weighted = edges.some((e) => e.weight !== undefined);
+  const from =
+    (source === "edge-list" ? `from ${rows.length} ${rows.length === 1 ? "pair" : "pairs"}` : source === "adjacency-matrix" ? `from a ${rows.length} × ${rows.length} matrix` : "from an adjacency list") +
+    (weighted ? " · weighted" : "");
 
   return (
     <section className="structure" aria-label={`${name}: graph`}>

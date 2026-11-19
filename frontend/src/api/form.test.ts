@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Method, Signature } from "./client";
-import { chooseMethod, fieldsFor, keepValues, missing, placeholderFor, runRequest, valuesFromExample } from "./form";
+import { chooseMethod, clearedExtras, fieldsFor, keepValues, missing, placeholderFor, runRequest, valuesFromExample } from "./form";
 
 const twoSum: Method = {
   name: "twoSum",
@@ -86,5 +86,13 @@ describe("filling from a pasted example", () => {
 
   it("nothing when some names match and others do not: those are typos", () => {
     expect(valuesFromExample(fieldsFor(twoSum), { nums: "[1]", targt: "9" })).toEqual({ nums: "[1]" });
+  });
+});
+
+describe("clearedExtras", () => {
+  it("empties an extra the pasted example leaves out, so a pos from an earlier example does not linger", () => {
+    expect(clearedExtras(fieldsFor(hasCycle), { head: "[1,2,3]" })).toEqual({ pos: "" });
+    expect(clearedExtras(fieldsFor(hasCycle), { head: "[3,2,0,-4]", pos: "1" })).toEqual({});
+    expect(clearedExtras(fieldsFor(twoSum), { nums: "[1]" })).toEqual({});
   });
 });

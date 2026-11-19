@@ -365,8 +365,29 @@ export function listEdges(edges: Edge[], pos: Map<string, Point>, diff: HeapDiff
     }
     if (primary && a.y === b.y && b.x < a.x) return [{ ...base, ...under(a.x + dotX, a.y, b.x - 6, LIST_H / 2 + 3) }];
     if (e.from === e.to) return [{ ...base, d: path(["M", a.x + dotX, a.y - 3, "C", a.x + dotX + 20, a.y - 46, a.x - 20, a.y - 46, a.x - 6, a.y - LIST_H / 2 - 3]), mid: { x: a.x, y: a.y - 40 } }];
-    return [{ ...base, d: curve({ a, b, bend: primary ? 0 : 1, arrow: true }, { w: LIST_W / 2, h: LIST_H / 2 }), mid: midpoint(a, b, primary ? 0 : 1) }];
+    // A straight line that would run through another node (Merge Two Lists' dummy, below both
+    // lists, pointing at the top row's head) bends around it, so it never lies on another edge.
+    const bend = crosses(a, b, e.from, e.to, pos, { w: LIST_W / 2, h: LIST_H / 2 }) ? 2.2 : primary ? 0 : 1;
+    return [{ ...base, d: curve({ a, b, bend, arrow: true }, { w: LIST_W / 2, h: LIST_H / 2 }), mid: midpoint(a, b, bend) }];
   });
+}
+
+/**
+ * Whether the straight segment from a to b passes through a node other than its two ends. Nodes
+ * are boxes of half size `half` (a circle of NODE_R when omitted), grown by a few pixels.
+ */
+export function crosses(a: Point, b: Point, from: string, to: string, pos: Map<string, Point>, half?: { w: number; h: number }): boolean {
+  const hw = (half?.w ?? NODE_R) + 4;
+  const hh = (half?.h ?? NODE_R) + 4;
+  for (const [id, p] of pos) {
+    if (id === from || id === to) continue;
+    for (let t = 0.1; t < 0.95; t += 0.05) {
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      if (Math.abs(x - p.x) < hw && Math.abs(y - p.y) < hh) return true;
+    }
+  }
+  return false;
 }
 
 /** Down out of a dot at (sx, y), under the row, and up into the bottom of whatever is centred at tx (`stop` below the row's centre line). */
@@ -444,7 +465,7 @@ export function drawEdges(
       continue;
     }
     const label = primary ? null : e.index === undefined ? e.field : `${e.field}[${e.index}]`;
-    const bend = !primary || (both && shape !== "graph") ? 1 : 0;
+    const bend = !primary || (both && shape !== "graph") || crosses(a, b, e.from, e.to, pos) ? 1 : 0;
     out.push({ key: edgeKey(e), from: e.from, d: curve({ a, b, bend, arrow: true }), mid: midpoint(a, b, bend), arrow: true, label, primary, tone });
   }
   return out;
