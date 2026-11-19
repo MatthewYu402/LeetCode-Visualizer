@@ -122,6 +122,41 @@ class Signature(unittest.TestCase):
 
 
 @needs_fastapi
+class BodyLimit(unittest.TestCase):
+    """A body over MAX_BODY is refused before it is read (docs/backend.md §4)."""
+
+    def setUp(self):
+        self.client = TestClient(create_app(sandbox="docker", run=FakeRun()))
+
+    def assertTooLarge(self, r):
+        self.assertEqual((r.status_code, r.json()["error"]["stage"]), (413, "request"), r.text)
+        self.assertIn("1 MB", r.json()["error"]["message"])
+
+    def test_a_large_content_length_is_refused_unread(self):
+        body = b"x" * (api.MAX_BODY + 1)
+        for path in ("/api/signature", "/api/run"):
+            self.assertTooLarge(self.client.post(path, content=body, headers={"content-type": "application/json"}))
+
+    def test_a_large_body_without_a_length_is_refused_while_read(self):
+        def chunks():  # no Content-Length: sent chunked
+            for _ in range(5):
+                yield b" " * (300 * 1024)
+        self.assertTooLarge(self.client.post("/api/signature", content=chunks(), headers={"content-type": "application/json"}))
+
+    def test_a_request_at_every_field_limit_is_accepted(self):
+        # The largest valid request: the longest source, and the most fields, each as long as allowed,
+        # with characters JSON escapes. It must fit under MAX_BODY.
+        run = FakeRun()
+        client = TestClient(create_app(sandbox="docker", run=run))
+        fields = {f"p{i:02}": '"\\n' * (api.MAX_VALUE // 4) for i in range(api.MAX_FIELDS)}
+        body = {"source": "x" * api.MAX_SOURCE, "language": "python", "fields": fields}
+        size = len(json.dumps(body).encode())
+        self.assertLess(size, api.MAX_BODY)
+        r = client.post("/api/run", json=body)
+        self.assertNotEqual(r.status_code, 413, r.text)
+
+
+@needs_fastapi
 class Run(unittest.TestCase):
     def test_fields_become_the_example_text(self):
         fake = FakeRun()

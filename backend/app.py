@@ -43,11 +43,13 @@ import os
 import time
 from typing import Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from driver import DriverError
 from driver import cpp as cpp_driver
@@ -64,6 +66,12 @@ Language = Literal["cpp", "python", "java"]
 MAX_SOURCE = 64 * 1024      # characters of pasted Solution
 MAX_VALUE = 16 * 1024       # characters of one input value, or of a pasted example
 MAX_FIELDS = 32
+# Bytes of one request body, checked before it is read (docs/backend.md §4). The largest
+# valid request (a 64K-character Solution and 32 fields of 16K characters, about 576K
+# characters before JSON escaping) fits; without it, the caps above apply only after a
+# body of any size was read into memory and parsed.
+MAX_BODY = 1024 * 1024
+TOO_LARGE_BODY = f"The request is larger than {MAX_BODY // (1024 * 1024)} MB."
 WAIT_FOR_A_SLOT = 30.0      # seconds a run may wait in line before "Busy"
 
 # How each way a run can end becomes an HTTP status (docs/backend.md §3).
@@ -98,6 +106,43 @@ def error(status, stage, message, retry_after=None):
         body["retry_after"] = retry_after
         headers = {"Retry-After": str(retry_after)}
     return JSONResponse(status_code=status, content={"error": body}, headers=headers)
+
+
+class BodyLimit:
+    """Refuses a request body larger than MAX_BODY before it is read (docs/backend.md §4).
+
+    A body with a Content-Length over the limit is answered 413 at once, unread. A body
+    without one (chunked) is counted as it arrives, and reading stops once it passes the
+    limit: the request then fails with 413 too. Either way at most MAX_BODY bytes are held.
+    """
+
+    def __init__(self, app, limit=MAX_BODY):
+        self.app = app
+        self.limit = limit
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        length = dict(scope.get("headers") or []).get(b"content-length")
+        if length is not None:
+            try:
+                too_large = int(length) > self.limit
+            except ValueError:
+                too_large = False  # the server rejects a malformed Content-Length itself
+            if too_large:
+                return await error(413, "request", TOO_LARGE_BODY)(scope, receive, send)
+        seen = 0
+
+        async def counted():
+            nonlocal seen
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > self.limit:
+                    raise HTTPException(413, TOO_LARGE_BODY)  # FastAPI passes it on while reading the body
+            return message
+
+        await self.app(scope, counted, send)
 
 
 class Line:
@@ -222,6 +267,14 @@ def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, 
         if loop not in lines:
             lines[loop] = Line(slots, max_waiting)
         return lines[loop]
+
+    app.add_middleware(BodyLimit)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException):
+        if exc.status_code == 413:
+            return error(413, "request", TOO_LARGE_BODY)
+        return await http_exception_handler(request, exc)
 
     @app.exception_handler(RequestValidationError)
     def bad_request(_: Request, exc: RequestValidationError):

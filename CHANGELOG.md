@@ -8,7 +8,9 @@ Each entry says what changed, and for a design change, why. New entries go under
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **The API refuses a request body over 1 MB before reading it** (413, stage `request`). The limits on the Solution and the inputs were checked only after the whole body had been read and parsed, so one 200 MB request took the service from 47 MB to 595 MB of memory, and a few at once could take it down. 1 MB is above the largest valid request (about 576 KB).
 
 ---
 

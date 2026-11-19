@@ -81,6 +81,7 @@ Every error is `{"error": {"stage": ..., "message": ...}}`. The message is writt
 | Stage | Status | Meaning |
 |---|---|---|
 | `request` | 422 | The request itself is wrong: a field missing, a value too long, a timeout over 10 s |
+| `request` | 413 | The request body is larger than 1 MB. It is refused before it is read |
 | `driver` | 422 | The Solution or the inputs cannot be used: no `class Solution`, a value that is not valid JSON, names that do not match the method |
 | `rewriter` | 422 | The code does not compile. The message is Clang's (naming `solution.cpp`) or javac's (naming `Solution.java`), with the line |
 | `run` | 422 | The program crashed, ran out of time, used too much memory, or wrote no trace. For Python and Java, also an exception the code raised, with the user's own frames |
@@ -97,6 +98,7 @@ The frontend adds two of its own: `network` (the API cannot be reached, or answe
 
 | Limit | Value | Why |
 |---|---|---|
+| Request body | 1 MB, checked before the body is read: a larger `Content-Length` is refused unread, and a body sent without one stops being read once it passes 1 MB | The caps below apply only once a body is parsed; without this one, a body of any size was read into memory first (a 200 MB body took the service from 47 MB to 595 MB). The largest valid request, a 64 KB Solution and 32 values of 16 KB, is about 576 KB, and fits with room for JSON's escaping |
 | Solution | 64 KB | A LeetCode Solution is a few KB. The rewriter and the compiler read all of it |
 | One value, or a pasted example | 16 KB | LeetCode's constraints rarely go past 10^4 elements per input |
 | Fields | 32 | No LeetCode method takes that many parameters |
