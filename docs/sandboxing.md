@@ -172,8 +172,7 @@ So the pipeline uses `--ulimit nproc` for the process limit under gVisor, and ke
 
 ## 7. What is not here yet
 
-- **The API service** (`backend/`, planned). It will call `pipeline.run(..., sandbox="gvisor")` and return the trace or the error. It must cap the size of the pasted source and the example before calling it.
-- **Abuse limits**: how many runs one visitor may start, and how many run at once on one machine.
+- **Limits per visitor over time**: how many runs one visitor may start in a minute or a day. The API service ([`backend.md`](backend.md)) already caps the size of what is pasted, how many runs go at once, how many wait, and allows one run per visitor at a time.
 - **Image updates**: the image is built by hand; the backend's deployment will need to build it.
 
 ## 8. Open decisions

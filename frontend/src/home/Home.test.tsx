@@ -28,7 +28,7 @@ describe("Home", () => {
   });
 
   it("puts the app's version from package.json above the title", () => {
-    expect(APP_VERSION).toMatch(/^v\d+\.\d+\.\d+$/);
+    expect(APP_VERSION).toMatch(/^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/);
     expect(html).toMatch(new RegExp(`class="version-badge">.*${APP_VERSION.replace(/\./g, "\\.")}</p><h1`));
   });
 

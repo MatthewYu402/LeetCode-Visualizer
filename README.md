@@ -19,29 +19,48 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 
 ## Status
 
-> **Implementation started.** The contract between the two halves of the system is specified and validated. The C++ adapter can serialize every value kind, including pointers (`ref` and `object`), record steps, and write a trace file: a hand-instrumented Two Sum reproduces the golden trace. The frontend's sandbox page traces the user's Solution through the API and replays it. Update this table as pieces land.
+> **Version 1.0.0-beta.1, a public beta.** Everything below works end to end in C++, Python, and Java. Bugs are fixed as they are reported (open an issue), and the beta becomes 1.0 once its traces have held up on real solutions. What changed, and why, is in [`CHANGELOG.md`](CHANGELOG.md).
 
-| Area | Status |
+### What you can do today
+
+- **Paste a LeetCode `Solution` in C++, Python, or Java**, exactly as LeetCode gives it, and run it on an example. The inputs panel shows one field per parameter of the method, and pasting LeetCode's example text (`Input: ... Output: ...`) fills them.
+- **Step through the run** line by line, forward and back, or play it at 0.5×, 1×, or 2×. The code panel highlights the line about to run, and the state panel shows the running statement, what it produced (a condition's result, a stored value, a return value), and every local.
+- **See every structure drawn as it changes**: arrays and 2D grids, strings as characters, hash maps and sets, stacks, queues, deques, priority queues, tuples, linked lists, binary trees, and graphs. Pointer markers sit under the cells the code indexes, the cells a line read get a dashed outline, and every change is coloured and animated.
+- **Follow recursion**: a recursion card (as a tree or as a stack) for calls that return values, and a call-stack card for calls that return nothing. Recursive and backtracking solutions show every call in progress.
+- **Choose how a 2D array is drawn**: as a grid, a graph from an adjacency list, edge list, or matrix, or intervals on a number line.
+- **See when two names are one container** (`dp = [[0] * 3] * 3` in Python, an array passed down a recursion in Java), with a note under the card.
+- **Open one of eight example problems** from the Examples menu in each of the three languages, or from the home page.
+- **Read what the program printed** in the Output tab, and the error with its stage when a run fails (a compile error at your line, an exception, a time limit).
+- **Work in a dark or a light theme.**
+
+Every run is a stranger's code, so it runs in a locked-down container under gVisor with no network and strict limits ([`docs/sandboxing.md`](docs/sandboxing.md)), and its trace is validated against the schema outside that container before the page sees it.
+
+### Known limitations
+
+- **Design problems are not supported** (LRU Cache, Min Stack, and the like, where the example is a sequence of calls on an object you construct). One trace covering a call sequence needs a change to the trace format ([`docs/driver-generation.md` §8](docs/driver-generation.md)).
+- **A run stops at 2,000 steps.** The trace up to that point is still shown, marked as truncated. Large inputs and long loops reach the cap quickly.
+- **Lambdas are not traced** in C++ or Java, nor lambdas, generators, and comprehensions in Python: their lines take no steps of their own. Recursion written as a recursive lambda (`function<void(int)> dfs = [&](...)`) shows no calls.
+- **C++ does not mark shared containers.** A `vector<int>&` passed down a recursion is drawn correctly in every frame, but without the note that the frames hold one container ([`docs/adapters/cpp.md`](docs/adapters/cpp.md) §10).
+- **A C++ pointer that does not point at a live object** (dangling or uninitialized) is followed as if it were valid ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
+- **Where use decides the kind** is an open question: a Python list used through `heapq` is drawn as a priority queue, and a Java `Deque` used only through push, pop, and peek as a stack ([`docs/trace-format.md` §5](docs/trace-format.md#where-use-decides-the-kind)).
+- **Hints are not inferred for locals.** A 2D-array parameter starts on the drawing its name and example suggest; a local starts as a grid or rows, and the card's View menu switches it.
+- **The three languages' traces differ where the languages do**: step counts, hash-map order, and containers C++ declares without a value. [`tools/compare_traces.py`](tools/compare_traces.py) checks that they agree on everything else.
+
+Per-language details are in each adapter's notes: [C++](docs/adapters/cpp.md), [Python](docs/adapters/python.md) §9, [Java](docs/adapters/java.md) §9.
+
+### Components
+
+| Area | State |
 |---|---|
-| Trace format specification | Draft v0.14 |
-| JSON Schema + golden fixtures | v0.14, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking), each in C++, Python, and Java, and each language's trace matching the C++ one call by call (`tools/compare_traces.py`) |
-| Tracing strategy docs (native, DAP) | Draft v0.1 |
-| C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object`, and so do those objects held by value |
-| C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
-| C++ adapter: iterators | Done, with tests. An iterator into a local container becomes an `iterator` value (`index`, `key`, or `end`); the rewriter pairs each iterator variable with its container and the runtime checks the type |
-| C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
-| CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, the Python and Java adapters' tests and the call-by-call comparison of every fixture's twins, the rewriter and pipeline on Linux and macOS, the three sandbox images under Docker and gVisor, frontend tests and build |
-| C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
-| C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines, including the outcomes of each line (conditions, statement-level stores, and the cells of local containers it read) and a step for each check of a loop's header. Every golden fixture is reproduced from its plain source |
-| CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command, for C++, Python, or Java (`--language`, or from the file's extension). Without `--sandbox` it runs the code directly with a time limit |
-| Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One image per language (C++, Python, Java). One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
-| Python adapter | Done, with tests (`adapters/python/`, `driver/python/`). `sys.settrace` gives the steps, and a rewrite of the Solution's syntax tree gives the outcomes (conditions, stores, reads) and `indexes`; heapq lists are min priority queues, and `sortedcontainers` is available. Runs on Python 3.12 in its own sandbox image. Every Python fixture equals its golden trace, is like the C++ one (`check_trace.py --like`), and matches it call by call |
-| Java adapter | Done, with tests (`adapters/java/`, `driver/java/`). Source instrumentation like C++, with the JDK's own parser: the rewriter inserts steps, outcomes, and return steps on the user's lines and compiles with javac in the same JVM; a `Deque` used only through push, pop, and peek is a stack. Runs on JDK 21 in its own sandbox image. Every Java fixture equals its golden trace, is like the C++ one, and matches it call by call |
-| Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.14: a dark and a light theme, a canvas that shows the sandbox at work during a run, an Output tab for what the program printed, a renderer for every container kind, pointer markers under an array for the locals the code indexes it with (v0.9 `indexes`), linked lists, trees, and graphs drawn from the heap with pointer tags and highlights, a dashed outline on the cells and entries the running line read (`read` outcomes), strings as strips of characters with their pointers, the `Solution`'s members as cards tagged `member`, a recursion card (tree or stack view) that folds large runs, a call-stack card for void recursion, a state panel with the running statement and what it produced (from v0.8 outcomes), and motion throughout |
-| Frontend: input form and real runs | Done, redesigned, for C++, Python, and Java (the language select, and an Examples menu of eight problems in each). The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
-| Frontend: hint renderers and "view as" | Done: a 2D array as a graph (adjacency list, edge list, adjacency matrix) or as intervals, from the parameter's hint or the card's View menu |
-| Frontend: home page | First version. The default route (`#/`, a hash route; the sandbox is `#/sandbox`): the pitch, a live preview that replays the Reverse Linked List golden trace through the real canvas, six example problems that open the sandbox with their Solution and inputs filled in, how a run works, and the languages. The sandbox is loaded only when opened |
-| API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
+| Trace format, schema, and golden fixtures | v0.14. Six problems (Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth, Subsets), each in C++, Python, and Java, with the other languages' traces matching the C++ one call by call |
+| C++ adapter | Header-only runtime, a Clang LibTooling rewriter that instruments a plain Solution without adding lines, and a driver that rebuilds LeetCode's harness |
+| Python adapter | `sys.settrace` for the steps and a syntax-tree rewrite for what each line evaluated, on Python 3.12 |
+| Java adapter | Source instrumentation on the JDK's own parser, compiled with javac in the same JVM, on JDK 21 |
+| CLI (`pipeline/`) | `python3 -m pipeline` takes a Solution and an example to a validated trace in one command, on this machine or in the sandbox |
+| Sandbox (`sandbox/`) | One image per language; one container per run with no network, capped memory, CPU, processes, disk, and time, never root, under gVisor |
+| API service (`backend/`) | `/api/signature` and `/api/run`, with size caps, run slots and a capped line, and one run per visitor |
+| Frontend (`frontend/`) | The home page and the sandbox page, in a dark and a light theme |
+| CI | Every push and pull request to `main`: fixtures, every adapter's tests on Linux and macOS, the three sandbox images under Docker and gVisor, the frontend's tests and build |
 
 ---
 
@@ -56,7 +75,9 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
 | [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.14 |
 | [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.14 |
-| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | In progress |
+| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | Implemented |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to set up, test, and send a change; how to add a language | Done |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version, and the history of the decisions behind it | Done |
 | [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
 | [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
 | [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, linked structures, calls cards, diffing, motion, playback, dark and light themes; and the home page and its routes | Draft v0.17 |
@@ -69,12 +90,6 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/adapters/java.md`](docs/adapters/java.md) | The Java adapter: the rewriter on the JDK's parser, the runtime, normalization rules, the driver | Draft v0.14 |
 | [`LICENSE`](LICENSE), [`NOTICE`](NOTICE) | Apache License 2.0 terms, and the copyright notice that must travel with copies | Done |
 
-Planned. This link is a template: create the file, then move it into the table above.
-
-| Document | Will cover | Status |
-|---|---|---|
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, how to add a language | Planned |
-
 **Suggested reading order:** this README, then `trace-format.md`, then `native-tracing.md` or `dap.md` depending on which part you are working on.
 
 ---
@@ -85,7 +100,7 @@ Getting state out of a running `Solution` class without asking the user to chang
 
 The key decision: **the backend and the frontend only talk through a trace format.** Each side can be built, tested, and replaced without the other.
 
-> The components below are planned. Names and hosting details are tentative. The data flow and the boundaries between components are the stable part.
+> The data flow and the boundaries between the components are the stable part of this design. How the service is hosted is not described here.
 
 ### 1. System overview: what is connected to what
 
@@ -437,11 +452,11 @@ Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0
 
 ## Repository layout
 
-Items marked *(planned)* do not exist yet.
-
 ```
 .
 ├── README.md
+├── CHANGELOG.md               what changed in each version, and why
+├── CONTRIBUTING.md            setting up, testing, sending a change, adding a language
 ├── CLAUDE.md                  rules for working in this repo
 ├── Skills.md                  repeatable procedures
 ├── LICENSE                    Apache License 2.0
@@ -449,7 +464,7 @@ Items marked *(planned)* do not exist yet.
 ├── .clang-format              C++ formatting (attached braces, 2 spaces)
 ├── .github/
 │   └── workflows/
-│       └── ci.yml             CI: fixtures, C++ and Python adapters, sandbox, frontend
+│       └── ci.yml             CI: fixtures, the C++, Python, and Java adapters, sandbox, frontend
 ├── docs/
 │   ├── trace-format.md        the contract
 │   ├── native-tracing.md      runtime hooks and source instrumentation
@@ -556,9 +571,9 @@ Items marked *(planned)* do not exist yet.
     └── tests/                 every endpoint and error, and a real run in the sandbox
 ```
 
-## Tech stack (proposed)
+## Tech stack
 
-Tentative. The architecture does not depend on these choices.
+The architecture does not depend on these choices: another adapter or another frontend only has to read or write the trace format.
 
 | Layer | Choice |
 |---|---|
@@ -573,28 +588,26 @@ Tentative. The architecture does not depend on these choices.
 
 ## Roadmap
 
-- [x] Trace format specification and JSON Schema (v0.14)
+Done, in the beta:
+
+- [x] Trace format specification and JSON Schema (v0.14), with golden fixtures in three languages
 - [x] Tracing strategy docs (native, DAP)
-- [x] C++ serializers for every value kind, including pointers and by-value objects as `ref` and `object`
-- [x] C++ recorder (`record`, step cap, trace file), checked on a hand-instrumented Two Sum
-- [ ] Frontend: loader, step player, code panel, a renderer per kind, developed against fixtures
-- [x] Pointers: `object` and `ref` for `ListNode`, `TreeNode`, `Node`, with linked list, tree, and graph renderers
-- [x] Driver generation for C++
-- [x] LibTooling rewriter
-- [x] Iterators: the `iterator` kind, paired with their container by the rewriter
-- [x] Outcomes: conditions and stores recorded by the rewriter and runtime, shown in the state panel
-- [x] CLI: one command from a Solution and an example to a validated trace
-- [x] Member variables of the `Solution`: a step's `members` (v0.12)
-- [ ] Any C++ solution: lambdas, hint inference
-- [x] The call stack: frames and return steps, with recursive golden traces
-- [ ] Resolve the open questions above
-- [x] Sandbox: Docker and gVisor, one container per run
-- [x] API service
-- [x] Input page: one field per parameter, Run code, replay (functional; visual design later)
-- [ ] Design problems (LRU Cache, Min Stack): a trace over a sequence of calls
+- [x] C++ adapter: serializers for every kind, the recorder, the call stack, iterators, outcomes, `indexes`, reads, members; the driver and the LibTooling rewriter
 - [x] Python adapter, proving the schema is truly language-neutral
 - [x] Java adapter, and a call-by-call comparison of the three languages' traces
-- [x] "View as": graphs from an adjacency list, an edge list, or a matrix, and intervals
+- [x] CLI: one command from a Solution and an example to a validated trace
+- [x] Sandbox: Docker and gVisor, one container per run, one image per language
+- [x] API service
+- [x] Frontend: the sandbox page (inputs, Run code, replay, a renderer per kind, linked structures, calls cards, "view as", motion, two themes) and the home page
+- [x] Public beta (1.0.0-beta.1)
+
+Next:
+
+- [ ] 1.0: the bugs reported in the beta fixed
+- [ ] Design problems (LRU Cache, Min Stack): a trace over a sequence of calls
+- [ ] Lambdas traced in C++ and Java, and hints inferred for locals
+- [ ] Shared containers marked by the C++ adapter
+- [ ] Resolve the open questions above
 - [ ] More renderers (union-find, trie)
 
 ## Getting started
@@ -677,7 +690,7 @@ npm run build      # typecheck + production build
 
 ## Adding a new language
 
-An adapter needs a driver template, a tracer (or a DAP configuration), a normalizer, helper types, and a container image. The frontend and trace schema do not change. The full checklist is in [`trace-format.md` §11](docs/trace-format.md#11-adding-a-new-language), and the how-to is in [`CONTRIBUTING.md`](CONTRIBUTING.md) *(planned)*.
+An adapter needs a driver template, a tracer (or a DAP configuration), a normalizer, helper types, and a container image. The frontend and trace schema do not change. The full checklist is in [`trace-format.md` §11](docs/trace-format.md#11-adding-a-new-language), and the how-to is in [`CONTRIBUTING.md`](CONTRIBUTING.md#6-adding-a-language).
 
 ## License
 
