@@ -4,11 +4,11 @@ Solutions to paste into the sandbox page, one per data structure or behaviour, e
 
 ## How to use it
 
-1. Copy the **Code** block into the editor (select all, then paste over the starter).
+1. Choose the case's language in the top bar (cases 1 to 70 are C++, 71 to 84 Python), then copy the **Code** block into the editor (select all, then paste over the starter).
 2. Copy the whole **Example** block (both lines) into the **or paste a LeetCode example** box. Pasting fills the fields; the `Output:` line is ignored.
 3. Press **Run code**, then step through. Write what you notice under **Notes**.
 
-Every case was run with its pasted example through the pipeline on 2026-11-17 (`main` at `d352b95` plus the light-theme change), and its fields were filled through `/api/signature` the way the page does. Each `Output:` line is what the run returned. The step counts are from those runs. Rebuild the sandbox image first (`docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .`), since an image built before the v0.11 commit writes an older trace version, which the page rejects.
+Every case was run with its pasted example through the pipeline on 2026-11-17 (`main` at `d352b95` plus the light-theme change), and its fields were filled through `/api/signature` the way the page does. Each `Output:` line is what the run returned. The step counts are from those runs. The Python cases (71 to 84) were run the same way on 2026-11-19, with the Python adapter, on Python 3.12. Rebuild the sandbox images first (`docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .` and `docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .`; before the Python adapter it was `sandbox/Dockerfile`, tagged `leetcode-visualizer-sandbox`), since an image built before the v0.11 commit writes an older trace version, which the page rejects.
 
 ## Found while writing this
 
@@ -95,6 +95,20 @@ Every case was run with its pasted example through the pipeline on 2026-11-17 (`
 | 68 | [Climbing Stairs (memo as a member)](#68-climbing-stairs-memo-as-a-member) | map (member), recursion | 28 | returns |
 | 69 | [Merge Intervals (intervals hint)](#69-merge-intervals-intervals-hint) | array (intervals view) | 17 | returns |
 | 70 | [Number of Provinces (adjacency matrix hint)](#70-number-of-provinces-adjacency-matrix-hint) | array (graph view), recursion | 44 | returns |
+| 71 | [Two Sum (dict, in)](#71-two-sum-dict-in) | array, map | 18 | returns |
+| 72 | [Valid Parentheses (list as a stack)](#72-valid-parentheses-list-as-a-stack) | array, map | 26 | returns |
+| 73 | [Kth Largest Element (heapq min-heap)](#73-kth-largest-element-heapq-min-heap) | priority queue (min) | 26 | returns |
+| 74 | [Top K Frequent Elements (Counter, heap of tuples)](#74-top-k-frequent-elements-counter-heap-of-tuples) | map, priority queue of tuples | 15 | returns |
+| 75 | [Number of Islands (deque BFS on a grid)](#75-number-of-islands-deque-bfs-on-a-grid) | array (grid), deque | 101 | returns |
+| 76 | [Contains Duplicate III (SortedList)](#76-contains-duplicate-iii-sortedlist) | multiset (SortedList) | 38 | returns |
+| 77 | [Reverse Linked List (Optional[ListNode])](#77-reverse-linked-list-optionallistnode) | linked list | 29 | returns |
+| 78 | [Maximum Depth of Binary Tree (recursion)](#78-maximum-depth-of-binary-tree-recursion) | tree, recursion | 43 | returns |
+| 79 | [Clone Graph (Node in a docstring)](#79-clone-graph-node-in-a-docstring) | graph, map | 48 | returns |
+| 80 | [Climbing Stairs (memo as a member)](#80-climbing-stairs-memo-as-a-member) | map (member), recursion | 31 | returns |
+| 81 | [Subsets (backtracking, path[:])](#81-subsets-backtracking-path) | array, recursion | 58 | returns |
+| 82 | [Fibonacci with @cache (memo not shown)](#82-fibonacci-with-cache-memo-not-shown) | scalars, recursion | 27 | returns |
+| 83 | [Exception (index out of range)](#83-exception-index-out-of-range) | — | — | raises |
+| 84 | [Infinite loop (reaches the step cap)](#84-infinite-loop-reaches-the-step-cap) | scalars | 2000 | step cap |
 
 ---
 
@@ -3055,6 +3069,490 @@ public:
 ```text
 Input: isConnected = [[1,1,0],[1,1,0],[0,0,1]]
 Output: 2
+```
+
+**Notes**
+
+- 
+
+
+# Python
+
+The same page with **Python** chosen in the top bar. These run through the Python adapter ([`docs/adapters/python.md`](adapters/python.md)); what they show should look like the C++ cases for the same structures.
+
+## 71 Two Sum (dict, in)
+
+**Exercises:** array, map · **Steps:** 18 · **Ends:** returns
+
+**Watch for:** `i` marker under `nums`; `numMap` gains one entry per pass; the `in` check outlines the entry it found on the last pass.
+
+**Code**
+
+```python
+class Solution:
+    def twoSum(self, nums: List[int], target: int) -> List[int]:
+        numMap = {}
+        for i in range(len(nums)):
+            complement = target - nums[i]
+            if complement in numMap:
+                return [numMap[complement], i]
+            numMap[nums[i]] = i
+        return []
+```
+
+**Example**
+
+```text
+Input: nums = [3,2,4,6], target = 10
+Output: [2,3]
+```
+
+**Notes**
+
+- 
+
+
+## 72 Valid Parentheses (list as a stack)
+
+**Exercises:** array, map · **Steps:** 26 · **Ends:** returns
+
+**Watch for:** `stack` is a list, so it is drawn as an array that grows and shrinks at its end; `pairs[c]` is outlined when read.
+
+**Code**
+
+```python
+class Solution:
+    def isValid(self, s: str) -> bool:
+        pairs = {")": "(", "]": "[", "}": "{"}
+        stack = []
+        for c in s:
+            if c in pairs:
+                if not stack or stack[-1] != pairs[c]:
+                    return False
+                stack.pop()
+            else:
+                stack.append(c)
+        return not stack
+```
+
+**Example**
+
+```text
+Input: s = "([]{})"
+Output: true
+```
+
+**Notes**
+
+- 
+
+
+## 73 Kth Largest Element (heapq min-heap)
+
+**Exercises:** priority queue (min) · **Steps:** 26 · **Ends:** returns
+
+**Watch for:** `heap` is drawn as a min priority queue, not an array, because the code passes it to `heapq`; the smallest of the k largest stays on top.
+
+**Code**
+
+```python
+class Solution:
+    def findKthLargest(self, nums: List[int], k: int) -> int:
+        heap = []
+        for x in nums:
+            heapq.heappush(heap, x)
+            if len(heap) > k:
+                heapq.heappop(heap)
+        return heap[0]
+```
+
+**Example**
+
+```text
+Input: nums = [3,2,1,5,6,4], k = 2
+Output: 5
+```
+
+**Notes**
+
+- 
+
+
+## 74 Top K Frequent Elements (Counter, heap of tuples)
+
+**Exercises:** map, priority queue of tuples · **Steps:** 15 · **Ends:** returns
+
+**Watch for:** `count` (a `Counter`) is a map; `heap` holds `(count, value)` tuples as a min priority queue.
+
+**Code**
+
+```python
+class Solution:
+    def topKFrequent(self, nums: List[int], k: int) -> List[int]:
+        count = Counter(nums)
+        heap = []
+        for num, c in count.items():
+            heappush(heap, (c, num))
+            if len(heap) > k:
+                heappop(heap)
+        return [num for c, num in heap]
+```
+
+**Example**
+
+```text
+Input: nums = [1,1,1,2,2,3], k = 2
+Output: [2,1]
+```
+
+**Notes**
+
+- 
+
+
+## 75 Number of Islands (deque BFS on a grid)
+
+**Exercises:** array (grid), deque · **Steps:** 101 · **Ends:** returns
+
+**Watch for:** `grid` as a grid of strings; `q` is a deque of tuples.
+
+**Code**
+
+```python
+class Solution:
+    def numIslands(self, grid: List[List[str]]) -> int:
+        rows, cols = len(grid), len(grid[0])
+        islands = 0
+        for r in range(rows):
+            for c in range(cols):
+                if grid[r][c] == "1":
+                    islands += 1
+                    grid[r][c] = "0"
+                    q = deque([(r, c)])
+                    while q:
+                        x, y = q.popleft()
+                        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                            nx, ny = x + dx, y + dy
+                            if 0 <= nx < rows and 0 <= ny < cols and grid[nx][ny] == "1":
+                                grid[nx][ny] = "0"
+                                q.append((nx, ny))
+        return islands
+```
+
+**Example**
+
+```text
+Input: grid = [["1","1","0"],["0","1","0"],["0","0","1"]]
+Output: 2
+```
+
+**Notes**
+
+- 
+
+
+## 76 Contains Duplicate III (SortedList)
+
+**Exercises:** multiset (SortedList) · **Steps:** 38 · **Ends:** returns
+
+**Watch for:** `window` is a `SortedList`, drawn as a multiset; `bisect_left` gives a position, not an iterator.
+
+**Code**
+
+```python
+class Solution:
+    def containsNearbyAlmostDuplicate(self, nums: List[int], indexDiff: int, valueDiff: int) -> bool:
+        window = SortedList()
+        for i, x in enumerate(nums):
+            j = window.bisect_left(x - valueDiff)
+            if j < len(window) and window[j] <= x + valueDiff:
+                return True
+            window.add(x)
+            if i >= indexDiff:
+                window.remove(nums[i - indexDiff])
+        return False
+```
+
+**Example**
+
+```text
+Input: nums = [1,5,9,1,5,9], indexDiff = 2, valueDiff = 3
+Output: false
+```
+
+**Notes**
+
+- 
+
+
+## 77 Reverse Linked List (Optional[ListNode])
+
+**Exercises:** linked list · **Steps:** 29 · **Ends:** returns
+
+**Watch for:** The same picture as the C++ case: `prev`, `curr`, and `nxt` as tags on the nodes, the arrow turning one link per pass.
+
+**Code**
+
+```python
+# Definition for singly-linked list.
+# class ListNode:
+#     def __init__(self, val=0, next=None):
+#         self.val = val
+#         self.next = next
+class Solution:
+    def reverseList(self, head: Optional[ListNode]) -> Optional[ListNode]:
+        prev, curr = None, head
+        while curr:
+            nxt = curr.next
+            curr.next = prev
+            prev = curr
+            curr = nxt
+        return prev
+```
+
+**Example**
+
+```text
+Input: head = [1,2,3,4,5]
+Output: [5,4,3,2,1]
+```
+
+**Notes**
+
+- 
+
+
+## 78 Maximum Depth of Binary Tree (recursion)
+
+**Exercises:** tree, recursion · **Steps:** 43 · **Ends:** returns
+
+**Watch for:** The recursion card shows each call with its node and its return value; the tree's `root` tag moves with the call.
+
+**Code**
+
+```python
+# Definition for a binary tree node.
+# class TreeNode:
+#     def __init__(self, val=0, left=None, right=None):
+#         self.val = val
+#         self.left = left
+#         self.right = right
+class Solution:
+    def maxDepth(self, root: Optional[TreeNode]) -> int:
+        if not root:
+            return 0
+        left = self.maxDepth(root.left)
+        right = self.maxDepth(root.right)
+        return 1 + max(left, right)
+```
+
+**Example**
+
+```text
+Input: root = [3,9,20,null,null,15,7]
+Output: 3
+```
+
+**Notes**
+
+- 
+
+
+## 79 Clone Graph (Node in a docstring)
+
+**Exercises:** graph, map · **Steps:** 48 · **Ends:** returns
+
+**Watch for:** LeetCode shows `Node` inside a triple-quoted string; it is read from there. Both graphs are drawn, the clone growing beside the original.
+
+**Code**
+
+```python
+"""
+# Definition for a Node.
+class Node:
+    def __init__(self, val = 0, neighbors = None):
+        self.val = val
+        self.neighbors = neighbors if neighbors is not None else []
+"""
+
+from typing import Optional
+class Solution:
+    def cloneGraph(self, node: Optional['Node']) -> Optional['Node']:
+        if not node:
+            return None
+        clones = {node: Node(node.val)}
+        q = deque([node])
+        while q:
+            cur = q.popleft()
+            for nb in cur.neighbors:
+                if nb not in clones:
+                    clones[nb] = Node(nb.val)
+                    q.append(nb)
+                clones[cur].neighbors.append(clones[nb])
+        return clones[node]
+```
+
+**Example**
+
+```text
+Input: adjList = [[2,4],[1,3],[2,4],[1,3]]
+Output: [[2,4],[1,3],[2,4],[1,3]]
+```
+
+**Notes**
+
+- 
+
+
+## 80 Climbing Stairs (memo as a member)
+
+**Exercises:** map (member), recursion · **Steps:** 31 · **Ends:** returns
+
+**Watch for:** `memo` appears under Members from the step after `self.memo = {}`, not before; `self.memo[n]` reads are outlined.
+
+**Code**
+
+```python
+class Solution:
+    def climbStairs(self, n: int) -> int:
+        self.memo = {}
+        return self._ways(n)
+
+    def _ways(self, n: int) -> int:
+        if n <= 2:
+            return n
+        if n in self.memo:
+            return self.memo[n]
+        self.memo[n] = self._ways(n - 1) + self._ways(n - 2)
+        return self.memo[n]
+```
+
+**Example**
+
+```text
+Input: n = 5
+Output: 8
+```
+
+**Notes**
+
+- 
+
+
+## 81 Subsets (backtracking, path[:])
+
+**Exercises:** array, recursion · **Steps:** 58 · **Ends:** returns
+
+**Watch for:** `path[:]` copies, so `res` holds separate lists; `path` and the list inside `res` it was copied from are never marked as one.
+
+**Code**
+
+```python
+class Solution:
+    def subsets(self, nums: List[int]) -> List[List[int]]:
+        res = []
+        path = []
+        def backtrack(start: int) -> None:
+            res.append(path[:])
+            for i in range(start, len(nums)):
+                path.append(nums[i])
+                backtrack(i + 1)
+                path.pop()
+        backtrack(0)
+        return res
+```
+
+**Example**
+
+```text
+Input: nums = [1,2,3]
+Output: [[],[1],[1,2],[1,2,3],[1,3],[2],[2,3],[3]]
+```
+
+**Notes**
+
+- 
+
+
+## 82 Fibonacci with @cache (memo not shown)
+
+**Exercises:** scalars, recursion · **Steps:** 27 · **Ends:** returns
+
+**Watch for:** A known limitation: the `@cache` table lives inside `functools`, so no card shows it. The recursion card shows that each `fib(k)` is computed once.
+
+**Code**
+
+```python
+class Solution:
+    def fib(self, n: int) -> int:
+        @cache
+        def f(k: int) -> int:
+            if k < 2:
+                return k
+            return f(k - 1) + f(k - 2)
+        return f(n)
+```
+
+**Example**
+
+```text
+Input: n = 6
+Output: 8
+```
+
+**Notes**
+
+- 
+
+
+## 83 Exception (index out of range)
+
+**Exercises:** — · **Steps:** — · **Ends:** raises
+
+**Watch for:** No trace: the error names `solution.py`, the line, and `IndexError`, with only your own frames in the traceback, and shows what was printed before it.
+
+**Code**
+
+```python
+class Solution:
+    def getLast(self, nums: List[int]) -> int:
+        print("looking at", nums)
+        return nums[len(nums)]
+```
+
+**Example**
+
+```text
+Input: nums = [1,2,3]
+Output: (raises IndexError)
+```
+
+**Notes**
+
+- 
+
+
+## 84 Infinite loop (reaches the step cap)
+
+**Exercises:** scalars · **Steps:** 2000 · **Ends:** step cap
+
+**Watch for:** The trace stops at 2,000 steps with no result, and the page says it was cut off.
+
+**Code**
+
+```python
+class Solution:
+    def spin(self, n: int) -> int:
+        while n > 0:
+            n += 1
+        return n
+```
+
+**Example**
+
+```text
+Input: n = 1
+Output: (never returns)
 ```
 
 **Notes**
