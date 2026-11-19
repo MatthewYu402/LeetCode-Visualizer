@@ -1,0 +1,5 @@
+# Build context for sandbox/python.Dockerfile: only what the image copies.
+*
+!adapters/python/run.py
+!adapters/python/tracer.py
+!adapters/python/instrument.py

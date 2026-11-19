@@ -9,7 +9,7 @@
 // libc++ (macOS).
 //
 // The sandbox image compiles this file once into a precompiled header,
-// prelude_common.hpp.pch (sandbox/Dockerfile), so a run does not parse it
+// prelude_common.hpp.pch (sandbox/cpp.Dockerfile), so a run does not parse it
 // again in the rewriter and again in the compiler. Change it here only: the
 // image is rebuilt from this file.
 

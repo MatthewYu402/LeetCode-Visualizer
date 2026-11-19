@@ -1,19 +1,24 @@
 """python3 -m pipeline SOLUTION --example TEXT [-o trace.json]
 
 One command from a pasted Solution and an example to a validated trace:
-driver, rewriter, compile, run, validate (pipeline/__init__.py).
+driver, rewriter, compile, run, validate (pipeline/__init__.py). The language
+comes from --language, else from the file's extension (.py is Python, anything
+else C++).
 
 Writes the trace to -o, or to stdout. A summary, and anything the program
 printed, go to stderr. Exit status: 0 when a valid trace was written; 2 when the
 Solution or the example cannot be used; 3 when the generated program does not
-build; 4 when the program crashed, timed out, or wrote no trace; 5 when the
+build (or the Python tracer failed); 4 when the program crashed, timed out, or wrote no trace; 5 when the
 trace is invalid; 6 when the sandbox could not run.
 
 Without --sandbox the code runs directly on this machine, with only a time
 limit: use that for your own code. --sandbox docker runs stages 2 to 4 in a
 locked-down container, and --sandbox gvisor runs them under gVisor too, which
-is what anyone else's code needs (docs/sandboxing.md). The image must be built
-first: docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+is what anyone else's code needs (docs/sandboxing.md). The language's image
+must be built first:
+
+    docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
+    docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
 """
 
 import argparse
@@ -21,7 +26,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import EXIT_INPUT, REWRITER, PipelineError, run
+from . import EXIT_INPUT, LANGUAGES, REWRITER, PipelineError, run
 
 
 def main(argv=None):
@@ -29,12 +34,13 @@ def main(argv=None):
     parser.add_argument("solution", type=Path, help="the Solution source, as pasted from LeetCode")
     parser.add_argument("--example", required=True, help='the example input, such as "nums = [2,7,11,15], target = 9"')
     parser.add_argument("-o", "--output", type=Path, help="write the trace here instead of stdout")
+    parser.add_argument("--language", choices=LANGUAGES, help="the Solution's language (default: from the extension)")
     parser.add_argument("--method", help="the method to call, when it cannot be told from the example")
     parser.add_argument("--timeout", type=float, default=10.0, help="seconds the program may run (default 10)")
     parser.add_argument("--rewriter", type=Path, default=REWRITER, help=f"the rewriter binary (default: {REWRITER})")
     parser.add_argument("--sandbox", choices=["none", "docker", "gvisor"], default="none",
                         help="where the rewriter, compiler, and program run (default: none, this machine)")
-    parser.add_argument("--keep", action="store_true", help="keep the work folder (prelude, program.cpp, binary) and print its path")
+    parser.add_argument("--keep", action="store_true", help="keep the work folder (C++: prelude, program.cpp, binary; Python: run.json) and print its path")
     args = parser.parse_args(argv)
 
     try:
@@ -44,7 +50,8 @@ def main(argv=None):
         return EXIT_INPUT
 
     try:
-        result = run(source, args.example, source_name=str(args.solution), method=args.method,
+        language = args.language or ("python" if args.solution.suffix == ".py" else "cpp")
+        result = run(source, args.example, language=language, source_name=str(args.solution), method=args.method,
                      rewriter=args.rewriter, timeout=args.timeout, keep=args.keep, sandbox=args.sandbox)
     except PipelineError as error:
         print(f"pipeline: {error.stage}: {error}", file=sys.stderr)

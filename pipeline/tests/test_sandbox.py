@@ -1,9 +1,11 @@
 """The sandbox (docs/sandboxing.md): every limit, proven by a Solution that tries to break it.
 
 These run the pipeline with sandbox=$TRACE_SANDBOX ("docker" by default, or
-"gvisor" for runsc). They need Docker and the image, and are skipped without them:
+"gvisor" for runsc). They need Docker and each language's image, and the tests
+for a language are skipped without its image:
 
-    docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+    docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
+    docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
     python3 -m unittest pipeline.tests.test_sandbox
     TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox
 
@@ -25,22 +27,30 @@ from driver.cpp import generate
 from driver.tests.support import check_trace
 from driver.tests.test_fixtures import CASES, FIXTURES
 from pipeline import EXIT_INVALID, EXIT_RUN, EXIT_SANDBOX, PipelineError, run
-from pipeline.runners import IMAGE, PROGRAM_USER, Container, Limits, Pool, SandboxError
+from pipeline.runners import IMAGES, PROGRAM_USER, Container, Limits, Pool, SandboxError
 
 SANDBOX = os.environ.get("TRACE_SANDBOX", "docker")
 
 
-def _image_ready():
+def _image_ready(image):
     docker = shutil.which("docker")
     if not docker:
         return False
     try:
-        return subprocess.run([docker, "image", "inspect", IMAGE], capture_output=True, timeout=30).returncode == 0
+        return subprocess.run([docker, "image", "inspect", image], capture_output=True, timeout=30).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
 
 
-needs_sandbox = unittest.skipUnless(_image_ready(), f"no Docker, or the image {IMAGE!r} is not built (see sandbox/Dockerfile)")
+needs_sandbox = unittest.skipUnless(_image_ready(IMAGES["cpp"]),
+                                    f"no Docker, or the image {IMAGES['cpp']!r} is not built (see sandbox/cpp.Dockerfile)")
+needs_python_sandbox = unittest.skipUnless(_image_ready(IMAGES["python"]),
+                                           f"no Docker, or the image {IMAGES['python']!r} is not built (see sandbox/python.Dockerfile)")
+PYTHON_CASES = {
+    "two-sum": ("two_sum", "nums = [2,7,11,15], target = 9"),
+    "clone-graph": ("clone_graph", "adjList = [[2,4],[1,3],[2,4],[1,3]]"),
+    "subsets": ("subsets", "nums = [1,2,3]"),
+}
 
 
 def solution(body, includes=""):
@@ -252,12 +262,96 @@ class PoolOfContainers(unittest.TestCase):
         self.assertEqual(new_containers_after(before), set())
 
 
+def py(body, signature="def f(self, n: int) -> int:"):
+    return f"class Solution:\n    {signature}\n{body}\n"
+
+
+@needs_python_sandbox
+class PythonIsolation(unittest.TestCase):
+    """The same limits for the Python image: run.py and the user's code run as PROGRAM_USER."""
+
+    def fails(self, source, **options):
+        with self.assertRaises(PipelineError) as caught:
+            run(source, "n = 3", language="python", sandbox=SANDBOX, **options)
+        return caught.exception
+
+    def result(self, source, **options):
+        return run(source, "n = 3", language="python", sandbox=SANDBOX, **options).trace["result"]
+
+    def test_fixtures(self):
+        for golden, (stem, example) in PYTHON_CASES.items():
+            with self.subTest(fixture=golden):
+                trace = run((FIXTURES / f"{stem}_trace.py").read_text(encoding="utf-8"), example, language="python",
+                            sandbox=SANDBOX).trace
+                with tempfile.TemporaryDirectory() as work:
+                    path = Path(work) / "trace.json"
+                    path.write_text(json.dumps(trace), encoding="utf-8")
+                    status, output = check_trace("--equals", FIXTURES / f"{golden}.python.trace.json", path)
+                self.assertEqual(status, 0, output)
+
+    def test_sortedcontainers_is_installed(self):
+        self.assertEqual(self.result(py("        s = SortedList([3, 1, 2])\n        return s[0]")), 1)
+
+    def test_no_network(self):
+        source = py("""        import socket
+        try:
+            socket.create_connection(("1.1.1.1", 53), timeout=3)
+            return 0
+        except OSError:
+            return -1""")
+        self.assertEqual(self.result(source), -1)
+
+    def test_not_root_and_read_only(self):
+        source = py("""        import os
+        def can_write(path):
+            try:
+                open(path, "a").close()
+                return 1
+            except OSError:
+                return 0
+        return os.getuid() * 1000 + can_write("/opt/trace/python/tracer.py") * 100 + can_write("/etc/passwd") * 10 + can_write("scratch.txt")""")
+        self.assertEqual(self.result(source), int(PROGRAM_USER.split(":")[0]) * 1000 + 1)
+
+    def test_memory_limit(self):
+        error = self.fails(py("        big = bytearray(512 << 20)\n        return big[n]"), limits=Limits(memory="256m"))
+        self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
+
+    def test_time_limit_removes_the_container(self):
+        before = containers()
+        error = self.fails(py("        x = sum(range(10 ** 12))\n        return n"), timeout=2)
+        self.assertIn("did not finish within 2 seconds", str(error))
+        self.assertEqual(new_containers_after(before), set())
+
+    def test_a_forged_trace_is_rejected_outside(self):
+        source = py("""        import os
+        with open(os.environ["TRACE_OUT"], "w") as out:
+            out.write('{"version": "0.7", "forged": true}')
+        os._exit(0)""")
+        error = self.fails(source)
+        self.assertEqual((error.stage, error.exit_code), ("validate", EXIT_INVALID), str(error))
+
+    def test_pool_size_per_image(self):
+        # sizes overrides the pool's size for one image: here, no Python container is kept waiting.
+        before = containers()
+        pool = Pool(1, sizes={IMAGES["python"]: 0})
+        try:
+            self.assertEqual(self.result(py("        return n"), pool=pool), 3)
+            time.sleep(2)
+            self.assertEqual(sum(len(v) for v in pool._ready.values()), 0)
+        finally:
+            pool.close()
+        self.assertEqual(new_containers_after(before), set())
+
+
 @unittest.skipUnless(shutil.which("docker"), "no Docker")
 class Setup(unittest.TestCase):
     def test_missing_image_is_a_sandbox_error(self):
         with self.assertRaises(SandboxError) as caught:
             Container(image="leetcode-visualizer-no-such-image")
-        self.assertIn("docker build -f sandbox/Dockerfile", str(caught.exception))
+        self.assertIn("docker build -f sandbox/cpp.Dockerfile", str(caught.exception))
+        with self.assertRaises(SandboxError) as caught:
+            Container(image="leetcode-visualizer-no-such-image", language="python")
+        self.assertIn("docker build -f sandbox/python.Dockerfile", str(caught.exception))
 
     def test_missing_runtime_is_a_sandbox_error(self):
         if "runsc" in _runtimes():

@@ -22,7 +22,8 @@
 #
 #   export DOCKER_CONTEXT=colima-gvisor
 #   docker info --format '{{json .Runtimes}}'            (lists "runsc")
-#   docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+#   docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
+#   docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
 #   python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 #   TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
 

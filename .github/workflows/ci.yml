@@ -2,10 +2,14 @@
 #   schema       every golden fixture is a valid trace
 #   cpp-linux    the C++ adapter with libstdc++ (GCC and Clang)
 #   cpp-libcxx   the C++ adapter with libc++ (Apple Clang on macOS)
+#   python-adapter
+#                the Python adapter's tests (Python 3.12, as in its sandbox
+#                image): every Python fixture equals its golden trace and is
+#                like the C++ one
 #   rewriter-linux, rewriter-macos
 #                the rewriter's tests and the pipeline's, on each platform
 #   sandbox-linux
-#                the sandbox image, every isolation test under Docker and
+#                both sandbox images, every isolation test under Docker and
 #                under gVisor (docs/sandboxing.md), and the API service's
 #                tests, with real runs under gVisor (docs/backend.md)
 #   frontend     the sandbox page's tests and production build
@@ -102,6 +106,20 @@ jobs:
       - name: Driver (Apple Clang, libc++)
         run: CXX=clang++ python3 -m unittest discover -s driver/tests -t .
 
+  python-adapter:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # sortedcontainers is in the Python sandbox image (sandbox/python.Dockerfile).
+      - run: python -m pip install jsonschema sortedcontainers==2.4.0
+      - name: Python adapter (every fixture, outcomes, kinds, limits)
+        run: python3 -m unittest discover -s adapters/python/tests -v
+
   rewriter-linux:
     # The rewriter links against Clang 18's libraries. Ubuntu 24.04 ships
     # clang 18; its development headers and libclang-cpp come from apt.
@@ -139,7 +157,7 @@ jobs:
         run: CXX=clang++ python3 -m unittest discover -s pipeline/tests -t . -v
 
   sandbox-linux:
-    # The sandbox image and its isolation tests (pipeline/tests/test_sandbox.py),
+    # The sandbox images and their isolation tests (pipeline/tests/test_sandbox.py),
     # first under Docker's own runtime, then under gVisor's runsc, which is what
     # the backend will use. The runner has Docker; gVisor is installed as its
     # install guide says (gvisor.dev/docs/user_guide/install).
@@ -163,8 +181,10 @@ jobs:
           sudo /usr/local/bin/runsc install
           sudo systemctl restart docker
           docker run --rm --runtime=runsc ubuntu:24.04 dmesg
-      - name: Build the sandbox image
-        run: docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+      - name: Build the sandbox images
+        run: |
+          docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
+          docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
       - name: Isolation tests (Docker)
         run: TRACE_SANDBOX=docker python3 -m unittest pipeline.tests.test_sandbox -v
       - name: Isolation tests (gVisor)

@@ -1,7 +1,7 @@
 # Sandboxing
 
-> **Status:** Draft v0.3. The sandbox exists (`sandbox/`, `pipeline/runners.py`, `python3 -m pipeline --sandbox`). The API service does not yet.
-> **Related:** [`trace-format.md`](trace-format.md) (the contract), [`adapters/cpp.md`](adapters/cpp.md) §7 (how the C++ runtime writes a trace), [`native-tracing.md`](native-tracing.md) §6 (why tracer output is untrusted)
+> **Status:** Draft v0.4. The sandbox exists (`sandbox/`, `pipeline/runners.py`, `python3 -m pipeline --sandbox`), with one image per language: C++ and Python.
+> **Related:** [`trace-format.md`](trace-format.md) (the contract), [`adapters/cpp.md`](adapters/cpp.md) §7 (how the C++ runtime writes a trace), [`adapters/python.md`](adapters/python.md) §7 (how the Python adapter runs), [`native-tracing.md`](native-tracing.md) §6 (why tracer output is untrusted)
 
 This document describes how the system runs a stranger's code safely: where the code runs, what it is allowed to use, how files get in and out, and what comes back for each way a run can end.
 
@@ -32,6 +32,8 @@ outside (this machine)          inside (one container per run)          outside
 7. **Validation, outside.** `tools/check_trace.py` checks the trace bytes. Only then does anything read them as a trace.
 
 This is `pipeline.run(..., sandbox="docker")` or `sandbox="gvisor"` (`pipeline/runners.py`, class `Container`). The same run with `sandbox=None` does stages 2 to 4 on the host instead (class `Local`), for your own code.
+
+**Python** (`pipeline.run(..., language="python")`) runs in its own image (§6) with the same limits, users, and folders. The driver writes `run.json` instead of a prelude and `main`, and step 3 only copies `solution.py` and `run.json` in (`Container.prepare`): there is nothing to compile. Step 4 runs `python3 -I /opt/trace/python/run.py /work` as the program's user; the tracer, which rewrites and runs the Solution, is inside with the code, as the C++ runtime is. On the host, class `LocalPython` runs the same command with Python 3.12.
 
 > **Key insight 2: the rewriter runs inside too.** It is Clang parsing untrusted source. A pasted `#include "/etc/passwd"`, or a template that takes gigabytes to instantiate, is as dangerous to a parser as to a compiler.
 
@@ -94,7 +96,7 @@ Three changes, each keeping one container per run:
 
 - **A precompiled header.** Every prelude begins with the same 33 standard headers and the runtime, now one file, `adapters/cpp/runtime/prelude_common.hpp`. The image compiles it once with `clang++-18` into `prelude_common.hpp.pch`, and the rewriter and the compiler both load it with `-include-pch` instead of parsing it again. A precompiled header works only with the compiler that built it, so the image's label `org.leetcode-visualizer.pch` says where it is, and an image without one still runs, only slower. Runs outside the sandbox (macOS, Apple Clang) never use it.
 - **One `docker exec` per step.** Build, run, and collect are one command each. Inside the build, `timeout` gives each step its own limit and the exit status says which step failed. The program file is assembled inside the container exactly as the driver assembles it: the instrumented Solution without its trailing newlines, a blank line, then `main`.
-- **Containers started ahead of time** (`runners.Pool`, used by the API service, `TRACE_POOL`, default 1). A pooled container is started with the same limits and is handed out once, for one run, then removed like any other; it is never returned. So the pool moves the start earlier and changes nothing about isolation. Under Docker the start is only 0.12 s; under gVisor it is longer, which is where the pool helps.
+- **Containers started ahead of time** (`runners.Pool`, used by the API service, `TRACE_POOL`, default 1). A pooled container is started with the same limits and is handed out once, for one run, then removed like any other; it is never returned. So the pool moves the start earlier and changes nothing about isolation. Under Docker the start is only 0.12 s; under gVisor it is longer, which is where the pool helps. The pool keeps containers per image, so each language has its own waiting (`TRACE_POOL` each; `TRACE_POOL_PYTHON` sets Python's alone). A waiting container runs only `sleep infinity`: under Docker's own runtime one measured 0.8 MiB with `docker stats`, the same for either image. Under gVisor it also holds gVisor's own kernel, so measure it there with `docker stats` before choosing the pool sizes.
 
 Docker, the runtime, and the image are checked once per process, not once per run. What is left is the compiler's own work on the user's code and the tracing templates it instantiates.
 
@@ -107,6 +109,8 @@ Docker, the runtime, and the image are checked once per process, not once per ru
 | The example cannot be used | None | `driver`, 2 | What is wrong with it |
 | The source does not compile | None | `rewriter`, 2 | The compiler's message, naming the user's file |
 | The generated program does not compile | None | `compile`, 3 | A build bug: in the driver or the rewriter, not the user's code |
+| Python: the tracer failed (`run.py` exits 3) | None | `adapter`, 3 | A bug in the Python adapter, not the user's code |
+| Python: the code raised (`run.py` exits 1) | None | `run`, 4 | The traceback, with the user's frames only, and what it printed before |
 | The program crashed | None | `run`, 4 | The signal, and the last 20 lines it printed. `SIGKILL` in the sandbox is reported as most likely the memory limit |
 | The sandbox itself ended (under gVisor, the memory limit) | None | `run`, 4 | "The sandbox was stopped", with the memory limit when Docker reports it ran out of memory (§6.1) |
 | The time limit was reached | None | `run`, 4 | A timeout error |
@@ -118,7 +122,7 @@ A crash currently loses the steps recorded before it ([`adapters/cpp.md` §10](a
 
 ## 6. Docker, gVisor, and macOS
 
-**Decision:** one image (`sandbox/Dockerfile`) and one short-lived container per run, with gVisor underneath for anyone's code.
+**Decision:** one image per language (`sandbox/cpp.Dockerfile`, `sandbox/python.Dockerfile`) and one short-lived container per run, with gVisor underneath for anyone's code. The pipeline picks the image from the run's language (`runners.IMAGES`; `TRACE_SANDBOX_IMAGE_CPP` and `TRACE_SANDBOX_IMAGE_PYTHON` override the names).
 
 A plain Docker container shares the host's kernel, so on its own it is not a strong barrier against code that is trying to escape. gVisor puts a kernel written in user space between the code and the host, and plugs into Docker as a runtime, so the image and every command stay the same: only `--runtime runsc` is added.
 
@@ -128,18 +132,22 @@ A plain Docker container shares the host's kernel, so on its own it is not a str
 | gVisor (`runsc`) | A user-space kernel between the code and the host | A slower start and slower system calls | `--sandbox gvisor`: the backend, and local runs that should match it |
 | Firecracker | A small virtual machine per run | Strongest, and the most work to operate | Not used |
 
-**The image** (`sandbox/Dockerfile`) has two stages. The first builds the rewriter against Clang 18. The second holds only what a run needs: `trace-rewrite`, the runtime headers, and `clang++-18` with libstdc++. It has no Python, no driver, and no checker, since those run outside. The same image builds natively on x86-64 Linux and on Apple Silicon.
+**The C++ image** (`sandbox/cpp.Dockerfile`, `leetcode-visualizer-sandbox-cpp`) has two stages. The first builds the rewriter against Clang 18. The second holds only what a run needs: `trace-rewrite`, the runtime headers, and `clang++-18` with libstdc++. It has no Python, no driver, and no checker, since those run outside. The same image builds natively on x86-64 Linux and on Apple Silicon.
+
+**The Python image** (`sandbox/python.Dockerfile`, `leetcode-visualizer-sandbox-python`) is `python:3.12-slim-bookworm` with `sortedcontainers` 2.4.0 and the adapter's three files in `/opt/trace/python/`. It has no driver and no checker either. Each image's build context is kept to the files it copies by its own `.dockerignore` (`sandbox/<language>.Dockerfile.dockerignore`).
 
 **macOS.** gVisor runs only on Linux. Docker on a Mac already runs containers in a Linux VM, so gVisor goes in that VM. Docker Desktop's VM does not officially support extra runtimes, so the supported setup is **Colima**, a Docker VM you control: `sandbox/colima-gvisor.yaml` installs `runsc` in it and registers it on every start. Colima runs alongside Docker Desktop as a separate Docker context, `colima-gvisor`. The Mac then runs exactly what the backend runs, under the same libstdc++, so a run that passes locally behaves the same on the server.
 
 ```bash
 export DOCKER_CONTEXT=colima-gvisor
-docker build -f sandbox/Dockerfile -t leetcode-visualizer-sandbox .
+docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
+docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
 python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
+python3 -m pipeline fixtures/two_sum_trace.py --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
 ```
 
-CI's `sandbox-linux` job installs gVisor on Ubuntu, builds the image, and runs `test_sandbox.py` under both runtimes.
+CI's `sandbox-linux` job installs gVisor on Ubuntu, builds both images, and runs `test_sandbox.py` under both runtimes (the `PythonIsolation` tests prove the limits for the Python image).
 
 ### 6.1 Where a limit lands under gVisor
 
@@ -182,3 +190,5 @@ So the pipeline uses `--ulimit nproc` for the process limit under gVisor, and ke
 **Q6. Why Colima on macOS and not Docker Desktop?** Both run Docker in a Linux VM. Colima's VM is yours to configure, and its config can install and register `runsc` on every start. Adding a runtime to Docker Desktop's VM works only by an unsupported change that an update or a settings change can undo.
 
 **Q7. Why does the rewriter's error name the user's file, when it ran on `/work/solution.cpp`?** The message is rewritten after the run: the run folder's copy is replaced by the name the user gave, so no path from inside the container reaches the user.
+
+**Q8. Why one image per language, and not one image with every toolchain?** A C++ run needs Clang, the rewriter, and a precompiled header; a Python run needs only Python. One image with both would be larger for every run, and a change to one toolchain would rebuild and retest the other. Separate images keep each small and let the pipeline pick by language. Java will follow the same pattern.

@@ -1,23 +1,27 @@
-"""Where stages 2 to 4 (rewrite, compile, run) happen: on this machine, or in a container.
+"""Where the stages that touch the user's code happen: on this machine, or in a container.
 
-    Local       runs the rewriter, the compiler, and the program directly, with
-                only time limits. For your own code.
-    Container   runs all three inside one locked-down container per run
-                (docs/sandboxing.md): no network, capped memory, CPU, processes,
-                and disk, a read-only image, not root, and an optional gVisor
-                runtime underneath. For anyone's code.
+    Local         C++: runs the rewriter, the compiler, and the program directly,
+                  with only time limits. For your own code.
+    LocalPython   Python: runs adapters/python/run.py directly, with only a time
+                  limit. For your own code.
+    Container     runs them inside one locked-down container per run
+                  (docs/sandboxing.md): no network, capped memory, CPU, processes,
+                  and disk, a read-only image, not root, and an optional gVisor
+                  runtime underneath. For anyone's code. Each language has its
+                  own image (IMAGES).
 
-Both have the same methods, so pipeline._run() does not know which it has:
+They have the same methods, so pipeline._run() does not know which it has:
 
-    build(prelude, source, main)  -> Built   rewrite the Solution, then compile it with main
+    build(prelude, source, main)  -> Built   C++: rewrite the Solution, then compile it with main
+    prepare(files)                           Python: put {name: text} in the run folder
     execute(timeout)              -> Ran     the program, with TRACE_OUT set
     collect(trace_cap)            -> (trace bytes or None, output or None)
     shown(text, user_name)        the user's file name in place of the run folder's copy
     close()
 
-A Container does each of build, execute, and collect in one `docker exec`
-(docs/sandboxing.md §4.1). It can come from a Pool of containers started ahead
-of time; each is still used for exactly one run.
+A Container does each of build (or prepare), execute, and collect in one
+`docker exec` (docs/sandboxing.md §4.1). It can come from a Pool of containers
+started ahead of time; each is still used for exactly one run.
 
 Driver and validation are not here: they run outside, before and after
 (CLAUDE.md invariant 9). Whatever comes back from execute() and collect() was
@@ -94,6 +98,8 @@ class Local:
     def __init__(self, work, rewriter, cxx, runtime, compile_timeout):
         self.work, self.rewriter, self.cxx, self.runtime = Path(work), Path(rewriter), cxx, Path(runtime)
         self.compile_timeout = compile_timeout
+        self.command = [str(self.work / "program")]
+        self.source_file = "solution.cpp"
 
     def _tool(self, command):
         """(returncode, stdout, stderr), or None when it ran out of time."""
@@ -125,7 +131,7 @@ class Local:
     def execute(self, timeout):
         env = {**os.environ, "TRACE_OUT": str(self.work / "trace.json")}
         try:
-            r = subprocess.run([str(self.work / "program")], env=env, capture_output=True, text=True, timeout=timeout)
+            r = subprocess.run(self.command, cwd=self.work, env=env, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as expired:
             raise StageTimeout(timeout, _text(expired.stdout) + _text(expired.stderr)) from None
         output = (r.stdout or "") + (r.stderr or "")
@@ -141,25 +147,47 @@ class Local:
             return f.read(trace_cap + 1), None  # None: the output is the one execute() captured
 
     def shown(self, text, user_name):
-        return text.replace(str(self.work / "solution.cpp"), user_name)
+        return text.replace(str(self.work / self.source_file), user_name)
 
     def close(self):
         pass
+
+
+class LocalPython(Local):
+    """Python on this machine: run.py with the given interpreter (Python 3.12 or later)."""
+
+    def __init__(self, work, python, adapter):
+        self.work = Path(work)
+        self.command = [python, "-I", str(Path(adapter) / "run.py"), str(self.work)]
+        self.source_file = "solution.py"
+
+    def prepare(self, files):
+        for name, text in files.items():
+            (self.work / name).write_text(text, encoding="utf-8")
 
 
 # ======================================================================
 # Container: one per run
 # ======================================================================
 
-IMAGE = os.environ.get("TRACE_SANDBOX_IMAGE", "leetcode-visualizer-sandbox")
+# One image per language (sandbox/<language>.Dockerfile), each set from the environment.
+IMAGES = {
+    "cpp": os.environ.get("TRACE_SANDBOX_IMAGE_CPP", "leetcode-visualizer-sandbox-cpp"),
+    "python": os.environ.get("TRACE_SANDBOX_IMAGE_PYTHON", "leetcode-visualizer-sandbox-python"),
+}
+IMAGE = IMAGES["cpp"]
 LABEL = "org.leetcode-visualizer.sandbox"   # on every sandbox container, for cleaning up after a crash
 PCH_LABEL = "org.leetcode-visualizer.pch"   # on the image: where the precompiled header is
 
-# Inside the image (sandbox/Dockerfile).
+# Inside the images (sandbox/cpp.Dockerfile, sandbox/python.Dockerfile).
 REWRITER_IN = "/opt/trace/bin/trace-rewrite"
 RUNTIME_IN = "/opt/trace/runtime"
 CXX_IN = "clang++-18"
+PYTHON_IN = "/opt/trace/python/run.py"
 WORK_IN = "/work"
+# What execute() runs in the run folder, and the user's file there, per language.
+PROGRAM_IN = {"cpp": "./program", "python": f"python3 -I {PYTHON_IN} {WORK_IN}"}
+SOURCE_IN = {"cpp": "solution.cpp", "python": "solution.py"}
 
 # Two unprivileged users with no names. The tools (tar, the rewriter, the
 # compiler) run as TOOLS_USER; the user's program runs as PROGRAM_USER, a user
@@ -222,7 +250,7 @@ _checked = {}
 _checked_lock = threading.Lock()
 
 
-def _check(docker, image, runtime):
+def _check(docker, image, runtime, language="cpp"):
     key = (docker, os.environ.get("DOCKER_CONTEXT", ""), image, runtime or "")
     with _checked_lock:
         if key in _checked:
@@ -237,10 +265,10 @@ def _check(docker, image, runtime):
                            timeout=30)
     if code != 0:
         raise SandboxError(f"The sandbox image {image!r} is not built. From the repository root, run:\n"
-                           f"  docker build -f sandbox/Dockerfile -t {image} .")
+                           f"  docker build -f sandbox/{language}.Dockerfile -t {image} .")
     pch = _text(out).strip()
     if pch == "<no value>":
-        pch = ""  # an image built before the precompiled header: runs still work, only slower
+        pch = ""  # no precompiled header: the Python image, or a C++ image built before it (runs are only slower)
     with _checked_lock:
         _checked[key] = pch
     return pch
@@ -307,10 +335,12 @@ class Pool:
     one started on demand; the pool only moves the start earlier. A container
     is never returned to the pool. Containers are kept per configuration
     (runtime, limits, image), since each was started with its own limits.
+    sizes overrides size for an image: {"leetcode-visualizer-sandbox-python": 0}.
     """
 
-    def __init__(self, size=1):
+    def __init__(self, size=1, sizes=None):
         self.size = size
+        self.sizes = dict(sizes or {})
         self._ready = {}      # key -> [names]
         self._starting = {}   # key -> count
         self._lock = threading.Lock()
@@ -327,7 +357,8 @@ class Pool:
         with self._lock:
             if self._closed:
                 return
-            missing = self.size - len(self._ready.get(key, [])) - self._starting.get(key, 0)
+            size = self.sizes.get(key[2], self.size)  # key[2] is the image
+            missing = size - len(self._ready.get(key, [])) - self._starting.get(key, 0)
             self._starting[key] = self._starting.get(key, 0) + max(0, missing)
         for _ in range(max(0, missing)):
             thread = threading.Thread(target=self._start_one, args=(key, start), daemon=True)
@@ -378,12 +409,14 @@ class Container:
     has a time limit; when one is exceeded the whole container is killed.
     """
 
-    def __init__(self, runtime=None, limits=None, image=IMAGE, compile_timeout=60.0, docker=None, pool=None):
+    def __init__(self, runtime=None, limits=None, image=None, compile_timeout=60.0, docker=None, pool=None, language="cpp"):
         self.docker = docker or shutil.which("docker")
         if not self.docker:
             raise SandboxError("Docker is not installed or not on PATH. The sandbox needs it (docs/sandboxing.md).")
+        image = image or IMAGES[language]
+        self.language = language
         self.limits, self.compile_timeout = limits or Limits(), compile_timeout
-        self.pch = _check(self.docker, image, runtime)
+        self.pch = _check(self.docker, image, runtime, language)
         key = (self.docker, os.environ.get("DOCKER_CONTEXT", ""), image, runtime or "", self.limits)
         self.name = pool.take(key) if pool else None
         if self.name is None:
@@ -432,13 +465,19 @@ s=$?; if [ $s -ne 0 ]; then cat stage.err >&2; [ $s -eq 137 ] && exit 21; exit 2
             raise SandboxError(f"Could not prepare the run in the sandbox (status {code}):\n" + err.strip())
         return Built("", rewritten, "")
 
+    def prepare(self, files):
+        """Copies {name: text} into the run folder, in one `docker exec`."""
+        code, _, err = self._exec(["sh", "-c", f"cd {WORK_IN} && tar -x -f -"], timeout=30, input=_tar(files))
+        if code != 0:
+            raise SandboxError(f"Could not prepare the run in the sandbox (status {code}):\n" + err.strip())
+
     def execute(self, timeout):
         # The program's output goes to a file in the run folder (a size-capped
         # tmpfs), not through docker, so printing without end cannot fill this
         # process's memory. sh reports a signal as 128 + its number. Then
         # `kill -9 -1`, as the program's own user, ends every process the
         # program left behind (a forked child, say) before anything is read.
-        script = (f"cd {WORK_IN} && TRACE_OUT={WORK_IN}/trace.json ./program > output.txt 2>&1 < /dev/null; "
+        script = (f"cd {WORK_IN} && TRACE_OUT={WORK_IN}/trace.json {PROGRAM_IN[self.language]} > output.txt 2>&1 < /dev/null; "
                   "status=$?; kill -9 -1 2>/dev/null; exit $status")
         try:
             code, _, _ = _docker([self.docker, "exec", "--user", PROGRAM_USER, self.name, "sh", "-c", script], timeout=timeout)
@@ -496,7 +535,7 @@ printf '%s %s\\n' "$t" "$(wc -c < /tmp/o)"; cat /tmp/t /tmp/o"""
         return (trace if code == 0 else None), output
 
     def shown(self, text, user_name):
-        return text.replace(f"{WORK_IN}/solution.cpp", user_name)
+        return text.replace(f"{WORK_IN}/{SOURCE_IN[self.language]}", user_name)
 
     def close(self):
         if self.name:
