@@ -24,20 +24,21 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 | Area | Status |
 |---|---|
 | Trace format specification | Draft v0.14 |
-| JSON Schema + golden fixtures | v0.14, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking), each in C++ and in Python |
+| JSON Schema + golden fixtures | v0.14, validated: Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth (recursive), Subsets (backtracking), each in C++, Python, and Java, and each language's trace matching the C++ one call by call (`tools/compare_traces.py`) |
 | Tracing strategy docs (native, DAP) | Draft v0.1 |
 | C++ adapter: value serializers | Done for every kind, with tests. Pointers to `ListNode`, `TreeNode`, and any struct with a field table become `ref` + `object`, and so do those objects held by value |
 | C++ adapter: recorder and trace file | Done, with tests. `make e2e` checks that a hand-instrumented Two Sum equals the golden trace, that a looping program stops at the step cap with a truncated trace, that a returned pointer comes with its `result_heap`, and that a `void` method's result is `null` |
 | C++ adapter: iterators | Done, with tests. An iterator into a local container becomes an `iterator` value (`index`, `key`, or `end`); the rewriter pairs each iterator variable with its container and the runtime checks the type |
 | C++ adapter: call stack | Done, with tests. A `Frame` guard per call, `ret` for return steps, a `Scope` guard per block, and every frame re-serialized live at each step. Recursive golden traces (Maximum Depth, Subsets) match on GCC and Clang |
-| CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, the Python adapter's tests, the rewriter and pipeline on Linux and macOS, both sandbox images under Docker and gVisor, frontend tests and build |
+| CI (GitHub Actions) | Set up: fixtures against the schema, C++ tests with libstdc++ and libc++, `make e2e`, the Python and Java adapters' tests and the call-by-call comparison of every fixture's twins, the rewriter and pipeline on Linux and macOS, the three sandbox images under Docker and gVisor, frontend tests and build |
 | C++ adapter: driver | Done, with tests (`driver/`, Python). Reads the Solution's signature and LeetCode's commented node definitions, parses the example, and generates a prelude and `main`. Every golden fixture produces its golden trace through a generated `main` |
 | C++ adapter: rewriter | Done, with tests (`adapters/cpp/rewriter/`, Clang LibTooling; needs LLVM, `brew install llvm`). Inserts the runtime's calls into a plain Solution without adding lines, including the outcomes of each line (conditions, statement-level stores, and the cells of local containers it read) and a step for each check of a loop's header. Every golden fixture is reproduced from its plain source |
-| CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command, for C++ or Python (`--language`, or from the file's extension). Without `--sandbox` it runs the code directly with a time limit |
-| Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One image per language (C++, Python). One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
-| Python adapter | Done, with tests (`adapters/python/`, `driver/python/`). `sys.settrace` gives the steps, and a rewrite of the Solution's syntax tree gives the outcomes (conditions, stores, reads) and `indexes`; heapq lists are min priority queues, and `sortedcontainers` is available. Runs on Python 3.12 in its own sandbox image. Every Python fixture equals its golden trace and is like the C++ one (`check_trace.py --like`) |
+| CLI (`pipeline/`) | Done, with tests. `python3 -m pipeline` runs driver, rewriter, compiler, program, and checker in one command, for C++, Python, or Java (`--language`, or from the file's extension). Without `--sandbox` it runs the code directly with a time limit |
+| Sandbox (`sandbox/`, `--sandbox docker` or `gvisor`) | Done, with tests. One image per language (C++, Python, Java). One locked-down container per run (no network, capped memory, CPU, processes, and disk, read-only, not root) runs the rewriter, compiler, and program; gVisor underneath, also on macOS through Colima. Driver and validation stay outside. A run takes about 2 s under Docker (a precompiled header, one `docker exec` per step, containers started ahead of time) |
+| Python adapter | Done, with tests (`adapters/python/`, `driver/python/`). `sys.settrace` gives the steps, and a rewrite of the Solution's syntax tree gives the outcomes (conditions, stores, reads) and `indexes`; heapq lists are min priority queues, and `sortedcontainers` is available. Runs on Python 3.12 in its own sandbox image. Every Python fixture equals its golden trace, is like the C++ one (`check_trace.py --like`), and matches it call by call |
+| Java adapter | Done, with tests (`adapters/java/`, `driver/java/`). Source instrumentation like C++, with the JDK's own parser: the rewriter inserts steps, outcomes, and return steps on the user's lines and compiles with javac in the same JVM; a `Deque` used only through push, pop, and peek is a stack. Runs on JDK 21 in its own sandbox image. Every Java fixture equals its golden trace, is like the C++ one, and matches it call by call |
 | Frontend: sandbox page (loader, player, code panel, renderers, diff) | In progress, reads trace v0.14: a dark and a light theme, a canvas that shows the sandbox at work during a run, an Output tab for what the program printed, a renderer for every container kind, pointer markers under an array for the locals the code indexes it with (v0.9 `indexes`), linked lists, trees, and graphs drawn from the heap with pointer tags and highlights, a dashed outline on the cells and entries the running line read (`read` outcomes), strings as strips of characters with their pointers, the `Solution`'s members as cards tagged `member`, a recursion card (tree or stack view) that folds large runs, a call-stack card for void recursion, a state panel with the running statement and what it produced (from v0.8 outcomes), and motion throughout |
-| Frontend: input form and real runs | Done, redesigned, for C++ and Python (the language select). The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
+| Frontend: input form and real runs | Done, redesigned, for C++, Python, and Java (the language select, and an Examples menu of eight problems in each). The page opens on the bare Two Sum Solution; one field per parameter of the chosen method, read from the pasted Solution; pasting a LeetCode example fills them; Run code (top bar, Cmd/Ctrl + Enter) sends them to the API, and a playback bar with Restart replays the trace that comes back |
 | Frontend: hint renderers and "view as" | Done: a 2D array as a graph (adjacency list, edge list, adjacency matrix) or as intervals, from the parameter's hint or the card's View menu |
 | Frontend: home page | First version. The default route (`#/`, a hash route; the sandbox is `#/sandbox`): the pitch, a live preview that replays the Reverse Linked List golden trace through the real canvas, six example problems that open the sandbox with their Solution and inputs filled in, how a run works, and the languages. The sandbox is loaded only when opened |
 | API service (`backend/`, FastAPI) | Done, with tests. `/api/signature` reads a Solution's methods and parameters; `/api/run` runs the pipeline under gVisor and returns the validated trace or the stage that failed. Size caps, slots and a capped line that answers "Busy" at once, one run per visitor, and the visitor's address taken only from a trusted proxy. A load test of 60 runs at once keeps `/api/signature` under 10 ms |
@@ -65,6 +66,7 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/hint-inference.md`](docs/hint-inference.md) | How an adapter will work out which structure a value is when its type does not say | Proposal, not started |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
 | [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, the syntax-tree rewrite for outcomes, normalization rules, the driver | Draft v0.14 |
+| [`docs/adapters/java.md`](docs/adapters/java.md) | The Java adapter: the rewriter on the JDK's parser, the runtime, normalization rules, the driver | Draft v0.14 |
 | [`LICENSE`](LICENSE), [`NOTICE`](NOTICE) | Apache License 2.0 terms, and the copyright notice that must travel with copies | Done |
 
 Planned. This link is a template: create the file, then move it into the table above.
@@ -400,7 +402,7 @@ An adapter observes the running program in one of three ways. All three end in t
 
 The dividing line is who writes the per-language logic. With native tracing we write a tracer per language. With DAP the stepping logic is written once, and what remains per language is a launch configuration and normalization rules.
 
-Order: **C++** (instrumentation) and **Python** (runtime hooks) are implemented; others follow, using DAP where a native tracer would be expensive.
+Order: **C++** and **Java** (instrumentation) and **Python** (runtime hooks) are implemented; others follow, using DAP where a native tracer would be expensive.
 
 ---
 
@@ -459,7 +461,8 @@ Items marked *(planned)* do not exist yet.
 │   ├── hint-inference.md      (proposal) inferring hints
 │   └── adapters/
 │       ├── cpp.md             the C++ adapter
-│       └── python.md          the Python adapter
+│       ├── python.md          the Python adapter
+│       └── java.md            the Java adapter
 ├── schema/
 │   └── trace.schema.json      machine-readable contract
 ├── fixtures/
@@ -469,9 +472,12 @@ Items marked *(planned)* do not exist yet.
 │   ├── <name>_trace.cpp       the solution each golden trace records
 │   ├── <name>_hand_inst.cpp   the same solution, instrumented by hand
 │   ├── <name>_trace.py        the same solution in Python
-│   └── <name>.python.trace.json  its golden trace (like the C++ one: check_trace.py --like)
+│   ├── <name>.python.trace.json  its golden trace (like the C++ one: check_trace.py --like)
+│   ├── <name>_trace.java      the same solution in Java
+│   └── <name>.java.trace.json its golden trace
 ├── tools/
-│   └── check_trace.py         validate a trace; compare with a fixture, or with another language's (--like)
+│   ├── check_trace.py         validate a trace; compare with a fixture, or with another language's (--like)
+│   └── compare_traces.py      two languages' traces of one Solution, call by call (--all: every fixture's twins)
 ├── pipeline/                  the CLI: python3 -m pipeline SOLUTION --example TEXT
 │   ├── __init__.py            run(): driver, rewriter, compile, run, validate (C++ or Python)
 │   ├── __main__.py            the command line and its exit codes
@@ -482,6 +488,8 @@ Items marked *(planned)* do not exist yet.
 │   ├── cpp.Dockerfile.dockerignore  its build context
 │   ├── python.Dockerfile      the Python image: Python 3.12, sortedcontainers, the adapter
 │   ├── python.Dockerfile.dockerignore  its build context
+│   ├── java.Dockerfile        the Java image: JDK 21, the adapter compiled
+│   ├── java.Dockerfile.dockerignore  its build context
 │   └── colima-gvisor.yaml     gVisor on macOS: a Colima profile's runsc setup
 ├── driver/                    LeetCode's harness, rebuilt (Python): python3 -m driver
 │   ├── example.py             example text -> neutral JSON (every language)
@@ -489,6 +497,7 @@ Items marked *(planned)* do not exist yet.
 │   ├── hints.py               a 2D-array parameter's hint, from its name and the example's shape (every language)
 │   ├── cpp/                   signature, node comments, prelude and main for C++
 │   ├── python/                signature (type hints), node comments, run.json for Python
+│   ├── java/                  signature, node comments, LvMain.java and Nodes.java for Java
 │   └── tests/                 unit tests, compile-and-run tests, golden fixtures
 ├── adapters/
 │   ├── python/
@@ -496,6 +505,10 @@ Items marked *(planned)* do not exist yet.
 │   │   ├── tracer.py          sys.settrace steps, normalization, outcomes, the document writer
 │   │   ├── instrument.py      the syntax-tree rewrite: outcome calls, indexes, heapq lists
 │   │   └── tests/             every fixture, kinds, outcomes, limits (Python 3.12)
+│   ├── java/
+│   │   ├── Makefile           compiles the adapter to build/classes
+│   │   ├── src/lvtrace/       Build (rewrite + javac), Rewriter, Trace (the runtime), Snapshot, Args, ...
+│   │   └── tests/             every fixture, kinds, outcomes, limits (JDK 21)
 │   └── cpp/
 │       ├── Makefile           the adapter's tests and end-to-end check
 │       ├── rewriter/          trace-rewrite: inserts record() etc. (Clang LibTooling)
@@ -551,6 +564,7 @@ Tentative. The architecture does not depend on these choices.
 |---|---|
 | C++ adapter | C++20, header-only runtime, Clang LibTooling for the rewriter |
 | Python adapter | Python 3.12, `sys.settrace` and the `ast` module, standard library only (plus `sortedcontainers` for Solutions to use) |
+| Java adapter | JDK 21, the JDK's own parser and compiler (`com.sun.source`, `javax.tools`), no third-party libraries |
 | Frontend | React + TypeScript + Vite, Monaco editor for the code panel |
 | Renderers | HTML and SVG with Framer Motion, for containers and for linked lists, trees, and graphs (decided, [`docs/frontend.md`](docs/frontend.md) §6) |
 | API service | FastAPI on Uvicorn (decided, [`docs/backend.md`](docs/backend.md)) |
@@ -579,6 +593,7 @@ Tentative. The architecture does not depend on these choices.
 - [x] Input page: one field per parameter, Run code, replay (functional; visual design later)
 - [ ] Design problems (LRU Cache, Min Stack): a trace over a sequence of calls
 - [x] Python adapter, proving the schema is truly language-neutral
+- [x] Java adapter, and a call-by-call comparison of the three languages' traces
 - [x] "View as": graphs from an adjacency list, an edge list, or a matrix, and intervals
 - [ ] More renderers (union-find, trie)
 
@@ -631,6 +646,13 @@ python3 -m pipeline fixtures/two_sum_trace.py --example "nums = [2,7,11,15], tar
 docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
 python3 -m pipeline fixtures/two_sum_trace.py --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 python3 -m unittest discover -s adapters/python/tests   # the adapter's tests (pip install sortedcontainers==2.4.0 too)
+
+# Java: the same on a .java file (JDK 21; build the adapter first), and every fixture's twins compared
+make -C adapters/java
+python3 -m pipeline fixtures/two_sum_trace.java --example "nums = [2,7,11,15], target = 9" -o /tmp/two-sum-java.json
+docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+python3 -m unittest discover -s adapters/java/tests
+python3 tools/compare_traces.py --all --core
 ```
 
 ```bash
