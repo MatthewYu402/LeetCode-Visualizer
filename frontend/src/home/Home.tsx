@@ -1,10 +1,18 @@
 import { useRef, type ReactNode } from "react";
+import type React from "react";
 import { Logo } from "../components/Logo";
 import { MoonIcon, SunIcon } from "../components/Toolbar";
 import { href } from "../route";
 import { useTheme } from "../theme";
 import { EXAMPLES, type Example } from "./examples";
 import { Preview } from "./Preview";
+
+/** The app's version, from package.json (vite.config.ts). */
+export const APP_VERSION = `v${__APP_VERSION__}`;
+
+/** Where the project lives, and how to reach its author. */
+export const REPO_URL = "https://github.com/MatthewYu402/LeetCode-Visualizer";
+export const CONTACT_EMAIL = "myu22826@gmail.com";
 
 /** Languages, in the order the project plans them. Only C++ runs today. */
 export const LANGUAGE_STATUS: { name: string; ready: boolean; note: string }[] = [
@@ -22,6 +30,15 @@ export function Home() {
   const { theme, toggle } = useTheme();
   const otherTheme = theme === "dark" ? "light" : "dark";
   const examplesRef = useRef<HTMLElement>(null);
+  const howRef = useRef<HTMLElement>(null);
+  const langsRef = useRef<HTMLElement>(null);
+  // In-page jumps scroll, never set a #anchor: the hash is the route.
+  const jump = (ref: React.RefObject<HTMLElement | null>) => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const sections: { label: string; ref: React.RefObject<HTMLElement | null> }[] = [
+    { label: "Examples", ref: examplesRef },
+    { label: "How it works", ref: howRef },
+    { label: "Languages", ref: langsRef },
+  ];
 
   return (
     <div className="home">
@@ -30,6 +47,13 @@ export function Home() {
           <Logo height={18} />
           <span className="brand-name">LeetCode Visualizer</span>
         </a>
+        <nav className="home-nav" aria-label="Sections">
+          {sections.map((n) => (
+            <button key={n.label} type="button" className="home-nav-link" onClick={() => jump(n.ref)}>
+              {n.label}
+            </button>
+          ))}
+        </nav>
         <div className="topbar-end">
           <button type="button" className="control icon-control" aria-label={`Switch to the ${otherTheme} theme`} title={`Switch to the ${otherTheme} theme`} onClick={toggle}>
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
@@ -43,9 +67,14 @@ export function Home() {
       <main className="home-main">
         <section className="hero" aria-labelledby="hero-title">
           <div className="hero-text">
-            <Logo height={44} className="hero-logo" />
+            <p className="version-badge">
+              <span className="lang-dot is-ready" aria-hidden="true" />
+              {APP_VERSION}
+            </p>
             <h1 id="hero-title" className="hero-title">
-              Watch your Solution run, <span className="hero-accent">one line at a time.</span>
+              Watch your Solution run,
+              <br />
+              <span className="hero-accent">one line at a time.</span>
             </h1>
             <p className="hero-lede">
               Paste a LeetCode <code>Solution</code> exactly as LeetCode gives it, add an example, and step through it. Every array, map, stack, linked list,
@@ -56,7 +85,7 @@ export function Home() {
                 <PasteIcon />
                 Paste a Solution
               </a>
-              <button type="button" className="control hero-secondary" onClick={() => examplesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <button type="button" className="control hero-secondary" onClick={() => jump(examplesRef)}>
                 Try an example
               </button>
             </div>
@@ -84,7 +113,7 @@ export function Home() {
           </ul>
         </section>
 
-        <section className="home-section" aria-labelledby="how-title">
+        <section ref={howRef} className="home-section" aria-labelledby="how-title">
           <div className="section-head">
             <h2 id="how-title" className="section-title">
               How it works
@@ -109,7 +138,7 @@ export function Home() {
           </ol>
         </section>
 
-        <section className="home-section" aria-labelledby="langs-title">
+        <section ref={langsRef} className="home-section" aria-labelledby="langs-title">
           <div className="section-head">
             <h2 id="langs-title" className="section-title">
               Languages
@@ -130,6 +159,16 @@ export function Home() {
         <footer className="home-foot">
           <Logo height={14} />
           <span>LeetCode Visualizer · Apache License 2.0</span>
+          <span className="home-foot-links">
+            <a className="foot-link" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+              <CodeIcon />
+              GitHub
+            </a>
+            <a className="foot-link" href={`mailto:${CONTACT_EMAIL}`}>
+              <MailIcon />
+              {CONTACT_EMAIL}
+            </a>
+          </span>
         </footer>
       </main>
     </div>
@@ -180,6 +219,23 @@ function PasteIcon() {
     <svg className="icon-stroke" aria-hidden="true" width="14" height="14" viewBox="0 0 16 16">
       <rect x="3.5" y="3" width="9" height="11" rx="2" />
       <path d="M6 3V2.5A1 1 0 0 1 7 1.5h2a1 1 0 0 1 1 1V3M6 7.5h4M6 10h2.5" />
+    </svg>
+  );
+}
+
+function CodeIcon() {
+  return (
+    <svg className="icon-stroke" aria-hidden="true" width="13" height="13" viewBox="0 0 16 16">
+      <path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg className="icon-stroke" aria-hidden="true" width="13" height="13" viewBox="0 0 16 16">
+      <rect x="2" y="3.5" width="12" height="9" rx="1.5" />
+      <path d="m2.5 4.5 5.5 4 5.5-4" />
     </svg>
   );
 }

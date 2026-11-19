@@ -68,7 +68,7 @@ src/
 │   ├── reads.ts         readsFrom(ctx.reads): the cells and keys the running line read, for the dashed outline
 │   └── types.ts         Renderer, RendererProps, RenderContext
 ├── home/
-│   ├── Home.tsx         the home page: bar, pitch, preview, example cards, how it works, languages
+│   ├── Home.tsx         the home page: bar with section links, centered pitch with the version badge, preview, example cards, how it works, languages, footer links
 │   ├── Preview.tsx      the golden Reverse Linked List trace replayed by VisualPanel beside its code; plays, pauses, steps
 │   └── examples.ts      the six example problems, verbatim from docs/manual-test-suite.md (examples.test.ts checks it)
 ├── assets/              the author's logo: the eye, white for the dark theme, black for the light one
@@ -126,6 +126,7 @@ Fonts: `--font-ui` (Geist) for text, `--font-mono` (Geist Mono) for code and val
 
 - The body never scrolls (the sandbox is one screen); the home page scrolls inside `.home`. Scroll it with `document.querySelector('.home')`, not `window`.
 - An in-page jump on the home page uses `scrollIntoView`, never a `#anchor` link: the hash is the route.
+- The version on the home page is `version` in `package.json`, put in at build time as `__APP_VERSION__` (`vite.config.ts`, which imports `package.json` through `resolveJsonModule`). Bump it there; it is not the trace format's version.
 - Monaco uses the class `.current-line` for its own cursor-line overlay. The trace line uses `.trace-line` and `.trace-line-gutter`. Do not rename them back.
 - Monaco accepts only hex colours. `editor/monaco.ts` converts `rgba(...)` tokens with `toHex`.
 - Keyboard shortcuts are ignored inside Monaco and form controls. Space on a focused button is left to the button.

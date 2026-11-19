@@ -3298,18 +3298,58 @@ select.field-input {
   }
 }
 
+/* Three columns: the brand, the section links centered on the page, then the theme and the sandbox. */
 .home-bar {
   position: sticky;
   top: 0;
   z-index: 5;
   height: 52px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 14px;
   padding: 0 24px;
   background: color-mix(in srgb, var(--bg-subtle) 88%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-subtle);
+}
+
+.home-bar .brand {
+  justify-self: start;
+}
+
+.home-bar .topbar-end {
+  justify-self: end;
+  margin-left: 0;
+}
+
+.home-nav {
+  display: flex;
+  gap: 2px;
+}
+
+.home-nav-link {
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.home-nav-link:hover {
+  color: var(--fg);
+  background: var(--bg-raised);
+}
+
+.home-nav-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .home-bar .run-button,
@@ -3331,16 +3371,33 @@ select.field-input {
   padding: 52px 0 64px;
 }
 
+/* The pitch is centered: badge, title, lede, buttons, and the note. */
 .hero-text {
-  max-width: 760px;
+  max-width: 780px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .hero-text {
   animation: rise-in 520ms ease-out both;
 }
 
-.hero-logo {
-  margin-bottom: 22px;
+/* The app's version above the title, with the same green dot as "C++ today". */
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 22px;
+  padding: 5px 12px 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-soft);
 }
 
 .hero-title {
@@ -3358,7 +3415,7 @@ select.field-input {
 
 .hero-lede {
   margin: 20px 0 0;
-  max-width: 34em;
+  max-width: 38em;
   font-size: 16px;
   line-height: 1.6;
   color: var(--fg-muted);
@@ -3374,6 +3431,7 @@ select.field-input {
 
 .hero-actions {
   display: flex;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 30px;
@@ -3559,6 +3617,7 @@ select.field-input {
 
 /* Sections below the hero. */
 .home-section {
+  scroll-margin-top: 52px; /* clear the sticky bar after a jump */
   padding: 56px 0;
   border-top: 1px solid var(--border-subtle);
 }
@@ -3798,12 +3857,33 @@ select.field-input {
 
 .home-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 28px 0 40px;
   border-top: 1px solid var(--border-subtle);
   font-size: 12.5px;
   color: var(--fg-faint);
+}
+
+.home-foot-links {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+
+.foot-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+  text-decoration: none;
+  transition: color 150ms ease-out;
+}
+
+.foot-link:hover {
+  color: var(--accent-fg);
 }
 
 @keyframes rise-in {
@@ -3827,6 +3907,15 @@ select.field-input {
   }
 }
 
+@media (max-width: 860px) {
+  .home-nav {
+    display: none;
+  }
+  .home-bar {
+    grid-template-columns: 1fr auto;
+  }
+}
+
 @media (max-width: 1040px) {
   .hero {
     gap: 40px;
@@ -3843,6 +3932,10 @@ select.field-input {
 @media (max-width: 640px) {
   .home-main {
     padding: 0 16px;
+  }
+  /* small enough that "Watch your Solution run," keeps to one line on a phone */
+  .hero-title {
+    font-size: 29px;
   }
   .home-bar {
     padding: 0 16px;
@@ -3872,5 +3965,9 @@ select.field-input {
   .lang-item {
     min-width: 0;
     flex: 1 1 100%;
+  }
+  .home-foot-links {
+    margin-left: 0;
+    width: 100%;
   }
 }

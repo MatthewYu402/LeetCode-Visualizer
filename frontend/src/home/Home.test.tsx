@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { EXAMPLES } from "./examples";
-import { Home } from "./Home";
+import { APP_VERSION, CONTACT_EMAIL, Home, REPO_URL } from "./Home";
 import { Preview } from "./Preview";
 
 describe("Home", () => {
@@ -18,9 +18,31 @@ describe("Home", () => {
     expect(html).toMatch(/Java<\/span><span class="lang-note">Coming soon/);
   });
 
-  it("shows the logo in both theme versions, for CSS to pick", () => {
+  it("shows the logo in the bar and the footer only, in both theme versions for CSS to pick", () => {
     expect(html).toContain("logo-eye-dark");
     expect(html).toContain("logo-eye-light");
+    expect(html.match(/class="logo-eye"/g)).toHaveLength(2);
+    expect(html).not.toContain("hero-logo");
+  });
+
+  it("puts the app's version from package.json above the title", () => {
+    expect(APP_VERSION).toMatch(/^v\d+\.\d+\.\d+$/);
+    expect(html).toMatch(new RegExp(`class="version-badge">.*${APP_VERSION.replace(/\./g, "\\.")}</p><h1`));
+  });
+
+  it("links the sections from the bar, without #anchors (the hash is the route)", () => {
+    const nav = html.slice(html.indexOf('<nav class="home-nav"'), html.indexOf("</nav>"));
+    expect(nav).toContain(">Examples<");
+    expect(nav).toContain(">How it works<");
+    expect(nav).toContain(">Languages<");
+    expect(nav).not.toContain("href=");
+  });
+
+  it("links the repository and the author's email in the footer", () => {
+    const foot = html.slice(html.indexOf('<footer class="home-foot"'));
+    expect(foot).toContain(`href="${REPO_URL}"`);
+    expect(foot).toContain(`href="mailto:${CONTACT_EMAIL}"`);
+    expect(foot).toContain('rel="noopener noreferrer"');
   });
 });
 

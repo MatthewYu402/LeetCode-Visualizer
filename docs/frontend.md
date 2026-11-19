@@ -520,11 +520,13 @@ The page scrolls (the sandbox does not), inside `.home`, since `body` never scro
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ BAR  eye · LeetCode Visualizer                  ☀  [Open the sandbox]   │  sticky, 52 px
+│ eye LeetCode Visualizer  Examples How it works Languages  ☀ [Sandbox]   │  sticky, 52 px
 ├──────────────────────────────────────────────────────────────────────────┤
-│ eye logo                                                                 │
-│ Watch your Solution run, one line at a time.                             │  the pitch
-│ lede · [Paste a Solution] [Try an example] · ● C++ today                 │
+│                               ( ● v0.1.0 )                               │
+│                         Watch your Solution run,                         │  the pitch,
+│                           one line at a time.                            │  centered
+│              lede · [Paste a Solution] [Try an example]                  │
+│                               ● C++ today                                │
 │ ┌──────────────────────────────────────────────────────────────────────┐ │
 │ │ ● ● ●  Reverse Linked List                              Step 12 / 30 │ │
 │ │ code, running line highlighted │ the sandbox's canvas, same step     │ │  the preview
@@ -536,15 +538,19 @@ The page scrolls (the sandbox does not), inside `.home`, since `body` never scro
 │ How it works   1 Solution + example › 2 sandbox › 3 trace › 4 canvas     │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ Languages      ● C++ available   ○ Java coming soon   ○ Python coming    │
-│ footer                                                                   │
+│ eye · LeetCode Visualizer · Apache License 2.0      <> GitHub  ✉ email   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
+- **The bar.** The brand at the left, links to the three sections in the middle (Examples, How it works, Languages), and the theme button and "Open the sandbox" at the right. The links scroll to their section; they never set a `#anchor`, because the hash is the route. Under 860 px the links are hidden.
+- **The pitch is centered**: the version badge, the title on two lines, the lede, the buttons, and the language note. The page has no large logo; the logo is in the bar and the footer.
+- **The version badge** shows the app's version with the same green dot as "C++ today". It is `version` in `frontend/package.json`, put in at build time (`__APP_VERSION__` in `vite.config.ts`), so `package.json` is the one place to change it. It is the app's version, not the trace format's (`v0.13`).
+- **The footer** has the logo, the name and licence, and links to the GitHub repository and the author's email.
 - **The two calls to action.** "Paste a Solution" (primary) opens `#/sandbox`; "Try an example" scrolls to the examples. The bar's "Open the sandbox" is the same as the first.
 - **The preview** (`home/Preview.tsx`) replays the Reverse Linked List golden trace (`fixtures/reverse-list.trace.json`) with the same `VisualPanel` the sandbox uses, beside its source (`fixtures/reverse_list_trace.cpp`) with the running line highlighted the way the editor highlights it. It plays by itself (1.1 s a step, a 2.6 s pause on the last step, then from the start), and the reader can pause or step it; stepping pauses it. With the system's "reduce motion" setting on it waits for the play button. It is at the page's full width, because a linked list of five nodes needs about 700 px; under 640 px the canvas is drawn at 70% (`zoom`, which shrinks the layout too, unlike a transform) and the code sits above it.
-- **Logo.** The author's eye, two files in `src/assets/` (white for the dark theme, black for the light one). `components/Logo.tsx` puts both in the page and CSS shows the one for `data-theme`. It replaces the earlier rising-line mark in the sandbox's top bar too.
+- **Logo.** The author's eye, two files in `src/assets/` (white for the dark theme, black for the light one). `components/Logo.tsx` puts both in the page and CSS shows the one for `data-theme`. It is in the home page's bar and footer, and replaces the earlier rising-line mark in the sandbox's top bar.
 - **Theme.** The bar has the same theme button as the sandbox, and every colour comes from the tokens ([Section 11](#11-theme-tokens)): no new token was needed.
-- **Below 1040 px** the four "how it works" steps go two to a row; **below 640 px** one, and the bar drops the name.
+- **Below 1040 px** the four "how it works" steps go two to a row; **below 640 px** one, the bar drops the name, and the title shrinks so its first line stays whole.
 
 ### 12.3 Examples
 `home/examples.ts` lists six problems, each chosen to show a different drawing: Two Sum (map), Valid Palindrome (a string and two pointers), Daily Temperatures (a stack), Reverse Linked List, Invert Binary Tree (a tree, and the recursion card), and Network Delay Time (a graph and a priority queue). Each card shows the title, the difficulty, one sentence on what to watch, and tags in the canvas's words.

@@ -1,9 +1,12 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+// The app's version, shown on the home page: package.json is the one place to change it.
+import { version } from "./package.json";
 
 export default defineConfig({
   plugins: [react()],
+  define: { __APP_VERSION__: JSON.stringify(version) },
   server: {
     // The fixtures live in the repo's fixtures/ directory, one level up.
     // They are imported directly (never copied), so the dev server must be
