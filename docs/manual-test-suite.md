@@ -4,11 +4,11 @@ Solutions to paste into the sandbox page, one per data structure or behaviour, e
 
 ## How to use it
 
-1. Choose the case's language in the top bar (cases 1 to 70 are C++, 71 to 84 Python), then copy the **Code** block into the editor (select all, then paste over the starter).
+1. Choose the case's language in the top bar (cases 1 to 70 and 93 are C++, 71 to 84 and 94 Python, 85 to 92 Java), then copy the **Code** block into the editor (select all, then paste over the starter).
 2. Copy the whole **Example** block (both lines) into the **or paste a LeetCode example** box. Pasting fills the fields; the `Output:` line is ignored.
 3. Press **Run code**, then step through. Write what you notice under **Notes**.
 
-Every case was run with its pasted example through the pipeline on 2026-11-17 (`main` at `d352b95` plus the light-theme change), and its fields were filled through `/api/signature` the way the page does. Each `Output:` line is what the run returned. The step counts are from those runs. The Python cases (71 to 84) were run the same way on 2026-11-19, with the Python adapter, on Python 3.12. Rebuild the sandbox images first (`docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .` and `docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .`; before the Python adapter it was `sandbox/Dockerfile`, tagged `leetcode-visualizer-sandbox`), since an image built before the v0.11 commit writes an older trace version, which the page rejects.
+Every case was run with its pasted example through the pipeline on 2026-11-17 (`main` at `d352b95` plus the light-theme change), and its fields were filled through `/api/signature` the way the page does. Each `Output:` line is what the run returned. The step counts are from those runs. The Python cases (71 to 84, 94) and the Java cases (85 to 92) were run the same way on 2026-11-19, with the Python adapter on Python 3.12 and the Java adapter on JDK 21, and case 93 with the C++ pipeline. Rebuild the sandbox images first (`docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .` and `docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .` and `docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .`; before the Python adapter it was `sandbox/Dockerfile`, tagged `leetcode-visualizer-sandbox`), since an image built before the v0.11 commit writes an older trace version, which the page rejects.
 
 ## Found while writing this
 
@@ -109,6 +109,16 @@ Every case was run with its pasted example through the pipeline on 2026-11-17 (`
 | 82 | [Fibonacci with @cache (memo not shown)](#82-fibonacci-with-cache-memo-not-shown) | scalars, recursion | 27 | returns |
 | 83 | [Exception (index out of range)](#83-exception-index-out-of-range) | — | — | raises |
 | 84 | [Infinite loop (reaches the step cap)](#84-infinite-loop-reaches-the-step-cap) | scalars | 2000 | step cap |
+| 85 | [Two Sum (HashMap, containsKey)](#85-two-sum-hashmap-containskey) | array, map | 18 | returns |
+| 86 | [Container With Most Water (two pointers)](#86-container-with-most-water-two-pointers) | array | 46 | returns |
+| 87 | [Valid Parentheses (Deque used as a stack)](#87-valid-parentheses-deque-used-as-a-stack) | stack | 27 | returns |
+| 88 | [Reverse Linked List (three pointers)](#88-reverse-linked-list-three-pointers) | linked list | 30 | returns |
+| 89 | [Maximum Depth of Binary Tree (recursion)](#89-maximum-depth-of-binary-tree-recursion) | tree, recursion | 43 | returns |
+| 90 | [Number of Islands (void DFS on a char grid)](#90-number-of-islands-void-dfs-on-a-char-grid) | array (grid), recursion | 102 | returns |
+| 91 | [Subsets (backtracking, void)](#91-subsets-backtracking-void) | array, recursion | 57 | returns |
+| 92 | [Climbing Stairs (memo as a member)](#92-climbing-stairs-memo-as-a-member) | map (member), recursion | 28 | returns |
+| 93 | [Maximum Depth of Binary Tree (recursion)](#93-maximum-depth-of-binary-tree-recursion) | tree, recursion | 43 | returns |
+| 94 | [Container With Most Water (two pointers)](#94-container-with-most-water-two-pointers) | array | 45 | returns |
 
 ---
 
@@ -3553,6 +3563,422 @@ class Solution:
 ```text
 Input: n = 1
 Output: (never returns)
+```
+
+**Notes**
+
+- 
+
+
+# Java
+
+The same page with **Java** chosen in the top bar. These run through the Java adapter ([`docs/adapters/java.md`](adapters/java.md)). With cases 93 and 94 below, the eight problems of the sandbox's Examples menu exist in all three languages.
+
+## 85 Two Sum (HashMap, containsKey)
+
+**Exercises:** array, map · **Steps:** 18 · **Ends:** returns
+
+**Watch for:** `i` marker under `nums`; `numMap` gains one entry per pass (`numMap.put` shows as a store to `numMap[nums[i]]`); the `containsKey` check outlines the entry it found.
+
+**Code**
+
+```java
+class Solution {
+    public int[] twoSum(int[] nums, int target) {
+        Map<Integer, Integer> numMap = new HashMap<>();
+        for (int i = 0; i < nums.length; i++) {
+            int complement = target - nums[i];
+            if (numMap.containsKey(complement)) {
+                return new int[] {numMap.get(complement), i};
+            }
+            numMap.put(nums[i], i);
+        }
+        return new int[0];
+    }
+}
+```
+
+**Example**
+
+```text
+Input: nums = [3,2,4,6], target = 10
+Output: [2,3]
+```
+
+**Notes**
+
+- 
+
+
+## 86 Container With Most Water (two pointers)
+
+**Exercises:** array · **Steps:** 46 · **Ends:** returns
+
+**Watch for:** `left` and `right` markers walk in from both ends of `height`; `best` grows as wider or taller pairs are found.
+
+**Code**
+
+```java
+class Solution {
+    public int maxArea(int[] height) {
+        int left = 0, right = height.length - 1;
+        int best = 0;
+        while (left < right) {
+            int h = Math.min(height[left], height[right]);
+            best = Math.max(best, h * (right - left));
+            if (height[left] < height[right]) {
+                left++;
+            } else {
+                right--;
+            }
+        }
+        return best;
+    }
+}
+```
+
+**Example**
+
+```text
+Input: height = [1,8,6,2,5,4,8,3,7]
+Output: 49
+```
+
+**Notes**
+
+- 
+
+
+## 87 Valid Parentheses (Deque used as a stack)
+
+**Exercises:** stack · **Steps:** 27 · **Ends:** returns
+
+**Watch for:** `st` is an `ArrayDeque`, but the code only pushes, pops, and peeks, so it is drawn as a stack: its top is the last item.
+
+**Code**
+
+```java
+class Solution {
+    public boolean isValid(String s) {
+        Deque<Character> st = new ArrayDeque<>();
+        for (char c : s.toCharArray()) {
+            if (c == '(' || c == '[' || c == '{') {
+                st.push(c);
+            } else {
+                if (st.isEmpty()) return false;
+                char top = st.pop();
+                if ((c == ')' && top != '(') || (c == ']' && top != '[') || (c == '}' && top != '{')) {
+                    return false;
+                }
+            }
+        }
+        return st.isEmpty();
+    }
+}
+```
+
+**Example**
+
+```text
+Input: s = "([]{})"
+Output: true
+```
+
+**Notes**
+
+- 
+
+
+## 88 Reverse Linked List (three pointers)
+
+**Exercises:** linked list · **Steps:** 30 · **Ends:** returns
+
+**Watch for:** `prev`, `curr`, and `nextTemp` as tags on the nodes; one link turns per pass, as in the C++ case.
+
+**Code**
+
+```java
+/**
+ * Definition for singly-linked list.
+ * public class ListNode {
+ *     int val;
+ *     ListNode next;
+ *     ListNode() {}
+ *     ListNode(int val) { this.val = val; }
+ *     ListNode(int val, ListNode next) { this.val = val; this.next = next; }
+ * }
+ */
+class Solution {
+    public ListNode reverseList(ListNode head) {
+        ListNode prev = null;
+        ListNode curr = head;
+        while (curr != null) {
+            ListNode nextTemp = curr.next;
+            curr.next = prev;
+            prev = curr;
+            curr = nextTemp;
+        }
+        return prev;
+    }
+}
+```
+
+**Example**
+
+```text
+Input: head = [1,2,3,4,5]
+Output: [5,4,3,2,1]
+```
+
+**Notes**
+
+- 
+
+
+## 89 Maximum Depth of Binary Tree (recursion)
+
+**Exercises:** tree, recursion · **Steps:** 43 · **Ends:** returns
+
+**Watch for:** The recursion card shows each call with its node and what it returned; `root` moves down the tree with the calls.
+
+**Code**
+
+```java
+/**
+ * Definition for a binary tree node.
+ * public class TreeNode {
+ *     int val;
+ *     TreeNode left;
+ *     TreeNode right;
+ *     TreeNode() {}
+ *     TreeNode(int val) { this.val = val; }
+ *     TreeNode(int val, TreeNode left, TreeNode right) {
+ *         this.val = val;
+ *         this.left = left;
+ *         this.right = right;
+ *     }
+ * }
+ */
+class Solution {
+    public int maxDepth(TreeNode root) {
+        if (root == null) {
+            return 0;
+        }
+        int left = maxDepth(root.left);
+        int right = maxDepth(root.right);
+        return 1 + Math.max(left, right);
+    }
+}
+```
+
+**Example**
+
+```text
+Input: root = [3,9,20,null,null,15,7]
+Output: 3
+```
+
+**Notes**
+
+- 
+
+
+## 90 Number of Islands (void DFS on a char grid)
+
+**Exercises:** array (grid), recursion · **Steps:** 102 · **Ends:** returns
+
+**Watch for:** `grid` as a grid of characters; each land cell turns to water as `sink` reaches it, and the call-stack card shows the void recursion.
+
+**Code**
+
+```java
+class Solution {
+    public int numIslands(char[][] grid) {
+        int count = 0;
+        for (int r = 0; r < grid.length; r++) {
+            for (int c = 0; c < grid[0].length; c++) {
+                if (grid[r][c] == '1') {
+                    count++;
+                    sink(grid, r, c);
+                }
+            }
+        }
+        return count;
+    }
+
+    private void sink(char[][] grid, int r, int c) {
+        if (r < 0 || c < 0 || r >= grid.length || c >= grid[0].length || grid[r][c] != '1') return;
+        grid[r][c] = '0';
+        sink(grid, r + 1, c);
+        sink(grid, r - 1, c);
+        sink(grid, r, c + 1);
+        sink(grid, r, c - 1);
+    }
+}
+```
+
+**Example**
+
+```text
+Input: grid = [["1","1","0"],["0","1","0"],["0","0","1"]]
+Output: 2
+```
+
+**Notes**
+
+- 
+
+
+## 91 Subsets (backtracking, void)
+
+**Exercises:** array, recursion · **Steps:** 57 · **Ends:** returns
+
+**Watch for:** `path` grows and shrinks; `result` gains a copy at each call (`new ArrayList<>(path)`), so no two of its lists are marked as one.
+
+**Code**
+
+```java
+class Solution {
+    public List<List<Integer>> subsets(int[] nums) {
+        List<List<Integer>> result = new ArrayList<>();
+        List<Integer> path = new ArrayList<>();
+        backtrack(nums, 0, path, result);
+        return result;
+    }
+
+    private void backtrack(int[] nums, int start, List<Integer> path, List<List<Integer>> result) {
+        result.add(new ArrayList<>(path));
+        for (int i = start; i < nums.length; i++) {
+            path.add(nums[i]);
+            backtrack(nums, i + 1, path, result);
+            path.remove(path.size() - 1);
+        }
+    }
+}
+```
+
+**Example**
+
+```text
+Input: nums = [1,2,3]
+Output: [[],[1],[1,2],[1,2,3],[1,3],[2],[2,3],[3]]
+```
+
+**Notes**
+
+- 
+
+
+## 92 Climbing Stairs (memo as a member)
+
+**Exercises:** map (member), recursion · **Steps:** 28 · **Ends:** returns
+
+**Watch for:** `memo` is a field of Solution, shown under Members at every step; `memo.containsKey(n)` and `memo.get(n)` outline the entry they read.
+
+**Code**
+
+```java
+class Solution {
+    private Map<Integer, Integer> memo = new HashMap<>();
+
+    public int climbStairs(int n) {
+        if (n <= 2) return n;
+        if (memo.containsKey(n)) return memo.get(n);
+        memo.put(n, climbStairs(n - 1) + climbStairs(n - 2));
+        return memo.get(n);
+    }
+}
+```
+
+**Example**
+
+```text
+Input: n = 5
+Output: 8
+```
+
+**Notes**
+
+- 
+
+
+# More for the Examples menu
+
+The C++ and Python versions of Examples menu problems that the sections above did not have.
+
+## 93 Maximum Depth of Binary Tree (recursion)
+
+**Exercises:** tree, recursion · **Steps:** 43 · **Ends:** returns
+
+**Watch for:** The recursion card shows each call with its node and what it returned, as in the Python and Java cases.
+
+**Code**
+
+```cpp
+/**
+ * Definition for a binary tree node.
+ * struct TreeNode {
+ *     int val;
+ *     TreeNode *left;
+ *     TreeNode *right;
+ *     TreeNode() : val(0), left(nullptr), right(nullptr) {}
+ *     TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}
+ *     TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}
+ * };
+ */
+class Solution {
+public:
+    int maxDepth(TreeNode* root) {
+        if (root == nullptr) {
+            return 0;
+        }
+        int left = maxDepth(root->left);
+        int right = maxDepth(root->right);
+        return 1 + max(left, right);
+    }
+};
+```
+
+**Example**
+
+```text
+Input: root = [3,9,20,null,null,15,7]
+Output: 3
+```
+
+**Notes**
+
+- 
+
+
+## 94 Container With Most Water (two pointers)
+
+**Exercises:** array · **Steps:** 45 · **Ends:** returns
+
+**Watch for:** `left` and `right` markers walk in from both ends of `height`, as in the C++ and Java cases.
+
+**Code**
+
+```python
+class Solution:
+    def maxArea(self, height: List[int]) -> int:
+        left, right = 0, len(height) - 1
+        best = 0
+        while left < right:
+            h = min(height[left], height[right])
+            best = max(best, h * (right - left))
+            if height[left] < height[right]:
+                left += 1
+            else:
+                right -= 1
+        return best
+```
+
+**Example**
+
+```text
+Input: height = [1,8,6,2,5,4,8,3,7]
+Output: 49
 ```
 
 **Notes**

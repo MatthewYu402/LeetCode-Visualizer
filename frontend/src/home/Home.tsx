@@ -14,11 +14,11 @@ export const APP_VERSION = `v${__APP_VERSION__}`;
 export const REPO_URL = "https://github.com/MatthewYu402/LeetCode-Visualizer";
 export const CONTACT_EMAIL = "myu22826@gmail.com";
 
-/** Languages: the ones that run today first, then the planned one. */
+/** Languages, in the order they arrived. */
 export const LANGUAGE_STATUS: { name: string; ready: boolean; note: string }[] = [
   { name: "C++", ready: true, note: "Available now" },
   { name: "Python", ready: true, note: "Available now" },
-  { name: "Java", ready: false, note: "Coming soon" },
+  { name: "Java", ready: true, note: "Available now" },
 ];
 
 /**
@@ -91,7 +91,7 @@ export function Home() {
             </div>
             <p className="hero-note">
               <span className="lang-dot is-ready" aria-hidden="true" />
-              C++ and Python today. Java is coming.
+              C++, Python, and Java.
             </p>
           </div>
           <Preview />
@@ -102,7 +102,10 @@ export function Home() {
             <h2 id="examples-title" className="section-title">
               Start from an example
             </h2>
-            <p className="section-lede">Each opens the sandbox with the Solution in the editor and the example in the inputs. Press Run code to see it.</p>
+            <p className="section-lede">
+              Each opens the sandbox with the C++ Solution in the editor and the example in the inputs. Press Run code to see it. The sandbox's Examples
+              menu has each one in Python and Java too.
+            </p>
           </div>
           <ul className="example-grid">
             {EXAMPLES.map((e) => (

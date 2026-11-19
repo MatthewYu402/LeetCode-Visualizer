@@ -4059,3 +4059,204 @@ select.field-input {
 .shared-more {
   color: var(--fg-faint);
 }
+
+/* ---- Examples menu in the top bar (components/ExamplesMenu.tsx, docs/frontend.md §10.2) ---- */
+
+.examples-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.examples-button {
+  padding: 0 10px;
+}
+
+.examples-button .icon-stroke {
+  color: var(--fg-muted);
+}
+
+.examples-button.is-open {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border-strong));
+  background: var(--bg-control-on);
+}
+
+.examples-button.is-open .icon-stroke {
+  color: var(--accent);
+}
+
+.examples-chevron {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.examples-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 500px;
+  max-width: calc(100vw - 32px);
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  animation: view-menu-in 160ms ease-out both;
+}
+
+.examples-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.examples-tab {
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.examples-tab:hover {
+  color: var(--fg);
+}
+
+.examples-tab[aria-selected="true"] {
+  color: var(--fg);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.examples-list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+}
+
+.examples-item {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.examples-item:hover,
+.examples-item:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
+}
+
+.examples-topic {
+  width: 96px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.examples-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.examples-tags {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-faint);
+  white-space: nowrap;
+}
+
+.examples-foot {
+  margin: 0;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+/* A dialog over the page: asks before an example replaces the user's code. */
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  animation: dialog-fade 160ms ease-out both;
+}
+
+.dialog {
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  box-shadow: var(--card-shadow);
+  animation: view-menu-in 180ms ease-out both;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dialog-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  color: var(--fg-muted);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.dialog-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.dialog-primary:hover:not(:disabled) {
+  border-color: var(--accent-strong);
+}
+
+@keyframes dialog-fade {
+  from {
+    opacity: 0;
+  }
+}

@@ -7,18 +7,45 @@ export type EditorLanguage = "cpp" | "java" | "python";
 /** `runs`: the backend can trace it (its `language` field takes the same id). */
 export const LANGUAGES: { id: EditorLanguage; label: string; monaco: string; runs: boolean }[] = [
   { id: "cpp", label: "C++", monaco: "cpp", runs: true },
-  { id: "java", label: "Java", monaco: "java", runs: false },
   { id: "python", label: "Python", monaco: "python", runs: true },
+  { id: "java", label: "Java", monaco: "java", runs: true },
 ];
 
 export function canRun(id: EditorLanguage): boolean {
   return LANGUAGES.find((l) => l.id === id)?.runs ?? false;
 }
 
-/** The languages that run, as a sentence: "C++ and Python". */
-export const RUNNABLE = LANGUAGES.filter((l) => l.runs)
-  .map((l) => l.label)
-  .join(" and ");
+/** The languages that run, as a sentence: "C++, Python, and Java". */
+export const RUNNABLE = sentence(LANGUAGES.filter((l) => l.runs).map((l) => l.label));
+
+function sentence(items: string[]): string {
+  if (items.length <= 2) return items.join(" and ");
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+export function isEditorLanguage(id: string | null | undefined): id is EditorLanguage {
+  return LANGUAGES.some((l) => l.id === id);
+}
+
+const LANGUAGE_KEY = "lcv-language";
+
+/** The language picked last in this browser tab (sessionStorage), if any. Storage can be blocked. */
+export function rememberedLanguage(): EditorLanguage | null {
+  try {
+    const id = globalThis.sessionStorage?.getItem(LANGUAGE_KEY);
+    return isEditorLanguage(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberLanguage(id: EditorLanguage): void {
+  try {
+    globalThis.sessionStorage?.setItem(LANGUAGE_KEY, id);
+  } catch {
+    // blocked storage: the choice lasts until the page is reloaded
+  }
+}
 
 export function monacoLanguage(id: EditorLanguage): string {
   return LANGUAGES.find((l) => l.id === id)?.monaco ?? "plaintext";

@@ -1,4 +1,6 @@
 import { LANGUAGES, type EditorLanguage } from "../editor/languages";
+import type { Example } from "../home/examples";
+import { ExamplesMenu } from "./ExamplesMenu";
 import { href } from "../route";
 import type { Theme } from "../theme";
 import { Logo } from "./Logo";
@@ -18,13 +20,17 @@ interface Props {
   runShortcut: string;
   theme: Theme;
   onToggleTheme: () => void;
+  /** The editor holds code the user changed (the Examples menu asks before replacing it). */
+  dirty: boolean;
+  onExample: (example: Example, language: EditorLanguage) => void;
 }
 
 /**
- * The top bar: the name, then what to run and how to show it (language, the call-stack
- * switch), then the theme button and Run code. Playback lives in the bar at the bottom.
+ * The top bar: the name, then what to run (the language, and the Examples menu), then how to
+ * show it (the call-stack switch), the theme button, and Run code. Playback lives in the bar at
+ * the bottom.
  */
-export function Toolbar({ language, onLanguage, showCalls, onShowCalls, onRun, running, blocked, runShortcut, theme, onToggleTheme }: Props) {
+export function Toolbar({ language, onLanguage, showCalls, onShowCalls, onRun, running, blocked, runShortcut, theme, onToggleTheme, dirty, onExample }: Props) {
   const otherTheme = theme === "dark" ? "light" : "dark";
   const runTitle = running ? "Running in the sandbox…" : (blocked ?? `Run your Solution on these inputs (${runShortcut})`);
   return (
@@ -48,23 +54,23 @@ export function Toolbar({ language, onLanguage, showCalls, onShowCalls, onRun, r
           <path d="M1 1l4 4 4-4" />
         </svg>
       </label>
-
-      <button
-        type="button"
-        role="switch"
-        aria-checked={showCalls}
-        className="control switch-control"
-        title="Show the call stack on the canvas while a function runs"
-        onClick={() => onShowCalls(!showCalls)}
-      >
-        <StackIcon />
-        <span>Call stack</span>
-        <span className="switch-track" aria-hidden="true">
-          <span className="switch-knob" />
-        </span>
-      </button>
+      <ExamplesMenu language={language} dirty={dirty} onPick={onExample} />
 
       <div className="topbar-end">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showCalls}
+          className="control switch-control"
+          title="Show the call stack on the canvas while a function runs"
+          onClick={() => onShowCalls(!showCalls)}
+        >
+          <StackIcon />
+          <span>Call stack</span>
+          <span className="switch-track" aria-hidden="true">
+            <span className="switch-knob" />
+          </span>
+        </button>
         {/* The icon shows the theme a press switches to: a sun on the dark page, a moon on the light one. */}
         <button type="button" className="control icon-control" aria-label={`Switch to the ${otherTheme} theme`} title={`Switch to the ${otherTheme} theme`} onClick={onToggleTheme}>
           {theme === "dark" ? <SunIcon /> : <MoonIcon />}

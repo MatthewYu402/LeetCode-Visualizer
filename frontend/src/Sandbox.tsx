@@ -8,8 +8,20 @@ import { Split } from "./components/Split";
 import { StatePanel } from "./components/StatePanel";
 import { Toolbar } from "./components/Toolbar";
 import { VisualPanel } from "./components/VisualPanel";
-import { canRun, LANGUAGES, monacoLanguage, RUNNABLE, STARTER_EXAMPLE, TEMPLATES, type EditorLanguage } from "./editor/languages";
+import {
+  canRun,
+  isEditorLanguage,
+  LANGUAGES,
+  monacoLanguage,
+  rememberedLanguage,
+  rememberLanguage,
+  RUNNABLE,
+  STARTER_EXAMPLE,
+  TEMPLATES,
+  type EditorLanguage,
+} from "./editor/languages";
 import type { Example } from "./home/examples";
+import { href } from "./route";
 import { usePlayer } from "./player/usePlayer";
 import { useTheme } from "./theme";
 import type { PlayerAction } from "./player/playback";
@@ -26,12 +38,18 @@ const RUN_KEYS = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? "") ? 
  * a run (Run code, or Cmd/Ctrl + Enter) gives the trace to replay. The default export, so
  * App.tsx can load it, with Monaco, only when the sandbox is opened.
  */
-export default function Sandbox({ example }: { example?: Example }) {
+export default function Sandbox({ example, language: routeLanguage, reopen }: { example?: Example; language?: string; reopen?: () => void }) {
   // The language is a UI input: it picks the editor mode and the starter template, and is sent
   // to the API with the code. It is never passed to a renderer, the diff, or the state panel.
-  // Examples are C++.
-  const [language, setLanguage] = useState<EditorLanguage>("cpp");
-  const [source, setSource] = useState(example?.code ?? TEMPLATES.cpp);
+  // An example opens in the route's language (the home page's cards: C++); the bare sandbox in
+  // the language picked last in this tab.
+  const [language, setLanguage] = useState<EditorLanguage>(() =>
+    isEditorLanguage(routeLanguage) ? routeLanguage : example ? "cpp" : (rememberedLanguage() ?? "cpp"),
+  );
+  const solution = example?.solutions[language];
+  // What the editor was given (an example, or a starter): the user's own changes are anything else.
+  const [given, setGiven] = useState(() => solution?.code ?? TEMPLATES[language]);
+  const [source, setSource] = useState(given);
   const [showCalls, setShowCalls] = useState(true);
   const { theme, toggle: toggleTheme } = useTheme();
 
@@ -56,6 +74,16 @@ export default function Sandbox({ example }: { example?: Example }) {
   const onLanguage = (l: EditorLanguage) => {
     setLanguage(l);
     setSource(TEMPLATES[l]);
+    setGiven(TEMPLATES[l]);
+    rememberLanguage(l);
+  };
+
+  // An example from the menu opens a fresh sandbox through the route (App keys the sandbox by it).
+  const onExample = (e: Example, l: EditorLanguage) => {
+    rememberLanguage(l);
+    const target = href({ page: "sandbox", example: e.slug, language: l });
+    if (globalThis.location.hash === target) reopen?.();
+    else globalThis.location.hash = target;
   };
 
   useKeyboard(dispatch, inputs.start);
@@ -73,6 +101,8 @@ export default function Sandbox({ example }: { example?: Example }) {
         runShortcut={RUN_KEYS.join(" ")}
         theme={theme}
         onToggleTheme={toggleTheme}
+        dirty={source !== given}
+        onExample={onExample}
       />
       <main className="workspace">
         <Split
@@ -104,7 +134,7 @@ export default function Sandbox({ example }: { example?: Example }) {
               second={
                 <section className="panel">
                   <div className="panel-body">
-                    <InputsPanel inputs={inputs} example={runs && !example ? STARTER_EXAMPLE : undefined} preset={example?.text} />
+                    <InputsPanel inputs={inputs} example={runs && !example ? STARTER_EXAMPLE : undefined} preset={solution?.text} />
                   </div>
                 </section>
               }

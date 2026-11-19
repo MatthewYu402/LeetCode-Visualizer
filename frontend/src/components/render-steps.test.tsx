@@ -253,6 +253,8 @@ describe("top bar", () => {
         runShortcut="Ctrl Enter"
         theme="dark"
         onToggleTheme={() => {}}
+        dirty={false}
+        onExample={() => {}}
         {...over}
       />,
     );
@@ -272,6 +274,13 @@ describe("top bar", () => {
     expect(running).toContain("Running…");
     expect(running).toContain('class="spinner"');
     expect(running).not.toMatch(/<button[^>]*class="run-button[^"]*"[^>]*disabled=""/);
+  });
+
+  it("has the Examples button beside the language, and the call-stack switch at the end, before the theme button", () => {
+    const html = bar();
+    expect(html).toMatch(/<\/select>[^]*?aria-haspopup="menu"[^]*?<span>Examples<\/span>/);
+    expect(html.indexOf('class="topbar-end"')).toBeLessThan(html.indexOf('role="switch"'));
+    expect(html.indexOf('role="switch"')).toBeLessThan(html.indexOf("Switch to the light theme"));
   });
 
   it("the call-stack switch says when it is off", () => {

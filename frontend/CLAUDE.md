@@ -6,7 +6,7 @@ Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and 
 
 ## What this is
 
-Two pages, chosen by the URL's hash (`route.ts`, `docs/frontend.md` §12): the home page (`#/`, the default) and the sandbox (`#/sandbox`, or `#/sandbox/<example>` with an example's Solution and inputs filled in). The home page says what the tool is, replays the Reverse Linked List golden trace through the real canvas, and links to six example problems copied from `docs/manual-test-suite.md`. The sandbox is loaded lazily, so the home page does not download Monaco.
+Two pages, chosen by the URL's hash (`route.ts`, `docs/frontend.md` §12): the home page (`#/`, the default) and the sandbox (`#/sandbox`, or `#/sandbox/<example>` with an example's Solution and inputs filled in). The home page says what the tool is, replays the Reverse Linked List golden trace through the real canvas, and links to eight example problems copied from `docs/manual-test-suite.md` (in C++; the sandbox's Examples menu opens them in Python and Java too). The sandbox is loaded lazily, so the home page does not download Monaco.
 
 The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). It has a dark theme and a light one (`theme.ts`, `docs/frontend.md` §11). While a run is going, the canvas shows `RunningCanvas`. When the program printed something, the state panel has an Output tab. A 2D array can be drawn as a graph or as intervals, from the parameter's hint or the card's View menu (`docs/frontend.md` §5.1).
 
@@ -34,8 +34,8 @@ React + TypeScript + Vite, `@monaco-editor/react` with `monaco-editor` bundled l
 ```
 src/
 ├── App.tsx              the switch between the pages, inside MotionConfig; loads Sandbox lazily
-├── Sandbox.tsx          the sandbox page: layout, language, keyboard shortcuts (Cmd/Ctrl + Enter runs); an optional example to open with
-├── route.ts             the hash route: parseRoute, href, titleFor, useRoute
+├── Sandbox.tsx          the sandbox page: layout, language (remembered for the tab), keyboard shortcuts (Cmd/Ctrl + Enter runs); an optional example and language to open with
+├── route.ts             the hash route: parseRoute, href, titleFor, useRoute (#/sandbox/<example>/<language>)
 ├── main.tsx             entry: fonts, theme, styles
 ├── theme.ts             the page's theme: data-theme on <html>, the system's setting, the toggle, remembering the choice
 ├── api/
@@ -71,9 +71,9 @@ src/
 ├── home/
 │   ├── Home.tsx         the home page: bar with section links, centered pitch with the version badge, preview, example cards, how it works, languages, footer links
 │   ├── Preview.tsx      the golden Reverse Linked List trace replayed by VisualPanel beside its code; plays, pauses, steps
-│   └── examples.ts      the six example problems, verbatim from docs/manual-test-suite.md (examples.test.ts checks it)
+│   └── examples.ts      the eight example problems, each in C++, Python, and Java, verbatim from docs/manual-test-suite.md (examples.test.ts checks it)
 ├── assets/              the author's logo: the eye, white for the dark theme, black for the light one
-├── components/          Logo (both logo files, CSS shows the theme's), Toolbar (top bar), PlaybackBar, CodePanel, PasteHint (the info button beside the Code title), ViewMenu (a card's "View as" button and menu), InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
+├── components/          Logo (both logo files, CSS shows the theme's), Toolbar (top bar), ExamplesMenu (the top bar's Examples button: language tabs, eight problems, the replace-your-code dialog), PlaybackBar, CodePanel, PasteHint (the info button beside the Code title), ViewMenu (a card's "View as" button and menu), InputsPanel, VisualPanel, RunningCanvas (the canvas during a run), StatePanel (locals, result, Output tab), RecursionTree (the recursion card), CallStackCard, Split
 ├── editor/              Monaco setup and theme, editor languages, the Two Sum starter and its example
 └── styles/              theme.css (tokens), app.css (layout)
 ```
@@ -84,7 +84,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 
 1. **Renderers are pure.** A renderer is a function of `(value, diff, ctx)` for one step. No state, no access to other steps, and it must draw correctly with `diff = null`.
 2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`), the call tree (`callTree`), which 2D locals are ever ragged (`raggedLocals`, so a local keeps one drawing), which bare-string locals are strings rather than chars (`stringLocals`, so a string keeps its card), and which integer locals never change (`steadyLocals`, whose pointer markers are muted). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
-3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `Sandbox.tsx` may use it, to pick the editor mode and the starter template. Renderers, diff, and the state panel never see it.
+3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `Sandbox.tsx` (and the top bar's Examples menu) may use it, to pick the editor mode, the starter template, and the example's version, and to send it to the API. Renderers, diff, and the state panel never see it.
 4. **A diff is shown only after a one-step move forward** (`cameFrom === index - 1`). Step 0, jumps, and moving back draw with no diff.
 5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`, or its value (`3.0`); read a number out of one with `asNumber`. The 32- and 64-bit integer limits show as `2³¹−1` and the like (`formatValue`); tooltips use `fullValue`, which keeps every digit.
 6. **Map order is the trace's order.** Never sort map entries (or set, multiset, multimap members) for display. Diffs match by key, never by position; multiset and multimap match by count. `canonical` sorts members only to compare.
