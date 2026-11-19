@@ -114,7 +114,7 @@ describe("intervals", () => {
 describe("the View menu on the canvas", () => {
   const trace = (params: Trace["problem"]["params"], locals: Record<string, Value>): Trace =>
     ({
-      version: "0.12",
+      version: "0.13",
       language: "cpp",
       problem: { method: "f", params, returns: { type: "int" }, input: {} },
       steps: [{ step: 0, frames: [{ id: "f1", function: "f", line: 2, locals }], heap: {} } as Step],

@@ -77,7 +77,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.12"} ;
+  inline constexpr const char* VERSION  {"0.13"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -322,7 +322,7 @@ namespace trace {
     }
   };
 
-  // Floats: NaN and infinities are tagged; finite values use the shortest round-trip text.
+  // Floats: NaN, the infinities, and whole values are tagged; others use the shortest round-trip text.
   template <std::floating_point T> requires (!std::is_volatile_v<T>) struct Serializer<T> {
     static Json write(const T& value, Ctx&) {
       if (std::isnan(value)) {
@@ -341,9 +341,14 @@ namespace trace {
       // 2. Compute the shortest round-trip representation (best for JSON).
       auto [ptr, ec] = std::to_chars(buffer, buffer + sizeof(buffer), value);
 
-      // 3. Return the string segment on success.
+      // 3. Return the string segment on success. A whole value (2.0, -0.0) would be the JSON
+      // number 2, which no reader can tell from an int, so it is tagged with its ".0" kept
+      // (trace-format.md, Numbers JSON cannot carry exactly). One in exponent form (1e+300) stays bare.
       if (ec == std::errc()) {
-        return Json(buffer, ptr - buffer);
+        const std::string_view text(buffer, ptr - buffer);
+        if (text.find_first_of(".e") == std::string_view::npos)
+          return std::format(R"({{"kind": "float", "value": "{}.0"}})", text);
+        return Json(text);
       }
 
       // If std::to_chars fails

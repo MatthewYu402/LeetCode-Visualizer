@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.12).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.13).",
   "type": "object",
   "required": [
     "version",
@@ -194,16 +194,24 @@
         "value"
       ],
       "additionalProperties": false,
-      "description": "Non-finite float, which JSON has no syntax for. Finite floats are bare numbers.",
+      "description": "A float JSON cannot carry as a float: NaN and the infinities, which JSON has no syntax for, and a whole value (2.0), which as a bare number could not be told from an int. Other finite floats are bare numbers.",
       "properties": {
         "kind": {
           "const": "float"
         },
         "value": {
-          "enum": [
-            "NaN",
-            "Infinity",
-            "-Infinity"
+          "anyOf": [
+            {
+              "enum": [
+                "NaN",
+                "Infinity",
+                "-Infinity"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^-?(0|[1-9][0-9]*)\\.0$"
+            }
           ]
         }
       }

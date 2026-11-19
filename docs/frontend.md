@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.15 (reads trace format v0.12)
+> **Status:** Draft v0.16 (reads trace format v0.13)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -109,10 +109,10 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.12"` and rejects everything else with an error shown in the visual panel:
+The loader accepts exactly `"0.13"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.12 only.
+Unsupported trace version "0.2". This frontend reads version 0.13 only.
 ```
 
 Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
@@ -138,7 +138,7 @@ The loader also checks the minimal shape it needs to draw (`steps` is an array o
 
 #### Tagged numbers
 - `{"kind": "int", "value": "9007199254740993"}` is displayed by its string. `value` is never passed to `Number()`, so no digit is lost. Nothing in this version does arithmetic or comparison on a tagged int, so `BigInt` is not used yet. If a renderer needs it later (say, sorting by value), it converts there, and only there.
-- `{"kind": "float", "value": "NaN"}` is displayed as `NaN`, `"Infinity"` as `∞`, and `"-Infinity"` as `-∞`.
+- `{"kind": "float", "value": "NaN"}` is displayed as `NaN`, `"Infinity"` as `∞`, and `"-Infinity"` as `-∞`. A whole float (v0.13) is displayed by its value, `3.0`, and its kind is `float`; `asNumber` reads it as a number where one is needed (a graph's node numbers, an interval's ends).
 - A tagged int is never a valid array index, since it is beyond 2^53, so it never becomes a pointer marker.
 - **Integer limits are written as powers of two**: 2147483647 is `2³¹−1`, −2147483648 is `−2³¹`, and 4294967295, 2^63 − 1, −2^63, and 2^64 − 1 likewise (`formatValue`). Dijkstra's `dist` and many DP tables start from one of them as "infinity", and ten digits in every cell hid the few that matter. They are values, not a language's names (`INT_MAX`, `Integer.MAX_VALUE`), so the rule holds for every language. Tooltips and the state panel's hover keep every digit (`fullValue`).
 

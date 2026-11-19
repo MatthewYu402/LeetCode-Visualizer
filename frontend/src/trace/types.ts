@@ -1,4 +1,4 @@
-// TypeScript mirror of schema/trace.schema.json (trace format v0.12).
+// TypeScript mirror of schema/trace.schema.json (trace format v0.13).
 // Spec: docs/trace-format.md. When the spec changes, this file changes with it.
 
 export type Primitive = string | number | boolean | null;
@@ -11,7 +11,15 @@ export interface TaggedInt {
 
 export interface TaggedFloat {
   kind: "float";
-  value: "NaN" | "Infinity" | "-Infinity";
+  /** NaN, an infinity, or a whole value with its ".0" kept ("2.0", "-0.0"; since v0.13), so it is not mistaken for an int. */
+  value: "NaN" | "Infinity" | "-Infinity" | `${number}.0`;
+}
+
+/** A plain number, or a whole float's value as a number (2.0 is 2); null for anything else, NaN and the infinities included. */
+export function asNumber(v: Value): number | null {
+  if (typeof v === "number") return v;
+  if (isTagged(v) && v.kind === "float" && v.value.endsWith(".0")) return Number(v.value);
+  return null;
 }
 
 /**

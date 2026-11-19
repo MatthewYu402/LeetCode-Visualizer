@@ -1,4 +1,4 @@
-import { hasItems, isTagged, type Hint, type Value } from "../trace/types";
+import { asNumber, hasItems, isTagged, type Hint, type Value } from "../trace/types";
 
 /**
  * "View as" (docs/frontend.md §5.3): the drawings a 2D array can be switched between. `kind` is
@@ -26,8 +26,9 @@ export interface ViewOption {
 
 /** A tuple of plain numbers (a C++ pair<int, int>), as its numbers, or null. */
 function tupleNumbers(v: Value): number[] | null {
-  if (!isTagged(v) || v.kind !== "tuple" || !v.items.every((x) => typeof x === "number")) return null;
-  return v.items as number[];
+  if (!isTagged(v) || v.kind !== "tuple") return null;
+  const out = v.items.map(asNumber);
+  return out.every((x) => x !== null) ? (out as number[]) : null;
 }
 
 /**
@@ -43,6 +44,7 @@ export function adjacencyOf(value: Value): { to: number; weight?: number }[][] |
     const entries: { to: number; weight?: number }[] = [];
     for (const item of row.items) {
       if (typeof item === "number") entries.push({ to: item });
+      else if (asNumber(item) !== null) entries.push({ to: asNumber(item)! });
       else {
         const t = tupleNumbers(item);
         if (!t || t.length !== 2) return null;
@@ -74,8 +76,9 @@ export function numberRows(value: Value): number[][] | null {
   const rows: number[][] = [];
   for (const item of value.items) {
     if (!isTagged(item) || item.kind !== "array") return null;
-    if (!item.items.every((v) => typeof v === "number")) return null;
-    rows.push(item.items as number[]);
+    const row = item.items.map(asNumber);
+    if (!row.every((v) => v !== null)) return null;
+    rows.push(row as number[]);
   }
   return rows;
 }

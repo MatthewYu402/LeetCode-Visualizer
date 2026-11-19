@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.12
+> **Status:** Draft v0.13
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.12",
+  "version": "0.13",
   "language": "cpp",
   "problem": { ... },
   "indexes": { ... },
@@ -235,20 +235,22 @@ Plain JSON: `5`, `3.14`, `"abc"`, `true`, `null`.
 - Maps use an array of `[key, value]` pairs instead of a JSON object, because JSON object keys must be strings and map keys can be ints or other types. The pairs are raw JSON arrays, never a tagged kind.
 
 #### Numbers JSON cannot carry exactly
-The frontend parses traces in JavaScript, where every number is an IEEE 754 double. Two kinds of value do not survive that:
+The frontend parses traces in JavaScript, where every number is an IEEE 754 double. Three kinds of value do not survive that:
 
 - **Integers outside ±(2^53 − 1)** (`Number.MAX_SAFE_INTEGER`). `JSON.parse` rounds them to the nearest double without any error.
 - **NaN, +Infinity, and −Infinity.** JSON has no syntax for them, so a bare `NaN` makes the whole trace unparseable.
+- **Whole floats.** A double holding 3.0 would be the JSON number `3`, which no reader can tell from an int: Average of Levels' `[3.0, 14.5, 11.0]` would read as `[3, 14.5, 11]`.
 
 These are tagged, with the exact value in a string:
 
 ```json
 {"kind": "int",   "value": "9007199254740993"}
 {"kind": "float", "value": "-Infinity"}
+{"kind": "float", "value": "3.0"}
 ```
 
 - `int.value` is decimal digits with an optional leading `-` and no leading zeros. Adapters **must** use it for integers outside the safe range and **must not** use it inside the range.
-- `float.value` is exactly `"NaN"`, `"Infinity"`, or `"-Infinity"`. Every finite float is a bare number, including large ones such as `1e300`, because JavaScript numbers are doubles too.
+- `float.value` is `"NaN"`, `"Infinity"`, `"-Infinity"`, or a whole value written as its digits and `.0` (`"3.0"`, `"-0.0"`; since v0.13). Adapters **must** tag a float whose shortest text has no fraction and no exponent, and **must not** tag any other finite float: `14.5` and `1e+300` stay bare numbers, because JavaScript numbers are doubles too and a reader can see they are not ints.
 - Finite floats are written as the shortest text that round-trips to the same value in their own type (C++ `std::to_chars`).
 - `null` never stands for NaN or infinity. It means no value ([Primitives](#primitives)).
 
@@ -495,7 +497,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.12",
+  "version": "0.13",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -597,6 +599,9 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.13**:
+  - A whole float (3.0) is written `{"kind": "float", "value": "3.0"}` instead of the bare number `3`, so it is not mistaken for an int.
+  - A v0.12 trace holding a whole float is not valid as a v0.13 one until that number is tagged; every other v0.12 trace is valid once its `version` is changed.
 - **v0.12**:
   - Adds the optional `members` on a step: the traced object's member variables, written once per step beside the frames. A `read`'s target and the containers in `indexes` may name a member.
   - `indexes` pairs a local with a container only when the index is the local or the local plus or minus a constant (`nums[i + 1]`); before, any integer local named in the index was paired (`dp[i - coin]` paired `coin`).
@@ -727,4 +732,6 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q28. Why one `members` object per step, instead of copying the members into every frame's `locals`?** Every call shares the one object, so a copy per frame would write the same memo table once per call on the stack, and a reader would have to know that ten `memo`s are one. A name like `this.memo` or `self.memo` would also put a language's syntax in the trace. One object beside the frames says what is true: the state belongs to the object, and every frame sees it.
 
 > **Q29. Why pair a local with a container only when the index is the local plus or minus a constant?** A marker says "this local points here", and that is true only when the position is where the local's value says. `nums[i + 1]` is one past `i`, so `i` still points into `nums`. In `dp[i - coin]` the position is neither `i` nor `coin`, and drawing `coin` at `dp[coin]` (the first rule) put a marker on a cell the code never used. The narrower rule misses some real pointers (`nums[n - 1 - i]` mirrors `i`), but a missing marker misleads less than a wrong one.
+
+> **Q30. Why tag a whole float instead of writing `3.0` as a bare number?** `3.0` is valid JSON, but every JSON parser, JavaScript's included, reads it as the same number as `3`, so the `.0` is gone before the frontend sees it. A type for every value would fix that and double the trace; a tag only on the values that need one is the rule the format already follows for big ints and NaN (Key Insight 4).
 

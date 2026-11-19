@@ -135,12 +135,13 @@ int main()
       std::cout << "floating point\n";
       check("2.5", serialize(2.5, ctx), R"(2.5)");
       check("-2.5", serialize(-2.5, ctx), R"(-2.5)");
-      check("whole double", serialize(2.0, ctx), R"(2)");
+      check("whole double is tagged, so it stays a float", serialize(2.0, ctx), R"({"kind": "float", "value": "2.0"})");
+      check("whole float is tagged", serialize(3.0f, ctx), R"({"kind": "float", "value": "3.0"})");
       check("0.1 shortest", serialize(0.1, ctx), R"(0.1)");      // not 0.100000
       check("0.1f stays float", serialize(0.1f, ctx), R"(0.1)"); // not 0.10000000149011612
       check("tiny", serialize(1e-7, ctx), R"(1e-07)");           // not 0.000000
       check("huge stays bare", serialize(1e300, ctx), R"(1e+300)");
-      check("negative zero", serialize(-0.0, ctx), R"(-0)");
+      check("negative zero", serialize(-0.0, ctx), R"({"kind": "float", "value": "-0.0"})");
       check("NaN is tagged", serialize(nan, ctx), R"({"kind": "float", "value": "NaN"})");
       check("+inf is tagged", serialize(inf, ctx), R"({"kind": "float", "value": "Infinity"})");
       check("-inf is tagged", serialize(-inf, ctx), R"({"kind": "float", "value": "-Infinity"})");

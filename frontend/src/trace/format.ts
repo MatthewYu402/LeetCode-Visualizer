@@ -48,7 +48,7 @@ function formatIn(v: Value, node: ((id: string) => string | undefined) | undefin
     case "int":
       return (limits && LIMITS[v.value]) || v.value;
     case "float":
-      return FLOAT_TEXT[v.value] ?? v.value;
+      return FLOAT_TEXT[v.value as keyof typeof FLOAT_TEXT] ?? v.value;
     case "array":
     case "list":
     case "stack":

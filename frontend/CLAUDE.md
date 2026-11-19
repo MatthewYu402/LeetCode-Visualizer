@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.12).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.13).
 
 Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and rewriter: see the root `CLAUDE.md`).
 
@@ -40,7 +40,7 @@ src/
 │   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
 │   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.12")
+│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.13")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
@@ -76,7 +76,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 2. **Snapshots, not replays.** Step N is drawn from `steps[N]` alone. The diff reads `steps[N-1]` and `steps[N]` and nothing earlier. Never replay earlier steps to build state. The one exception is what is computed once from the whole trace when it loads and never changes: the layout of linked structures (`layoutTrace`), the call tree (`callTree`), which 2D locals are ever ragged (`raggedLocals`, so a local keeps one drawing), which bare-string locals are strings rather than chars (`stringLocals`, so a string keeps its card), and which integer locals never change (`steadyLocals`, whose pointer markers are muted). They give places and the calls' relationships; every node, edge, value, and colour drawn for step N still comes from step N (and its diff).
 3. **No language branching.** Nothing reads `trace.language`. The editor language select is a UI input: only `App.tsx` may use it, to pick the editor mode and the starter template. Renderers, diff, and the state panel never see it.
 4. **A diff is shown only after a one-step move forward** (`cameFrom === index - 1`). Step 0, jumps, and moving back draw with no diff.
-5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`. The 32- and 64-bit integer limits show as `2³¹−1` and the like (`formatValue`); tooltips use `fullValue`, which keeps every digit.
+5. **Tagged numbers stay strings.** Show `{"kind":"int"}` by its `value`; never pass it to `Number()`. Use `BigInt` only where arithmetic or comparison is needed. `{"kind":"float"}` shows as `NaN`, `∞`, `-∞`, or its value (`3.0`); read a number out of one with `asNumber`. The 32- and 64-bit integer limits show as `2³¹−1` and the like (`formatValue`); tooltips use `fullValue`, which keeps every digit.
 6. **Map order is the trace's order.** Never sort map entries (or set, multiset, multimap members) for display. Diffs match by key, never by position; multiset and multimap match by count. `canonical` sorts members only to compare.
 7. **Pointer markers** come from one rule only: an integer local that the trace's `indexes` pairs with that array in the running function (`indexes[frame.function][name]` lists the array; spec §3, Indexes) and whose value is a valid index into it, and an `iterator` local whose `container` is that array and whose `index` is in range. An iterator's marker is labeled with its own name, so `it` points at `nums[2]`; one at `end` gets no marker. A local that never changes in the run (`amount` in `dp[amount]`) keeps its marker, muted (`steady`).
 8. **Unknown kinds go to the fallback**, never crash.

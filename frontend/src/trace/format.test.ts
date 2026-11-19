@@ -26,7 +26,7 @@ describe("tagged numbers", () => {
 
   it("survives the loader", () => {
     const t = {
-      version: "0.12", language: "x", problem: { method: "f", params: [], input: {} },
+      version: "0.13", language: "x", problem: { method: "f", params: [], input: {} },
       steps: [{ step: 0, heap: {}, frames: [{ id: "f1", function: "f", line: 1, locals: { a: { kind: "int", value: "18446744073709551615" }, b: { kind: "float", value: "-Infinity" } } }] }],
       result: null,
     };
@@ -46,7 +46,7 @@ describe("formatValue", () => {
     expect(formatValue({ kind: "iterator", container: "numMap", end: true })).toBe("→ numMap.end()");
   });
 
-  it("formats every v0.12 kind compactly", () => {
+  it("formats every v0.13 kind compactly", () => {
     expect(formatValue({ kind: "multiset", items: [1, 1, 3] })).toBe("{1, 1, 3}");
     expect(formatValue({ kind: "multimap", entries: [[1, "a"], [1, "b"]] })).toBe('{1: "a", 1: "b"}');
     expect(formatValue({ kind: "array", items: [2, 7, 11, 15] })).toBe("[2, 7, 11, 15]");
@@ -91,5 +91,12 @@ describe("integer limits", () => {
     expect(fullValue(2147483647)).toBe("2147483647");
     expect(formatValue(2147483646)).toBe("2147483646");
     expect(formatValue(2147483647.5)).toBe("2147483647.5");
+  });
+});
+
+describe("whole floats (v0.13)", () => {
+  it("show their .0, so 3.0 in a vector<double> is not read as an int", () => {
+    expect(formatValue({ kind: "array", items: [{ kind: "float", value: "3.0" }, 14.5, { kind: "float", value: "11.0" }] })).toBe("[3.0, 14.5, 11.0]");
+    expect(kindOf({ kind: "float", value: "3.0" })).toBe("float");
   });
 });
