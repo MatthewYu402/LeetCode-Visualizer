@@ -3,7 +3,7 @@ import { voidFunctions } from "../trace/calls";
 import type { StepDiff } from "../trace/diff";
 import { formatValue, fullValue, kindOf } from "../trace/format";
 import { nodeLabel } from "../trace/heap";
-import { isReturning, returnsVoid, runEnd, topFrame, type ObjectValue, type Outcome, type RunEnd, type Step, type Trace, type Value } from "../trace/types";
+import { isReturning, returnsVoid, runEnd, topFrame, truncatedBy, type ObjectValue, type Outcome, type Step, type Trace, type Value } from "../trace/types";
 
 interface Props {
   trace: Trace | null;
@@ -54,6 +54,7 @@ export function StatePanel({ trace, step, index, diff, source, output, running =
   const count = trace.steps.length;
   const last = count - 1;
   const end = runEnd(trace);
+  const limit = truncatedBy(trace);
   const top = topFrame(step);
   const name = nodeName(step.heap);
   const removed = Object.entries(diff?.locals ?? {}).filter(([, d]) => d.status === "removed");
@@ -70,8 +71,8 @@ export function StatePanel({ trace, step, index, diff, source, output, running =
           <div className="state-progress" role="progressbar" aria-label="Progress" aria-valuemin={1} aria-valuemax={count} aria-valuenow={index + 1}>
             <div className="state-progress-fill" style={{ width: `${last > 0 ? (index / last) * 100 : 100}%` }} />
           </div>
-          {trace.truncated === true && (
-            <span className="badge badge-attention" title="Recording stopped at the step limit">
+          {limit !== null && (
+            <span className="badge badge-attention" title={LIMIT_TITLE[limit]}>
               truncated
             </span>
           )}
@@ -148,7 +149,7 @@ export function StatePanel({ trace, step, index, diff, source, output, running =
                 ))}
                 {index === last &&
                   (end !== "returned" ? (
-                    <NoResultRow end={end} />
+                    <NoResultRow why={limit ?? "stopped"} />
                   ) : returnsVoid(trace.problem) ? (
                     <VoidResultRow />
                   ) : (
@@ -197,10 +198,22 @@ function rowClass(status: string | undefined): string {
   return status === "added" ? "diff-added" : status === "changed" ? "diff-changed" : "";
 }
 
-const NO_RESULT: Record<Exclude<RunEnd, "returned">, { text: string; why: string }> = {
-  truncated: {
+const LIMIT_TITLE = {
+  steps: "Recording stopped at the step limit",
+  size: "Recording stopped at the size limit: the input is large, or the calls go very deep",
+} as const;
+
+/** Why the method has no result: "size" and "steps" are the two ways a truncated run ends. */
+const NO_RESULT: Record<"steps" | "size" | "stopped", { text: string; why: string }> = {
+  steps: {
     text: "did not return: stopped at the step limit",
     why: "Recording stopped at the step limit before the method returned, often because of an infinite loop. This is not a wrong answer.",
+  },
+  size: {
+    text: "did not return: stopped at the size limit",
+    why:
+      "Recording stopped once the trace reached its size limit, before the method returned. Every step holds every value and every call in progress, " +
+      "so a large input, or recursion hundreds of calls deep, fills it in a few hundred steps. Try a smaller input to see the whole run. This is not a wrong answer.",
   },
   stopped: {
     text: "did not return: the run ended early",
@@ -208,8 +221,8 @@ const NO_RESULT: Record<Exclude<RunEnd, "returned">, { text: string; why: string
   },
 };
 
-function NoResultRow({ end }: { end: Exclude<RunEnd, "returned"> }) {
-  const { text, why } = NO_RESULT[end];
+function NoResultRow({ why: reason }: { why: keyof typeof NO_RESULT }) {
+  const { text, why } = NO_RESULT[reason];
   return (
     <tr className="result-missing">
       <td className="state-name">result</td>

@@ -63,6 +63,18 @@ describe("Two Sum renders every step in isolation", () => {
     expect(renderStep({ ...trace, truncated: true }, 0, false)).toContain("truncated");
     expect(renderStep(trace, 0, false)).not.toContain("truncated");
   });
+
+  it("says which limit stopped recording", () => {
+    const { result: _, ...unfinished } = trace;
+    const last = trace.steps.length - 1;
+    const size = renderStep({ ...unfinished, truncated: true, truncated_by: "size" }, last, false);
+    expect(size).toContain("stopped at the size limit");
+    expect(size).toContain("Try a smaller input");
+    const steps = renderStep({ ...unfinished, truncated: true, truncated_by: "steps" }, last, false);
+    expect(steps).toContain("stopped at the step limit");
+    // A v0.14 trace has no truncated_by: the step limit was its only one.
+    expect(renderStep({ ...unfinished, truncated: true }, last, false)).toContain("stopped at the step limit");
+  });
 });
 
 describe("a run that did not finish", () => {

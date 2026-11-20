@@ -1,7 +1,12 @@
 import type { Trace } from "./types";
 
-/** The only trace version this frontend reads. Spec §9: while the major is 0, every minor may break. */
-export const SUPPORTED_VERSION = "0.14";
+/** The trace version this frontend is built for. Spec §9: while the major is 0, every minor may break. */
+export const SUPPORTED_VERSION = "0.15";
+/**
+ * Every version it reads. v0.15 only added the size budget and `truncated_by`, so a v0.14
+ * trace draws the same; a truncated one is read as stopped at the step limit (truncatedBy).
+ */
+export const SUPPORTED_VERSIONS: readonly string[] = [SUPPORTED_VERSION, "0.14"];
 
 export type LoadResult = { ok: true; trace: Trace } | { ok: false; error: string };
 
@@ -29,8 +34,8 @@ export function checkTrace(data: unknown): LoadResult {
 
   const { version } = data;
   if (typeof version !== "string") return fail("Trace has no version string.");
-  if (version !== SUPPORTED_VERSION) {
-    return fail(`Unsupported trace version "${version}". This frontend reads version ${SUPPORTED_VERSION} only.`);
+  if (!SUPPORTED_VERSIONS.includes(version)) {
+    return fail(`Unsupported trace version "${version}". This frontend reads versions ${SUPPORTED_VERSIONS.join(" and ")} only.`);
   }
 
   if (!isRecord(data.problem) || !Array.isArray(data.problem.params)) {

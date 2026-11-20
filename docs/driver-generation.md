@@ -227,7 +227,7 @@ How a run can end:
 | What happens | Trace file |
 |---|---|
 | The method returns | Written by `main`, with `result` |
-| The step cap is reached | Written by `record`, with `"truncated": true` and no `result` |
+| The step cap or the size budget is reached | Written by `record`, with `"truncated": true`, `truncated_by`, and no `result` |
 | The program crashes or is killed | **No trace.** Known gap |
 
 ### Command line

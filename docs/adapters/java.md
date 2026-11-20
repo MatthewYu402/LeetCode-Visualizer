@@ -1,6 +1,6 @@
 # Java Adapter
 
-> **Status:** Draft v0.14
+> **Status:** Draft v0.15
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`cpp.md`](cpp.md) (the C++ adapter, whose rules this one follows), [`python.md`](python.md), [`adapters/java/`](../../adapters/java/) (the runtime and the rewriter), [`driver/java/`](../../driver/java/) (the driver), [`sandboxing.md`](../sandboxing.md) (where it runs)
 
 This document describes how the Java adapter turns a running `Solution` into a trace: how the source is rewritten, what the runtime records, how Java values become the trace's kinds, and what the driver gives the program. Everything here is implemented, except what §9 lists as a limitation.
@@ -37,7 +37,7 @@ The same as in C++ ([`cpp.md` §2](cpp.md)): the whole call stack, each frame wi
 | `while (true)`, `for (;;)` | one at the start of each pass (the constant must stay: javac's reachability depends on it) |
 | `return e;`, a method's end | a return step, with `return_value` (`null` for `void`) |
 
-A call that ends by an exception has no return step (spec §6): the `finally` the rewriter adds pops the frame. The step cap is 2,000: at the cap the runtime writes the trace with `"truncated": true` and ends the JVM at once.
+A call that ends by an exception has no return step (spec §6): the `finally` the rewriter adds pops the frame. The step cap is 2,000, and the size budget 10 MB of the steps' JSON text (each step is measured as it is taken, and the one before it again once its outcomes are in): at either, the runtime writes the trace with `"truncated": true` and `"truncated_by"` (`"steps"` or `"size"`) and ends the JVM at once.
 
 **Locals.** Java cannot list a frame's locals at run time, so each step's call passes the locals in scope by name (`record(7, __f, "nums", nums, "i", i)`). A caller is drawn from the values its own last step passed: its primitives cannot change while a callee runs, and its objects are read again at every step. A local declared without a value (`int x;`) cannot be read until it is assigned; javac says so, and `Build` drops it from those steps (§4).
 
@@ -123,7 +123,7 @@ java -cp WORK/classes:RUNTIME LvMain       TRACE_OUT names the trace file
 | Program 3 | A bug in the tracer | `adapter` |
 
 - **JDK 21.** The image is Eclipse Temurin 21. Each JVM runs with `-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:-UsePerfData -XX:MaxRAMPercentage=50`: one GC thread and the quick compiler only, so it starts fast and stays well under the sandbox's process limit (each JVM thread counts), and no performance file is written to `/tmp`. A run takes about 2 s under Docker, most of it the two JVM starts.
-- **Deep recursion.** Each traced call takes at least one step, so a recursion that never ends reaches the step cap long before Java's stack runs out; the trace of 2,000 steps, each holding every call, is then larger than the pipeline's 16 MB, and the error says so. Recursion in code that is not traced (a helper class, a lambda) runs out of stack instead: the run stops with `StackOverflowError` and a note that the example may be too deep or the recursion may never reach its base case.
+- **Deep recursion.** Each traced call takes at least one step, and every step holds every call, so a recursion that never ends reaches the size budget a few hundred calls deep, long before Java's stack runs out, and the reader gets those steps (`"truncated_by": "size"`). Recursion in code that is not traced (a helper class, a lambda) runs out of stack instead: the run stops with `StackOverflowError` and a note that the example may be too deep or the recursion may never reach its base case.
 - **The image** (`sandbox/java.Dockerfile`, `leetcode-visualizer-sandbox-java`) holds the JDK and the compiled adapter in `/opt/trace/java/`, and nothing else. It is locked down as the C++ image is ([`sandboxing.md`](../sandboxing.md)).
 
 ## 8. Testing

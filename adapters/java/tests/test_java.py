@@ -88,6 +88,7 @@ class Steps(unittest.TestCase):
     def test_loop_forever_is_truncated(self):
         t = trace(solution("        while (n > 0) {\n            n++;\n        }\n        return n;"))
         self.assertTrue(t.get("truncated"))
+        self.assertEqual(t["truncated_by"], "steps")
         self.assertEqual(len(t["steps"]), 2000)
         self.assertNotIn("result", t)
 
@@ -100,12 +101,20 @@ class Steps(unittest.TestCase):
         self.assertIn("StackOverflowError", str(caught.exception))
         self.assertIn("too deep for recursion", str(caught.exception))
 
-    def test_recursion_that_never_ends_is_too_large(self):
-        # Traced recursion reaches the step cap first; every step holds every call, so the trace is too large.
-        with self.assertRaises(PipelineError) as caught:
-            trace(solution("        return f(n + 1) + 1;"))
-        self.assertEqual(caught.exception.exit_code, EXIT_RUN)
-        self.assertIn("larger than 16 MB", str(caught.exception))
+    def test_recursion_that_never_ends_stops_at_the_size_budget(self):
+        # Every step holds every call in progress, so the steps reach the size budget a few hundred calls deep.
+        t = trace(solution("        return f(n + 1) + 1;"))
+        self.assertEqual((t.get("truncated"), t.get("truncated_by")), (True, "size"))
+        self.assertNotIn("result", t)
+        self.assertGreater(len(t["steps"][-1]["frames"]), 100)
+
+    def test_a_large_input_stops_at_the_size_budget(self):
+        # Two Sum on 3,000 numbers: every step repeats nums and the growing map.
+        source = (ROOT / "fixtures" / "two_sum_trace.java").read_text(encoding="utf-8")
+        nums = ",".join(str(i) for i in range(3000))
+        t = run(source, f"nums = [{nums}], target = 5997", language="java", source_name="two_sum_trace.java").trace
+        self.assertEqual((t.get("truncated"), t.get("truncated_by")), (True, "size"))
+        self.assertGreater(len(t["steps"]), 100)
 
     def test_an_exception_shows_the_users_frames(self):
         with self.assertRaises(PipelineError) as caught:

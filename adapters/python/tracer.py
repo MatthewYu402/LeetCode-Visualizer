@@ -1,4 +1,4 @@
-"""The Python tracer: runs a Solution under sys.settrace and writes a trace (docs/trace-format.md, v0.14).
+"""The Python tracer: runs a Solution under sys.settrace and writes a trace (docs/trace-format.md, v0.15).
 
 The runtime calls `_global` when a function starts and `_local` before each of its
 lines, on an exception, and when it returns. Only the user's own functions are followed
@@ -38,9 +38,10 @@ import os
 import sys
 from collections import deque
 
-VERSION = "0.14"
+VERSION = "0.15"
 LANGUAGE = "python"
 MAX_STEPS = 2000
+MAX_SIZE = 10 * 1024 * 1024  # characters of the steps' JSON text (spec §6, Limits)
 MAX_READS = 16
 SAFE = 2 ** 53 - 1
 EXIT_ADAPTER = 3   # a bug in this adapter, not in the user's code
@@ -84,7 +85,7 @@ def _sorted_kind(v):
 
 class Tracer:
     def __init__(self, filename, problem, *, module="__solution__", traced_roots=(), heaps=None, member_heaps=(),
-                 index_candidates=None, out=None, max_steps=MAX_STEPS, comprehensions=None):
+                 index_candidates=None, out=None, max_steps=MAX_STEPS, comprehensions=None, max_size=MAX_SIZE):
         self.filename, self.problem, self.module = filename, problem, module
         self.traced_roots = set(traced_roots)        # first part of a followed function's qualified name
         self.heaps = heaps or {}                     # function -> local names the code passes to heapq
@@ -93,6 +94,8 @@ class Tracer:
         self.index_candidates = index_candidates or {}   # function -> [(local, container, is_member)]
         self.out = out or os.environ.get("TRACE_OUT", "trace.json")
         self.max_steps = max_steps
+        self.max_size = max_size
+        self.sizes = []  # characters of each step's JSON text, the last one measured again once it is final
         self.steps, self.stack = [], []
         self.solution = None
         self.next_frame = 1
@@ -177,7 +180,7 @@ class Tracer:
 
     def _record(self, top, line, returning=False, value=None):
         if len(self.steps) >= self.max_steps:
-            self._cap()
+            self._cap("steps")
         snap = _Snapshot(self)
         frames = []
         roots = []
@@ -201,6 +204,14 @@ class Tracer:
             if written:
                 step["members"] = written
         step["heap"] = snap.heap
+        # The size budget: a step that would take the steps past it is not recorded. The
+        # previous step is measured again first, since outcomes were added to it after it was taken.
+        if self.steps:
+            self.sizes[-1] = len(_text(self.steps[-1]))
+        size = len(_text(step))
+        if sum(self.sizes) + 2 * len(self.sizes) + size > self.max_size:
+            self._cap("size")
+        self.sizes.append(size)
         self.steps.append(step)
         top.last_step, top.last_line, top.reads = (None if returning else step), line, 0
 
@@ -214,10 +225,10 @@ class Tracer:
             return None
         return {k: v for k, v in attrs.items() if not k.startswith("__")}
 
-    def _cap(self):
-        """The step limit: write the trace now, without a result, and end the program (spec §6, Limits)."""
+    def _cap(self, limit):
+        """A limit (`steps` or `size`): write the trace now, without a result, and end the program (spec §6, Limits)."""
         self.stop()
-        self.write(truncated=True)
+        self.write(truncated=limit)
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(0)
@@ -364,6 +375,7 @@ class Tracer:
         return out
 
     def write(self, *, truncated=False, result=None, returned=False):
+        """truncated: False, or the limit that stopped recording ("steps" or "size")."""
         doc = {"version": VERSION, "language": LANGUAGE, "problem": self.problem}
         indexes = self._indexes()
         if indexes:
@@ -377,7 +389,8 @@ class Tracer:
                 doc["result_heap"] = snap.heap
         if truncated:
             doc["truncated"] = True
-        text = json.dumps(doc, ensure_ascii=False, allow_nan=False, separators=(", ", ": "))
+            doc["truncated_by"] = truncated if isinstance(truncated, str) else "steps"
+        text = _text(doc)
         with open(self.out, "w", encoding="utf-8") as fh:
             fh.write(text)
 
@@ -603,3 +616,8 @@ class _Snapshot:
             finally:
                 self.draining = False
         return {"kind": "ref", "id": oid}
+
+
+def _text(value):
+    """JSON text as the trace is written: one spelling for the document and for measuring steps."""
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(", ", ": "))

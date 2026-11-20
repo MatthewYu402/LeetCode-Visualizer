@@ -1,5 +1,5 @@
 # Trace Format Specification
-> **Status:** Draft v0.14
+> **Status:** Draft v0.15
 > **Related:** [`native-tracing.md`](native-tracing.md) and [`dap.md`](dap.md) (how adapters produce traces), [`schema/trace.schema.json`](../schema/trace.schema.json) (the machine-readable contract), [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.json) (golden trace)
 
 Suppose we built the visualizer without a trace format. The C++ backend sends the frontend whatever is easiest to produce, say a raw dump of `std::unordered_map` internals.
@@ -56,7 +56,7 @@ A trace is one JSON object:
 
 ```json
 {
-  "version": "0.14",
+  "version": "0.15",
   "language": "cpp",
   "problem": { ... },
   "indexes": { ... },
@@ -75,20 +75,22 @@ A trace is one JSON object:
 | `steps` | Ordered list of snapshots ([Section 6](#6-steps)) |
 | `result` | Optional. Final return value, as a normalized value. Absent means the method did not return ([Unfinished runs](#unfinished-runs)). `null` for a `void` method that returned ([The return value](#the-return-value)) |
 | `result_heap` | Optional. The objects `result` refers to, in the same shape as a step's `heap`. Present only when `result` contains a `ref` ([The return value](#the-return-value)) |
-| `truncated` | Optional. Present only as `true`, when recording stopped at the step limit ([Section 6](#limits)). Never `false` |
+| `truncated` | Optional. Present only as `true`, when recording stopped at a limit ([Section 6](#limits)). Never `false` |
+| `truncated_by` | Present exactly when `truncated` is: which limit stopped recording, `"steps"` (the step limit) or `"size"` (the size budget) ([Section 6](#limits)) |
 
 #### Unfinished runs
 Two top-level fields describe how the run ended. Each is written only when it has something to say:
 
 - **`result` is present only when the method returned.** If the run was truncated at the step limit, crashed, or was killed, there is no return value, so the field is left out. It is never filled with `null` as a placeholder, because `null` is a real return value ("no value", see [Primitives](#primitives)).
 - **`truncated` is present only as `true`.** A trace that was not truncated leaves the field out. `"truncated": false` is invalid.
+- **`truncated_by` says which limit it was**, and is present exactly when `truncated` is: `"steps"` when recording reached the step limit, `"size"` when the steps reached the size budget. The two have different causes (usually an infinite loop, and an input too large to trace in full), and a reader is told different things about each.
 
 An absent `result` does **not** mean a wrong answer. A wrong solution still returns a value, and that value is the `result`. The visualizer has no expected answer to compare against.
 
 | `result` | `truncated` | What happened |
 |---|---|---|
 | present | absent | The method returned. This is the normal case |
-| absent | `true` | Recording stopped at the step limit before the method returned. Usually an infinite loop, or an input that is too large |
+| absent | `true` | Recording stopped at a limit before the method returned: at the step limit (`truncated_by: "steps"`), usually an infinite loop, or at the size budget (`"size"`), an input too large, or recursion too deep, to trace in full |
 | absent | absent | The run ended early for another reason, such as a crash. The format allows this, but it does not yet require adapters to produce a trace here |
 | present | `true` | Recording stopped at the limit, the adapter let the program run on, and the method returned |
 
@@ -512,7 +514,14 @@ The diff between two adjacent snapshots is used only to **animate** what changes
 > **Key Insight 8: snapshots give random access and trivial rewind, at the cost of size.** Snapshots repeat unchanged data. For LeetCode-sized examples with a capped step count, the cost is negligible.
 
 ### Limits
-Adapters must stop recording at a configured maximum (default: 2,000 steps) and set `"truncated": true` at the top level. Traces are intended for small example inputs.
+Adapters must stop recording at either of two limits, and set `"truncated": true` at the top level with `truncated_by` naming the limit:
+
+| Limit | Default | `truncated_by` | Usual cause |
+|---|---|---|---|
+| Steps | 2,000 steps | `"steps"` | An infinite loop, or a long loop |
+| Size | 10 MB of steps (10 × 2^20 characters of their JSON text) | `"size"` | A large input, or recursion hundreds of calls deep: every step repeats every value and every call in progress (Key Insight 8), so 3,000 numbers in `nums` is about 15 KB per step |
+
+The size budget counts the steps' JSON text as the adapter writes it (bytes or characters, whichever it counts in). A step that would take the steps past the budget is not written: the trace ends with the last step that fits. The budget leaves room under the limit the pipeline reads back (16 MB) for the rest of the document, such as `result_heap`. Traces are intended for small example inputs; the size budget makes a large one end in a trace the reader can step through, instead of an error.
 
 **A truncated trace must survive the program.** The adapter writes the complete trace at the moment it reaches the limit. It does not wait for the program to end, because the program may never end. An infinite loop is the most common reason to reach the limit, and it is exactly the bug a visualizer should show: the user gets the steps recorded so far to step through, instead of only a timeout error. That trace has no `result` ([Unfinished runs](#unfinished-runs)).
 
@@ -527,7 +536,7 @@ This is an excerpt of [`fixtures/two-sum.trace.json`](../fixtures/two-sum.trace.
 
 ```json
 {
-  "version": "0.14",
+  "version": "0.15",
   "language": "cpp",
   "problem": {
     "method": "twoSum",
@@ -579,7 +588,7 @@ Adapters must:
 7. Pass schema validation ([Section 10](#10-validation-and-testing)) before being considered correct.
 8. Emit a bare JSON number only when JavaScript reads it back exactly. Otherwise use the `int` or `float` kind ([Section 5](#numbers-json-cannot-carry-exactly)). Never emit the bare tokens `NaN` or `Infinity`, which are not JSON.
 9. Use the kind the type determines. A `std::stack` is a `stack`, never an `array` with a hint. Hints are only for what the type cannot say.
-10. Write `result` only when the method returned, and `truncated` only when it is `true` ([Unfinished runs](#unfinished-runs)). Never write `"result": null` for a run that did not finish, and never write `"truncated": false`.
+10. Write `result` only when the method returned, and `truncated` only when it is `true`, with `truncated_by` naming the limit ([Unfinished runs](#unfinished-runs)); stop at the step limit and at the size budget ([Limits](#limits)). Never write `"result": null` for a run that did not finish, and never write `"truncated": false`.
 11. When `result` contains a `ref`, write `result_heap` with every object reachable from it, using the same ids as the steps. Otherwise leave `result_heap` out ([The return value](#the-return-value)).
 12. For a `void` method that returned, write `"result": null` and `"returns": {"type": "void"}`.
 13. Write every object in a heap, including one a variable holds by value. Never write an `object` inline.
@@ -604,6 +613,8 @@ Two adapters running the same algorithm may legitimately produce different trace
 | An integer above 2^53 appears as a bare number | **Yes**: the frontend silently shows a different value |
 | A run that did not finish has `"result": null` | **Yes**: `null` is a real return value, so the field must be absent |
 | A trace contains `"truncated": false` | **Yes**: the field is present only as `true` |
+| A truncated trace has no `truncated_by`, or one that is not truncated has it | **Yes**: the two are present together |
+| One language's trace of a large input stops at the size budget and another's at the step limit, or at a different step | No: step sizes differ between adapters |
 | `result` is a `ref` and there is no `result_heap` | **Yes**: the frontend has a reference to nothing |
 | A `void` method that returned has no `result` | **Yes**: absent means it did not return |
 | A by-value object and a pointer to it have different ids | **Yes**: one object, one id (rule 3) |
@@ -631,6 +642,10 @@ Two adapters running the same algorithm may legitimately produce different trace
 - **While the major version is 0**, any minor bump may break compatibility, so the frontend accepts only the `0.x` versions it was built for.
 
 History:
+- **v0.15**:
+  - Adds the size budget beside the step limit: adapters stop recording once the steps reach 10 MB of JSON text, and write the trace so far ([Limits](#limits)).
+  - Adds `truncated_by`, present exactly when `truncated` is: `"steps"` or `"size"`.
+  - A v0.14 trace with `"truncated": true` is valid as a v0.15 one once its `version` is changed and `"truncated_by": "steps"` is added; every other v0.14 trace is valid once its `version` is changed.
 - **v0.14**:
   - Adds the optional `id` on container kinds: a container reached from more than one place in a step carries it at every place ([Shared containers](#shared-containers)).
   - A container that contains itself cannot be written; the adapter stops with an error.
@@ -772,3 +787,5 @@ These are mainly notes for me, to help me understand these concepts.
 > **Q30. Why tag a whole float instead of writing `3.0` as a bare number?** `3.0` is valid JSON, but every JSON parser, JavaScript's included, reads it as the same number as `3`, so the `.0` is gone before the frontend sees it. A type for every value would fix that and double the trace; a tag only on the values that need one is the rule the format already follows for big ints and NaN (Key Insight 4).
 
 > **Q31. Why give a container an `id` only when it is shared, and keep writing it in full at every place, instead of moving containers into the heap like objects?** Values were never wrong without ids: every step re-reads every variable, so two names for one list both show its current contents. What was lost is the fact that they are one list, and that is what explains Python's `[[0] * n] * m` (every row changes together) or `res.append(path)` without a copy. An `id` at every place restores exactly that fact. Moving containers into the heap would say the same thing but change how every local is written, every renderer, and every trace, for the rare container that is shared; and an `id` on every container would grow every trace and make every list look shared. Writing the contents at each place repeats them, which is the cost the format already accepts for snapshots (Key Insight 8): every place still draws on its own.
+
+> **Q32. Why a size budget that ends in a truncated trace, rather than an error, and why say which limit it was?** A large input is not a mistake: LeetCode's own constraints allow 10^4 elements, and a reader pasting a real test case should get something to step through, as an infinite loop does at the step limit. Without the budget, the adapter recorded until the pipeline refused the trace (over 16 MB) or the run ran out of memory, and the reader got an error that blamed the wrong thing. Ending at a budget below that limit turns both into the first steps of the run. `truncated_by` is there because the reader needs a different explanation for each: "an infinite loop?" for the step limit, "try a smaller input" for the size budget. Guessing it from the step count would tie the frontend to the default step limit, and a trace should say what it means.

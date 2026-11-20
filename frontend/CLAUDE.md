@@ -1,6 +1,6 @@
 # frontend/CLAUDE.md
 
-Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.14).
+Guidance for working in `frontend/`. The root [`CLAUDE.md`](../CLAUDE.md) still applies. The design is in [`docs/frontend.md`](../docs/frontend.md), and the contract is [`docs/trace-format.md`](../docs/trace-format.md) (v0.15).
 
 Claude writes the frontend code (and, since 2026-11-14, the adapter runtime and rewriter: see the root `CLAUDE.md`).
 
@@ -43,8 +43,8 @@ src/
 │   ├── form.ts          fields per method, placeholders, kept values, filling from an example, the run request
 │   └── useInputs.ts     the form's state: signature re-read 400 ms after edits, method, values, run
 ├── trace/
-│   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, problemTitle
-│   ├── loader.ts        JSON.parse + version check (accepts exactly "0.14")
+│   ├── types.ts         TypeScript mirror of the schema, topFrame, isReturning, runEnd, truncatedBy, problemTitle
+│   ├── loader.ts        JSON.parse + version check (accepts "0.15" and "0.14")
 │   ├── format.ts        compact value text, kind names, canonical comparison
 │   ├── diff.ts          diff(prev, curr) per local, per index, per set member, per map key, by count for multiset/multimap, in order (LCS) for list, plus the heap diff
 │   ├── heap.ts          edges between heap objects, node labels and shapes, pointers into the heap, heapDiff
@@ -92,7 +92,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 8. **Unknown kinds go to the fallback**, never crash.
 9. **Colours come from the theme tokens.** No hex values in components or CSS outside `styles/theme.css` (the one exception is a fully transparent constant in `editor/monaco.ts`), and no colour or shadow that is right in one theme only. A new token gets a value in both the dark `:root` block and the `:root[data-theme="light"]` block. The Monaco theme reads the same variables.
 10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`. Tests import them, and so does one page: the home page's preview replays the Reverse Linked List trace (`docs/frontend.md` Q27). The sandbox always opens with no trace.
-11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`.
+11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`, and which limit stopped a truncated run through `truncatedBy` (a v0.14 trace, with no `truncated_by`, stopped at the step limit).
 12. **Wherever the problem's title is shown, it is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`. (The top bar shows the app's name, not the problem's.)
 13. **A step is a call stack.** The code highlight, the visual panel, and the locals table show the running frame, read through `topFrame(step)`. The state panel shows the running frame's line, its outcomes, and its locals; the calls are drawn on the canvas, not listed in the state panel. The diff compares the running frame with the frame that has the same `id` in the previous step, wherever it sat, so a caller is compared with its own earlier self after a return.
 14. **Refs and objects are drawn by `LinkedCard` (`render/HeapView.tsx`), not per local.** A `ref` local is a pointer label on its node; a `ref` inside a container shows its node's value (`itemText`). Shapes come from field names (`left`/`right`, `next`, anything else is a graph), never from the language.

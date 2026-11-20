@@ -1,5 +1,5 @@
 {
-  "version": "0.14",
+  "version": "0.15",
   "language": "java",
   "problem": {"method": "maxDepth", "params": [{"name": "root", "type": "TreeNode"}], "returns": {"type": "int"}, "input": {"root": [3, 9, 20, null, null, 15, 7]}},
   "steps": [

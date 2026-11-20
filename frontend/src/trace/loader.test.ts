@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import twoSum from "../../../fixtures/two-sum.trace.json?raw";
 import { loadTrace } from "./loader";
-import { problemTitle, returnsVoid, runEnd } from "./types";
+import { problemTitle, returnsVoid, runEnd, truncatedBy } from "./types";
 
 const withVersion = (version: string) => JSON.stringify({ ...JSON.parse(twoSum), version });
 
@@ -12,10 +12,10 @@ describe("loadTrace", () => {
     if (r.ok) expect(r.trace.steps).toHaveLength(12);
   });
 
-  it.each(["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11", "0.12", "0.13", "0.15", "1.0", "1.7"])("rejects version %s with an error", (v) => {
+  it.each(["0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "0.10", "0.11", "0.12", "0.13", "0.16", "1.0", "1.7"])("rejects version %s with an error", (v) => {
     const r = loadTrace(withVersion(v));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toBe(`Unsupported trace version "${v}". This frontend reads version 0.14 only.`);
+    if (!r.ok) expect(r.error).toBe(`Unsupported trace version "${v}". This frontend reads versions 0.15 and 0.14 only.`);
   });
 
   it("accepts a trace with no result: the run did not finish", () => {
@@ -27,6 +27,20 @@ describe("loadTrace", () => {
     if (!r.ok) return;
     expect("result" in r.trace).toBe(false);
     expect(runEnd(r.trace)).toBe("truncated");
+  });
+
+  it("reads v0.14 traces too, and says which limit stopped a truncated one", () => {
+    const t = JSON.parse(twoSum);
+    delete t.result;
+    t.truncated = true;
+    t.truncated_by = "size";
+    const r = loadTrace(JSON.stringify(t));
+    expect(r.ok && truncatedBy(r.trace)).toBe("size");
+    const old = { ...JSON.parse(twoSum), version: "0.14", truncated: true };
+    delete old.result;
+    const o = loadTrace(JSON.stringify(old));
+    expect(o.ok && truncatedBy(o.trace)).toBe("steps");
+    expect(loadTrace(JSON.stringify({ ...JSON.parse(twoSum), version: "0.13" })).ok).toBe(false);
   });
 
   it("rejects text that is not JSON, including a bare NaN", () => {

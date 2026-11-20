@@ -25,6 +25,13 @@ final class Step {
     this.number = number;
   }
 
+  /** Characters of this step's JSON text, as json() writes it. */
+  int size() {
+    StringBuilder out = new StringBuilder();
+    json(out);
+    return out.length();
+  }
+
   void json(StringBuilder out) {
     out.append("{\"step\": ").append(number).append(", \"frames\": [");
     for (String f : lowerFrames) out.append(f).append(", ");

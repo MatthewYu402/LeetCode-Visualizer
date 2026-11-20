@@ -1,5 +1,5 @@
 {
-  "version": "0.14",
+  "version": "0.15",
   "language": "python",
   "problem": {"method": "reverseList", "params": [{"name": "head", "type": "ListNode"}], "returns": {"type": "ListNode"}, "input": {"head": [1, 2, 3, 4, 5]}},
   "steps": [

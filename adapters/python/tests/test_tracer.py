@@ -55,14 +55,28 @@ class Steps(unittest.TestCase):
         self.assertEqual(run.status, 0, run.output)
         status, output = run.check("--expect-truncated")
         self.assertEqual(status, 0, output)
+        self.assertEqual(run.trace["truncated_by"], "steps")
 
-    def test_deep_recursion_is_explained(self):
+    def test_a_large_input_stops_at_the_size_budget(self):
+        # Two Sum on 3,000 numbers (within LeetCode's constraints): every step repeats nums and
+        # the growing map, so the steps reach the 10 MB budget long before 2,000 steps.
+        source = (ROOT / "fixtures" / "two_sum_trace.py").read_text(encoding="utf-8")
+        nums = ",".join(str(i) for i in range(3000))
+        run = trace(source, f"nums = [{nums}], target = 5997")
+        self.assertEqual(run.status, 0, run.output)
+        status, output = run.check("--expect-truncated-size")
+        self.assertEqual(status, 0, output)
+        self.assertGreater(len(run.trace["steps"]), 100)
+
+    def test_endless_recursion_stops_at_the_size_budget(self):
+        # Every step holds every call in progress, so the steps grow with the depth and reach
+        # the size budget a few hundred calls deep, before Python's own recursion limit.
         source = solution("        return self.f(nums) + 1\n")
         run = trace(source, "nums = [1]")
-        self.assertEqual(run.status, 1)
-        self.assertIn("RecursionError", run.output)
-        self.assertIn("1,000 nested calls", run.output)
-        self.assertNotIn("tracer.py", run.output)  # only the user's frames
+        self.assertEqual(run.status, 0, run.output)
+        status, output = run.check("--expect-truncated-size")
+        self.assertEqual(status, 0, output)
+        self.assertGreater(len(run.trace["steps"][-1]["frames"]), 100)
 
     def test_user_exception_has_no_result(self):
         run = trace(solution("        return nums[5]\n"), "nums = [1]")

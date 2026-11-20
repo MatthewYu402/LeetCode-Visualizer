@@ -50,7 +50,7 @@ Objects that need identity (`TreeNode`, `ListNode`, custom classes) get stable i
 - Use the language's own mapping (Python `compile(source, "<user>", "exec")`, C++ `#line` directives).
 
 #### Limits
-Stop at the step cap (default 2,000), set `"truncated": true`, and write the trace at that moment, because the program may never end (`trace-format.md` [Section 6](trace-format.md#limits)). An infinite loop then leaves a truncated trace instead of only a timeout. Also enforce wall-clock and memory limits, for a loop that never reaches the tracer. The C++ runtime ends the program right after writing ([`adapters/cpp.md` §7.4](adapters/cpp.md#74-at-the-step-cap)).
+Stop at the step cap (default 2,000) or the size budget (10 MB of steps), set `"truncated": true` and `"truncated_by"`, and write the trace at that moment, because the program may never end (`trace-format.md` [Section 6](trace-format.md#limits)). An infinite loop then leaves a truncated trace instead of only a timeout. Also enforce wall-clock and memory limits, for a loop that never reaches the tracer. The C++ runtime ends the program right after writing ([`adapters/cpp.md` §7.4](adapters/cpp.md#74-at-the-step-cap)).
 
 ## 3. Strategy A: runtime hooks
 The runtime tells us when each line is about to execute and lets us read the frame's variables.

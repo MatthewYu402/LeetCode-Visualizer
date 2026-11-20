@@ -18,7 +18,7 @@ import java.util.Set;
 
 /**
  * The Java runtime: records steps, frames, outcomes, and members, and writes the trace
- * (docs/trace-format.md, v0.14; docs/adapters/java.md).
+ * (docs/trace-format.md, v0.15; docs/adapters/java.md).
  *
  * <p>The rewriter (Rewriter.java) inserts calls to the public methods below into the user's
  * Solution, on the user's own lines, and the driver's generated {@code LvMain} calls
@@ -27,8 +27,12 @@ import java.util.Set;
  * exception the user's code could catch.
  */
 public final class Trace {
-  static final String VERSION = "0.14";
+  static final String VERSION = "0.15";
   static final int MAX_STEPS = 2000;
+  /** The size budget: characters of the steps' JSON text (trace-format.md, Limits). */
+  static final long MAX_SIZE = 10L * 1024 * 1024;
+  private static long stepsSize;  // characters of every step so far, the last one measured again once final
+  private static int lastSize;
   static final int MAX_READS = 16;
   static final int EXIT_USER = 1;
   static final int EXIT_ADAPTER = 3;
@@ -70,7 +74,7 @@ public final class Trace {
 
   public static void finish(Object answer) {
     try {
-      write(false, true, answer);
+      write(null, true, answer);
     } catch (Throwable e) {
       guard(e);
     }
@@ -196,7 +200,7 @@ public final class Trace {
   public static <T> T ret(int line, Frame f, T v) { return returning(line, f, v); }
 
   private static void take(Frame top, int line, boolean isReturn, Object value) {
-    if (steps.size() >= MAX_STEPS) cap();
+    if (steps.size() >= MAX_STEPS) cap("steps");
     Step step = new Step(steps.size());
     Snapshot snap = new Snapshot(step.heap);
     List<Object[]> roots = new ArrayList<>();
@@ -248,6 +252,17 @@ public final class Trace {
       }
       if (out.length() > 1) step.members = out.append('}').toString();
     }
+    // The size budget: a step that would take the steps past it is not recorded. The previous
+    // step is measured again first, since outcomes were added to it after it was taken.
+    if (!steps.isEmpty()) {
+      int now = steps.get(steps.size() - 1).size();
+      stepsSize += now - lastSize;
+    }
+    int size = step.size();
+    long grown = stepsSize + size + (steps.isEmpty() ? 0 : 2);
+    if (grown > MAX_SIZE) cap("size");
+    stepsSize = grown;
+    lastSize = size;
     steps.add(step);
     top.lastStep = isReturn ? null : step;
     top.line = line;
@@ -291,8 +306,9 @@ public final class Trace {
     return out;
   }
 
-  private static void cap() {
-    write(true, false, null);
+  /** A limit ("steps" or "size"): write the trace now, without a result, and end the program (trace-format.md, Limits). */
+  private static void cap(String limit) {
+    write(limit, false, null);
     halt(0);
   }
 
@@ -453,7 +469,8 @@ public final class Trace {
 
   // ------------------------------------------------------------------ the document
 
-  private static void write(boolean truncated, boolean returned, Object result) {
+  /** truncatedBy: null, or the limit that stopped recording ("steps" or "size"). */
+  private static void write(String truncatedBy, boolean returned, Object result) {
     StringBuilder out = new StringBuilder(1 << 16);
     out.append("{\"version\": \"").append(VERSION).append("\", \"language\": \"java\", \"problem\": ").append(problem);
     if (!indexes.isEmpty()) {
@@ -497,7 +514,7 @@ public final class Trace {
         out.append('}');
       }
     }
-    if (truncated) out.append(", \"truncated\": true");
+    if (truncatedBy != null) out.append(", \"truncated\": true, \"truncated_by\": ").append(Json.string(truncatedBy));
     out.append('}');
     String path = System.getenv().getOrDefault("TRACE_OUT", "trace.json");
     try {

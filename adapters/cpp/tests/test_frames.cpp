@@ -276,6 +276,32 @@ int main() {
     check_true("past the cap, ret still returns the value", y == 42);
     check_true("and adds no step", steps().size() == trace::Tracer::max_steps);
     check_true("the trace is truncated", trace::tracer.truncated);
+    check_true("by the step limit", trace::tracer.truncated_by == "steps");
+  }
+
+  // ------------------------------------------------------------------
+  std::cout << "size budget\n";
+  reset();
+  {
+    trace::tracer.exit_at_cap = false;
+    trace::tracer.max_size = 20000;   // a small budget, so a few steps reach it
+    trace::Frame frame("solve");
+    std::vector<int> nums;
+    for (int i = 0; i < 1000; ++i) {
+      nums.push_back(i);
+      record(1, var("nums", nums));
+    }
+    const std::size_t kept = steps().size();
+    std::size_t total = 0;
+    for (const auto& step : steps()) total += step.size();
+    check_true("recording stopped before the steps ran out", kept > 1 && kept < 1000);
+    check_true("the steps fit in the budget", total + 2 * (kept - 1) <= 20000);
+    check_true("the count is kept", trace::tracer.steps_size == total + 2 * (kept - 1));
+    check_true("the trace is truncated by size", trace::tracer.truncated && trace::tracer.truncated_by == "size");
+    record(2, var("nums", nums));
+    check_true("and adds no step after", steps().size() == kept);
+    const std::string doc = trace::build_document(std::nullopt);
+    check_true("the document says which limit", doc.ends_with(R"(, "truncated": true, "truncated_by": "size"})"));
   }
 
   std::cout << "\n" << passed << " passed, " << failed << " failed\n";

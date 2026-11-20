@@ -8,6 +8,11 @@ Each entry says what changed, and for a design change, why. New entries go under
 
 ## [Unreleased]
 
+### Changed
+
+- **Trace format v0.15: a size budget beside the step limit.** Adapters stop recording once the steps reach 10 MB of JSON text, and write the trace so far, as they do at 2,000 steps. Every step repeats every value and every call in progress, so a large input (Two Sum on 3,000 numbers, within LeetCode's constraints) or recursion hundreds of calls deep made a trace over the 16 MB the pipeline reads back, and the reader got an error blaming recursion (or, in Python, a run killed for memory). Now they get the first few hundred steps. A new field, `truncated_by` (`"steps"` or `"size"`), says which limit stopped recording, so the page can say "stopped at the size limit, try a smaller input" instead of suggesting an infinite loop. The frontend still reads v0.14 traces.
+- **Trace validation is fast on large traces.** `tools/check_trace.py` checks each distinct value against the schema once (equal values in different steps become one object first), and resolves the schema's references ahead of time. A 10 MB trace took minutes to validate, longer than any run; it now takes about 3 seconds. What is checked is unchanged.
+
 ### Fixed
 
 - **The API refuses a request body over 1 MB before reading it** (413, stage `request`). The limits on the Solution and the inputs were checked only after the whole body had been read and parsed, so one 200 MB request took the service from 47 MB to 595 MB of memory, and a few at once could take it down. 1 MB is above the largest valid request (about 576 KB).

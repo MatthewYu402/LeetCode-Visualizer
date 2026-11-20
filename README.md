@@ -38,7 +38,7 @@ Every run is a stranger's code, so it runs in a locked-down container under gVis
 ### Known limitations
 
 - **Design problems are not supported** (LRU Cache, Min Stack, and the like, where the example is a sequence of calls on an object you construct). One trace covering a call sequence needs a change to the trace format ([`docs/driver-generation.md` §8](docs/driver-generation.md)).
-- **A run stops at 2,000 steps.** The trace up to that point is still shown, marked as truncated. Large inputs and long loops reach the cap quickly.
+- **A run stops recording at 2,000 steps, or once the trace reaches 10 MB.** The steps up to that point are still shown, and the page says which limit it was. Every step holds every value, so a large input (thousands of numbers) or recursion hundreds of calls deep reaches the size limit in a few hundred steps; a long loop reaches the step limit.
 - **Lambdas are not traced** in C++ or Java, nor lambdas, generators, and comprehensions in Python: their lines take no steps of their own. Recursion written as a recursive lambda (`function<void(int)> dfs = [&](...)`) shows no calls.
 - **C++ does not mark shared containers.** A `vector<int>&` passed down a recursion is drawn correctly in every frame, but without the note that the frames hold one container ([`docs/adapters/cpp.md`](docs/adapters/cpp.md) §10).
 - **A C++ pointer that does not point at a live object** (dangling or uninitialized) is followed as if it were valid ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
@@ -52,7 +52,7 @@ Per-language details are in each adapter's notes: [C++](docs/adapters/cpp.md), [
 
 | Area | State |
 |---|---|
-| Trace format, schema, and golden fixtures | v0.14. Six problems (Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth, Subsets), each in C++, Python, and Java, with the other languages' traces matching the C++ one call by call |
+| Trace format, schema, and golden fixtures | v0.15. Six problems (Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth, Subsets), each in C++, Python, and Java, with the other languages' traces matching the C++ one call by call |
 | C++ adapter | Header-only runtime, a Clang LibTooling rewriter that instruments a plain Solution without adding lines, and a driver that rebuilds LeetCode's harness |
 | Python adapter | `sys.settrace` for the steps and a syntax-tree rewrite for what each line evaluated, on Python 3.12 |
 | Java adapter | Source instrumentation on the JDK's own parser, compiled with javac in the same JVM, on JDK 21 |
@@ -70,11 +70,11 @@ Start with the trace format. Everything else hangs off it.
 
 | Document | Read it to learn | Status |
 |---|---|---|
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.14 |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.15 |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
 | [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.14 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.14 |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.15 |
+| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.15 |
 | [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | Implemented |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to set up, test, and send a change; how to add a language | Done |
 | [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version, and the history of the decisions behind it | Done |
@@ -86,8 +86,8 @@ Start with the trace format. Everything else hangs off it.
 | [`docs/backend.md`](docs/backend.md) | The API service: endpoints, errors and status codes, limits, settings, running it with the frontend | Draft v0.1, implemented |
 | [`docs/hint-inference.md`](docs/hint-inference.md) | How an adapter will work out which structure a value is when its type does not say | Proposal, not started |
 | [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
-| [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, the syntax-tree rewrite for outcomes, normalization rules, the driver | Draft v0.14 |
-| [`docs/adapters/java.md`](docs/adapters/java.md) | The Java adapter: the rewriter on the JDK's parser, the runtime, normalization rules, the driver | Draft v0.14 |
+| [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, the syntax-tree rewrite for outcomes, normalization rules, the driver | Draft v0.15 |
+| [`docs/adapters/java.md`](docs/adapters/java.md) | The Java adapter: the rewriter on the JDK's parser, the runtime, normalization rules, the driver | Draft v0.15 |
 | [`LICENSE`](LICENSE), [`NOTICE`](NOTICE) | Apache License 2.0 terms, and the copyright notice that must travel with copies | Done |
 
 **Suggested reading order:** this README, then `trace-format.md`, then `native-tracing.md` or `dap.md` depending on which part you are working on.
@@ -342,7 +342,7 @@ Numbers are plain JSON whenever JavaScript can read them back exactly, as the ki
 
 `int` is for integers outside ±(2^53 − 1), which `JSON.parse` would silently round. `float` is for `NaN`, `Infinity`, and `-Infinity`, which JSON has no syntax for, and for whole floats like `3.0`, which a bare `3` would turn into an int. See [numbers JSON cannot carry exactly](docs/trace-format.md#numbers-json-cannot-carry-exactly).
 
-A trace also says how the run ended. `result` is present only when the method returned, and `"truncated": true` appears only when recording stopped at the 2,000-step limit. At the limit the adapter writes the trace straight away, so a solution stuck in an infinite loop still gives you a trace to step through instead of only a timeout. See [unfinished runs](docs/trace-format.md#unfinished-runs).
+A trace also says how the run ended. `result` is present only when the method returned, and `"truncated": true` appears only when recording stopped at a limit, with `truncated_by` saying which: the 2,000-step limit (`"steps"`) or the 10 MB size budget (`"size"`). At a limit the adapter writes the trace straight away, so a solution stuck in an infinite loop still gives you a trace to step through instead of only a timeout. See [unfinished runs](docs/trace-format.md#unfinished-runs).
 
 When the method returns a pointer, `result` is a `ref`, and the objects it points to come in a top-level `result_heap` with the same shape as a step's `heap` and the same ids. A `void` method that returned has `"result": null`, and the problem metadata says `"returns": {"type": "void"}`, which tells it apart from a returned null pointer. See [the return value](docs/trace-format.md#the-return-value).
 
@@ -590,7 +590,7 @@ The architecture does not depend on these choices: another adapter or another fr
 
 Done, in the beta:
 
-- [x] Trace format specification and JSON Schema (v0.14), with golden fixtures in three languages
+- [x] Trace format specification and JSON Schema (v0.15), with golden fixtures in three languages
 - [x] Tracing strategy docs (native, DAP)
 - [x] C++ adapter: serializers for every kind, the recorder, the call stack, iterators, outcomes, `indexes`, reads, members; the driver and the LibTooling rewriter
 - [x] Python adapter, proving the schema is truly language-neutral

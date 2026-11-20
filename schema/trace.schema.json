@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/schema/trace.schema.json",
   "title": "Visualizer Trace",
-  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.14).",
+  "description": "Language-neutral execution trace. Every adapter must emit output that validates against this schema. Spec: trace-format.md (v0.15).",
   "type": "object",
   "required": [
     "version",
@@ -51,7 +51,11 @@
     },
     "truncated": {
       "const": true,
-      "description": "Present only when recording stopped at the step limit. A trace that was not truncated omits this field. false is invalid."
+      "description": "Present only when recording stopped at a limit (the step limit or the size budget). A trace that was not truncated omits this field. false is invalid."
+    },
+    "truncated_by": {
+      "enum": ["steps", "size"],
+      "description": "Which limit stopped recording: the step limit, or the size budget on the steps' JSON text. Present exactly when truncated is."
     },
     "result": {
       "description": "Final return value. Present only when the method returned. Absent when the run did not finish (truncated, crashed, or killed). Never null as a placeholder. A void method that returned has result null, and problem.returns.type is \"void\".",
@@ -69,6 +73,12 @@
   "dependentRequired": {
     "result_heap": [
       "result"
+    ],
+    "truncated": [
+      "truncated_by"
+    ],
+    "truncated_by": [
+      "truncated"
     ]
   },
   "allOf": [

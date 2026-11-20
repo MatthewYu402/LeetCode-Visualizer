@@ -1,6 +1,6 @@
 # C++ Adapter
 
-> **Status:** Draft v0.12
+> **Status:** Draft v0.13
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`adapters/cpp/runtime/trace.hpp`](../../adapters/cpp/runtime/trace.hpp) (the runtime), [`fixtures/two-sum.trace.json`](../../fixtures/two-sum.trace.json) (golden trace)
 
 This document describes how the C++ adapter turns a running `Solution` into a trace: what one recorded step contains, how the runtime builds it, and why its state is split the way it is. It covers the runtime that exists today (the serializers, the recorder, and the document writer) and marks what is still planned.
@@ -108,7 +108,8 @@ Every piece of recorder state lives for exactly one of three lengths of time. Mo
 One global instance, `trace::tracer`, declared `inline` so there is exactly one even if the header is included in several files. The code the rewriter inserts has to reach it from anywhere in the user's code.
 
 - `steps` holds every finished step as JSON text. `steps.size()` is the next step's number, so the count and the steps cannot disagree.
-- `truncated` records whether the step cap was hit.
+- `truncated` records whether a limit was hit, and `truncated_by` which (`"steps"` or `"size"`).
+- `steps_size` counts the characters of every step's text, kept up to date when a step is rendered again with its outcomes; `max_size` is the size budget (10 MB; tests lower it).
 - `id_table` maps address to id.
 - `problem` holds the problem metadata as finished JSON. The driver sets it with `tracer.begin(...)` before the Solution runs (§7.1).
 - `exit_at_cap` (default `true`) decides what `record` does at the step cap (§7.4). Only tests turn it off.
@@ -243,7 +244,7 @@ The rules the rewriter follows, and the hand-written fixtures follow today:
 ### 4.1 What `record` does, in order
 
 1. **Find the running frame.** If there is none, the instrumentation is broken: print a message and exit with code 1.
-2. **Check the cap.** If already truncated, return. If `steps.size()` has reached 2,000, set `truncated`, write the trace, and end the program (§7.4).
+2. **Check the cap.** If already truncated, return. If `steps.size()` has reached 2,000, stop at the step limit: set `truncated`, write the trace, and end the program (§7.4).
 3. **Update the running frame.** Set its `line`, and store a lambda that holds copies of this call's `Value`s (§4.3).
 4. **Build the step** (`push_step`). Create an empty `Heap` and a `Ctx`. For each frame, bottom to top, call its stored lambda, which serializes that frame's variables as they are now and fills the heap. Then write the heap with `write_heap`. This must come last, because the frames fill it.
 5. **Store the step.** Push `{"step": N, "frames": [...], "heap": {...}}` onto `tracer.steps`.
@@ -454,14 +455,14 @@ trace::write_result(answer);
 
 | Field | Written | Source |
 |---|---|---|
-| `version` | Always | The `VERSION` constant (`"0.14"`) |
+| `version` | Always | The `VERSION` constant (`"0.15"`) |
 | `language` | Always | The `LANGUAGE` constant (`"cpp"`) |
 | `problem` | Always | The JSON passed to `begin`, pasted in unchanged |
 | `indexes` | Only when some function registered an entry | `tracer.indexes`: each function's entry, from its `Frame` (§8.1), keyed by function name |
 | `steps` | Always | `tracer.steps`, joined with `", "` |
 | `result` | Only when the caller passes one | The serialized return value, or `null` for a `void` method |
 | `result_heap` | Only with a `result`, and only when the heap is not empty | The heap filled while serializing the return value |
-| `truncated` | Only as `true` | `tracer.truncated` |
+| `truncated`, `truncated_by` | Only as `true`, and together | `tracer.truncated`, `tracer.truncated_by` |
 
 A document written at the step cap has no `result`, and a normal one has no `truncated`. Both rules come from the spec ([`trace-format.md` §3, Unfinished runs](../trace-format.md#unfinished-runs)).
 
@@ -484,7 +485,13 @@ The 2,001st call to `record` does not add a step. It sets `truncated`, calls `wr
 
 The sandbox's time limit is still needed for a loop that never calls `record`, for example one inside library code. That run ends in a timeout, not a trace.
 
-> **Key insight 5: the trace is written exactly once, by whichever comes first: the method returning, or the step cap.**
+### 7.5 At the size budget
+
+`push_step` renders the new step's text before storing it. If the steps' text (each step, joined with `", "`) would pass `max_size` (10 MB) with it, the step is dropped and the recorder stops as at the step cap, with `truncated_by` set to `"size"` (`stop_at`, shared with §7.4). A step rendered again when an outcome is added to it updates `steps_size` by the difference, so the count stays the size of the text that will be written.
+
+Why a budget beside the cap: every step repeats every value and every call (snapshots), so a large input (Two Sum on 3,000 numbers is about 15 KB a step) or recursion hundreds of calls deep makes a trace larger than the pipeline reads back (16 MB) long before 2,000 steps. Stopping at 10 MB gives the reader the first few hundred steps instead of an error ([`trace-format.md` §6, Limits](../trace-format.md#limits)).
+
+> **Key insight 5: the trace is written exactly once, by whichever comes first: the method returning, the step cap, or the size budget.**
 
 ## 8. The rewriter
 
@@ -589,7 +596,7 @@ The test programs are built into `adapters/cpp/build/<compiler>/`, and the trace
 | Program | Must | Checked with |
 |---|---|---|
 | `fixtures/<name>_hand_inst.cpp` for two-sum, reverse-list, preorder-traversal, clone-graph, max-depth, subsets | Write a trace equal to its golden one | `--equals fixtures/<name>.trace.json` |
-| `tests/programs/loop_forever.cpp` | Exit with code 0 from inside `record` at the step cap | `--expect-truncated`: `"truncated": true`, no `result`, exactly 2,000 steps numbered 0 to 1999 |
+| `tests/programs/loop_forever.cpp` | Exit with code 0 from inside `record` at the step cap | `--expect-truncated`: `"truncated": true`, `"truncated_by": "steps"`, no `result`, exactly 2,000 steps numbered 0 to 1999 |
 | `tests/programs/return_pointer.cpp` | Return a `ListNode*` out of a dummy-head method | `--expect-result-heap`: `result` contains a `ref`, and `result_heap` is present |
 | `tests/programs/void_method.cpp` | Return from a `void` method | `--expect-void`: `returns.type` is `"void"` and `result` is `null` |
 
@@ -607,7 +614,7 @@ CI ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs `make bot
 
 - **Shadowed names inside one function.** Two variables named `i` in scope at once in the same function (an inner block's `int i` hiding an outer one) produce a duplicate key in that frame's `locals`. The call stack fixed the same name in *different* calls, since each call has its own frame, but not this case. The rewriter will have to pass only the innermost one.
 - **Instrumentation rules are not checked at run time.** A `record` outside any `Frame` stops the program with a message. A call made before a function's first `record` would write a frame with line 0, which the schema rejects. A missing `Scope` is undefined behavior only when a call happens between the end of the block and the next `record` (§4.5).
-- **Step size grows with recursion depth.** Every step writes every frame. For LeetCode examples and a 2,000-step cap this is small. A cap on frames can be added if a test shows it is needed.
+- **Step size grows with recursion depth.** Every step writes every frame, so deep recursion reaches the size budget (§7.5) in a few hundred steps.
 - **Iterators into something that is not a local** (a member, a temporary, a container inside a container: `g[u].begin()`) have no container to name, so they are left out. So are reverse iterators.
 - **Shared containers are not marked.** Since v0.14 the format gives a container reached from two places in a step (a `vector<int>& path` parameter and its caller's `path`) the same `id` at every place. The C++ runtime writes none yet: each place is serialized as it is reached, in one pass, so it cannot know a container is shared until the second place, after the first was written. It would need a first pass over the step's variables by address, or a fix-up of the text afterwards. The traces stay valid (the `id` is optional) and their values right; only the fact that two cards are one container is missing.
 - **Wide character types** (`wchar_t`, `char8_t`, `char16_t`, `char32_t`) are rejected by the integer serializer's comparisons.

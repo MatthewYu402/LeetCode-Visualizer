@@ -1,6 +1,6 @@
 # Python Adapter
 
-> **Status:** Draft v0.14
+> **Status:** Draft v0.15
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §3 (runtime hooks), [`cpp.md`](cpp.md) (the C++ adapter, which this one matches step for step), [`adapters/python/`](../../adapters/python/) (the tracer), [`driver/python/`](../../driver/python/) (the driver), [`sandboxing.md`](../sandboxing.md) (where it runs)
 
 This document describes how the Python adapter turns a running `Solution` into a trace: where the steps come from, how Python values become the trace's kinds, how the outcomes of a line are found, and what the driver gives the tracer. Everything here is implemented, except what is marked as a limitation in §9.
@@ -41,7 +41,7 @@ A followed function is a method of `class Solution`, a function defined at the t
 
 **Loop headers.** Python reports a `for` or `while` header each time it is checked, including the last check that ends the loop, so a header has a step per check, as the C++ rewriter gives it.
 
-**The step cap.** At 2,000 steps the tracer writes the trace with `"truncated": true` and no `result`, and ends the program at once (`os._exit(0)`), so a program that never ends still has its trace. A line that never ends (`sum(range(10 ** 12))`) takes no further steps, so only the time limit stops it.
+**The step cap and the size budget.** At 2,000 steps, or when the next step would take the steps past 10 MB of JSON text, the tracer writes the trace with `"truncated": true`, `"truncated_by"` (`"steps"` or `"size"`), and no `result`, and ends the program at once (`os._exit(0)`), so a program that never ends still has its trace. Each step is measured as it is taken, and the one before it again, since outcomes are added to a step after it is taken. The budget is also what stops endless recursion: every step holds every call, so the steps reach 10 MB a few hundred calls deep, before Python's recursion limit. A line that never ends (`sum(range(10 ** 12))`) takes no further steps, so only the time limit stops it.
 
 ## 3. Normalization: Python types to kinds
 

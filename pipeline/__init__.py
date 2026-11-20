@@ -64,9 +64,8 @@ EXIT_SANDBOX = 6    # the sandbox could not run: no Docker, no image, no gVisor 
 
 SANDBOXES = (None, "none", "docker", "gvisor")
 TRACE_CAP = 16 * 1024 * 1024        # bytes of trace read back; a larger trace is an error
-TOO_LARGE = (f"The trace is larger than {TRACE_CAP // (1024 * 1024)} MB, and was not read. Every step holds every call "
-             "in progress, so a recursion thousands of calls deep (or one that never reaches its base case) makes a very "
-             "large trace. Try a smaller example.")
+TOO_LARGE = (f"The trace is larger than {TRACE_CAP // (1024 * 1024)} MB, and was not read. The tracer stops recording at "
+             "10 MB, so the part written after it (the returned value) is very large. Try a smaller example.")
 
 
 class PipelineError(Exception):

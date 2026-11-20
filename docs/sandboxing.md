@@ -107,7 +107,7 @@ Docker, the runtime, and the image are checked once per process, not once per ru
 | What happened | Trace file | Stage, exit code | What comes back |
 |---|---|---|---|
 | The method returned | Valid, with `result` | (none), 0 | The trace |
-| The step cap was reached | Valid, with `"truncated": true` and no `result` | (none), 0 | The trace. The frontend says it was cut off |
+| The step cap or the size budget was reached | Valid, with `"truncated": true`, `truncated_by`, and no `result` | (none), 0 | The trace. The frontend says it was cut off, and at which limit |
 | The example cannot be used | None | `driver`, 2 | What is wrong with it |
 | The source does not compile | None | `rewriter`, 2 | The compiler's message, naming the user's file |
 | The generated program does not compile | None | `compile`, 3 | A build bug: in the driver or the rewriter, not the user's code |

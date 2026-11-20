@@ -77,7 +77,7 @@ namespace trace {
 
   // Version and Language
   inline constexpr const char* LANGUAGE {"cpp"} ;
-  inline constexpr const char* VERSION  {"0.14"} ;
+  inline constexpr const char* VERSION  {"0.15"} ;
 
   // The largest integers a JavaScript number exactly holds: +-(2^53 - 1)
   inline constexpr i64 POS_BIG_INT = 9007199254740991;
@@ -735,9 +735,14 @@ namespace trace {
     std::vector<PendingStore> pending; // stores tracked in the statement now running
     std::vector<PendingRead> range_reads; // range-for reads waiting for the loop's first step (rr)
     static constexpr std::size_t max_steps = 2000;
+    // trace-format.md, Limits: the size budget, in characters of the steps' JSON text.
+    // A step that would take them past it is not recorded. Not constexpr, so tests can lower it.
+    std::size_t max_size = 10 * 1024 * 1024;
+    std::size_t steps_size = 0;   // characters of every step's text, kept as steps are rendered again
     // trace-format.md, Outcomes: at most this many reads per step; later ones are dropped.
     static constexpr std::size_t max_reads = 16;
     bool truncated = false;
+    std::string truncated_by;   // "steps" or "size" once truncated (trace-format.md, Limits)
     std::string version {VERSION};
     std::string language {LANGUAGE};
     std::string problem;
@@ -860,7 +865,7 @@ namespace trace {
   //  - "result" only when the method returned. Pass std::nullopt when it did not.
   //  - "result_heap" only when there is a result and it refers to objects. It
   //    has the same shape as a step's heap.
-  //  - "truncated" only as true.
+  //  - "truncated" only as true, with "truncated_by" naming the limit.
   inline Json build_document(const std::optional<Json>& result, const Heap& result_heap = {}) {
     // Append all of the steps joined with ", "
     std::string steps_trace = "[";
@@ -898,7 +903,7 @@ namespace trace {
     }
 
     if (tracer.truncated) {
-      full_trace += std::format(R"(, "truncated": {})", tracer.truncated);
+      full_trace += std::format(R"(, "truncated": true, "truncated_by": {})", quote(tracer.truncated_by.empty() ? "steps" : tracer.truncated_by));
     }
 
     full_trace += "}";
@@ -1053,17 +1058,23 @@ namespace trace {
     return tracer.frames.back();
   }
 
-  // True when one more step may be recorded. At the cap it marks the trace
-  // truncated and, if exit_at_cap is set, writes the trace and ends the
-  // program (docs/adapters/cpp.md, section 7.4).
+  // Stops recording at a limit (trace-format.md, Limits): marks the trace
+  // truncated by `limit` and, if exit_at_cap is set, writes the trace and ends
+  // the program (docs/adapters/cpp.md, section 7.4).
+  inline void stop_at(const char* limit) {
+    tracer.truncated = true;
+    tracer.truncated_by = limit;
+    if (tracer.exit_at_cap) {
+      write_document();
+      std::exit(0);
+    }
+  }
+
+  // True when one more step may be recorded. At the step cap it stops recording.
   inline bool step_allowed() {
     if (tracer.truncated) return false;
     if (tracer.steps.size() >= tracer.max_steps) {
-      tracer.truncated = true;
-      if (tracer.exit_at_cap) {
-        write_document();
-        std::exit(0);
-      }
+      stop_at("steps");
       return false;
     }
     return true;
@@ -1128,9 +1139,18 @@ namespace trace {
     }
 
     FrameState& top = tracer.frames.back();
-    top.last_step = tracer.steps.size();
     tracer.sources.push_back(StepSource{std::move(frames), std::move(members), std::move(heap), top.line, return_value != nullptr, {}});
-    tracer.steps.push_back(render_step(tracer.steps.size()));
+    Json text = render_step(tracer.steps.size());
+    // The size budget: a step that would take the steps past it is not recorded.
+    const std::size_t grown = tracer.steps_size + text.size() + (tracer.steps.empty() ? 0 : 2);
+    if (grown > tracer.max_size) {
+      tracer.sources.pop_back();
+      stop_at("size");
+      return;
+    }
+    top.last_step = tracer.steps.size();
+    tracer.steps_size = grown;
+    tracer.steps.push_back(std::move(text));
   }
 
   // Sets what the running frame is doing: the line, and the variables in scope.
@@ -1241,7 +1261,9 @@ namespace trace {
     if (source.returning || source.line != line) return;
     Ctx ctx { .id_table = tracer.id_table, .heap = source.heap };
     source.outcomes.push_back(outcome(ctx));
-    tracer.steps[index] = render_step(index);
+    Json text = render_step(index);
+    tracer.steps_size += text.size() - tracer.steps[index].size();
+    tracer.steps[index] = std::move(text);
   }
 
   inline Json store_outcome(const char* code, const char* target, const Json& value) {

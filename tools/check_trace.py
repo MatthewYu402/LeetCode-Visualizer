@@ -54,8 +54,12 @@ Options add checks:
                       and, for each local both traces have in a function, kinds
                       that agree. A Python list may stand for a C++ stack, and a
                       deque or list for a queue. Steps, lines, and values differ.
-  --expect-truncated  "truncated" is true, "result" is absent, and there are
-                      exactly 2000 steps numbered 0 to 1999.
+  --expect-truncated  "truncated" is true, "truncated_by" is "steps", "result" is
+                      absent, and there are exactly 2000 steps numbered 0 to 1999.
+  --expect-truncated-size
+                      "truncated" is true, "truncated_by" is "size", "result" is
+                      absent, and fewer steps, numbered from 0, whose JSON text
+                      fits in the 10 MB budget.
   --expect-result-heap  "result" contains a ref and "result_heap" is present.
   --expect-void       problem.returns.type is "void" and "result" is null.
 
@@ -71,11 +75,13 @@ from pathlib import Path
 
 try:
     from jsonschema import Draft202012Validator
+    from jsonschema.validators import extend
 except ImportError:
     sys.exit("check_trace: the jsonschema package is missing (pip install jsonschema)")
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema" / "trace.schema.json"
 STEP_CAP = 2000
+SIZE_BUDGET = 10 * 1024 * 1024   # characters of the steps' JSON text (spec §6, Limits)
 # Kinds whose list holds no meaningful order, and the field that holds it.
 UNORDERED = {"set": "items", "multiset": "items", "map": "entries", "multimap": "entries"}
 # At most this many schema errors are printed per file.
@@ -84,6 +90,99 @@ MAX_ERRORS = 10
 
 class CheckError(Exception):
     """A file failed a check. The message is the reason."""
+
+
+# ---- fast schema validation ----------------------------------------------------------
+#
+# Every step repeats every value (snapshots), so a trace of a large input holds the same
+# 3,000-number array hundreds of times, and validating it value by value took minutes
+# (jsonschema resolves a $ref per value). Two things make it fast without changing what
+# is checked:
+#   - share(): equal subtrees of the document become one object, bottom up, in one pass.
+#   - the validator remembers which objects it already found to be a valid `value`, and
+#     skips them; and $refs into $defs are replaced by the definitions themselves.
+# A value's validity depends only on the value (the `value` definition has no context),
+# so checking each distinct value once checks them all.
+
+
+def share(doc):
+    """Makes equal lists and dicts in `doc` one object each (in place), and returns it."""
+    seen = {}
+
+    def walk(v):
+        if isinstance(v, list):
+            for i, x in enumerate(v):
+                v[i] = walk(x)
+            key = ("L", tuple(_key(x) for x in v))
+        elif isinstance(v, dict):
+            for k in v:
+                v[k] = walk(v[k])
+            key = ("D", tuple((k, _key(x)) for k, x in v.items()))
+        else:
+            return v
+        return seen.setdefault(key, v)
+
+    return walk(doc)
+
+
+def _key(x):
+    # A shared list or dict is named by its identity; a primitive by its type and value,
+    # so 1, 1.0, and True stay apart.
+    return id(x) if isinstance(x, (list, dict)) else (type(x).__name__, x)
+
+
+def _inline(schema):
+    """The schema with each bare {"$ref": "#/$defs/x"} replaced by the definition object."""
+    defs = schema.get("$defs", {})
+    done = set()
+
+    def target(v):
+        if isinstance(v, dict) and set(v) == {"$ref"} and isinstance(v["$ref"], str) and v["$ref"].startswith("#/$defs/"):
+            return defs.get(v["$ref"][len("#/$defs/"):])
+        return None
+
+    def walk(node):
+        if id(node) in done:
+            return
+        done.add(id(node))
+        pairs = node.items() if isinstance(node, dict) else enumerate(node) if isinstance(node, list) else ()
+        for k, v in list(pairs):
+            t = target(v)
+            if t is not None:
+                node[k] = t
+                v = t
+            walk(v)
+
+    walk(schema)
+    return schema
+
+
+def make_validator(schema):
+    """A validator for `schema` that checks each distinct value once (see share())."""
+    schema = _inline(json.loads(json.dumps(schema)))
+    value = schema.get("$defs", {}).get("value")
+    base = Draft202012Validator.VALIDATORS
+    valid = set()
+
+    def remembering(keyword):
+        check = base[keyword]
+
+        def run(validator, argument, instance, sub):
+            if sub is not value or not isinstance(instance, (list, dict)):
+                yield from check(validator, argument, instance, sub)
+                return
+            if id(instance) in valid:
+                return
+            errors = list(check(validator, argument, instance, sub))
+            if not errors:
+                valid.add(id(instance))
+            yield from errors
+
+        return run
+
+    keywords = [k for k in ("oneOf", "anyOf") if isinstance(value, dict) and k in value]
+    cls = extend(Draft202012Validator, {k: remembering(k) for k in keywords})
+    return cls(schema)
 
 
 def no_constants(token):
@@ -385,16 +484,24 @@ def check_indexes(doc):
                 raise CheckError(f"{where}.{local}: a local cannot index itself")
 
 
-def check_truncated(doc):
+def check_truncated(doc, limit="steps"):
     if "truncated" not in doc:
         raise CheckError('"truncated" is absent, expected true')
     if doc["truncated"] is not True:
         raise CheckError(f'"truncated" is {json.dumps(doc["truncated"])}, expected true')
     if "result" in doc:
         raise CheckError('"result" is present in a truncated trace')
+    if doc.get("truncated_by") != limit:
+        raise CheckError(f'"truncated_by" is {json.dumps(doc.get("truncated_by"))}, expected "{limit}"')
     steps = doc["steps"]
-    if len(steps) != STEP_CAP:
+    if limit == "steps" and len(steps) != STEP_CAP:
         raise CheckError(f"{len(steps)} steps, expected exactly {STEP_CAP}")
+    if limit == "size":
+        if not 0 < len(steps) < STEP_CAP:
+            raise CheckError(f"{len(steps)} steps, expected between 1 and {STEP_CAP - 1}")
+        size = len(json.dumps(steps, separators=(",", ":"), ensure_ascii=False))
+        if size > SIZE_BUDGET:
+            raise CheckError(f"the steps are {size} characters of JSON, over the {SIZE_BUDGET} budget")
     for i, step in enumerate(steps):
         if step["step"] != i:
             raise CheckError(f"steps[{i}] is numbered {step['step']}, expected {i}")
@@ -480,7 +587,7 @@ def like_difference(doc, other):
         return (p["method"], [(q["name"], q["type"]) for q in p["params"]], p.get("returns", {}).get("type"))
     if problem(doc) != problem(other):
         return f"the problems differ: {problem(doc)} and {problem(other)}"
-    for key in ("result", "truncated"):
+    for key in ("result", "truncated", "truncated_by"):
         if (key in doc) != (key in other):
             return f'"{key}" is in one trace and not the other'
     if "result" in doc:
@@ -513,7 +620,7 @@ def like_difference(doc, other):
 
 
 def check_file(path, validator, fixture, expect, like=None):
-    doc = load(path)
+    doc = share(load(path))
 
     errors = sorted(validator.iter_errors(doc), key=lambda e: list(e.absolute_path))
     if errors:
@@ -551,12 +658,15 @@ def main():
                              "problem, answer, ending, functions, and object types, and compatible kinds for shared locals")
     parser.add_argument("--expect-truncated", action="store_true",
                         help=f"also require a trace cut off at the {STEP_CAP}-step cap")
+    parser.add_argument("--expect-truncated-size", action="store_true",
+                        help="also require a trace cut off at the size budget")
     parser.add_argument("--expect-result-heap", action="store_true",
                         help="also require a ref result with a result_heap")
     parser.add_argument("--expect-void", action="store_true",
                         help="also require a void method's null result")
     args = parser.parse_args()
     expect = [check for flag, check in ((args.expect_truncated, check_truncated),
+                                        (args.expect_truncated_size, lambda doc: check_truncated(doc, "size")),
                                         (args.expect_result_heap, check_result_heap),
                                         (args.expect_void, check_void)) if flag]
 
@@ -566,7 +676,7 @@ def main():
         Draft202012Validator.check_schema(schema)
     except Exception as e:
         sys.exit(f"check_trace: cannot load the schema {SCHEMA_PATH}: {e}")
-    validator = Draft202012Validator(schema)
+    validator = make_validator(schema)
 
     like = None
     if args.like:

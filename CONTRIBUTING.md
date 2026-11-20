@@ -16,7 +16,7 @@ Open an issue on GitHub. A good report has:
 - **The step**, when it is about one moment of the replay ("Step 14 of 52"), and a screenshot if it is about drawing.
 - **The browser and the theme**, if it is about the page.
 
-Before reporting, check the README's [known limitations](README.md#known-limitations). A design problem (LRU Cache), a run that stops at 2,000 steps, or a lambda that takes no steps are known, not bugs. A trace that differs between languages only in step count or hash-map order is expected too ([trace-format.md §8, What is a bug and what is not](docs/trace-format.md#what-is-a-bug-and-what-is-not)).
+Before reporting, check the README's [known limitations](README.md#known-limitations). A design problem (LRU Cache), a run that stops at 2,000 steps or 10 MB, or a lambda that takes no steps are known, not bugs. A trace that differs between languages only in step count or hash-map order is expected too ([trace-format.md §8, What is a bug and what is not](docs/trace-format.md#what-is-a-bug-and-what-is-not)).
 
 For a large change (a new language, a change to the trace format, a new kind of drawing), open an issue to agree on the design **before** writing the code. Those changes touch the contract that every part of the project depends on.
 
@@ -86,7 +86,7 @@ The spec ([`docs/trace-format.md`](docs/trace-format.md)), the schema ([`schema/
 
 1. **Open an issue first**, saying what cannot be expressed today and for which languages or problems.
 2. Check the change against the spec's principles: language-neutral, self-contained, declarative, deliberately lossy. A change that leaks one language's detail is the wrong change.
-3. Bump the version: an optional field or a new kind is a minor bump (`0.14` to `0.15`). While the major version is 0, a minor bump may also break old traces.
+3. Bump the version: an optional field or a new kind is a minor bump (`0.15` to `0.16`). While the major version is 0, a minor bump may also break old traces.
 4. Change the spec (including its history in §9), the schema, every affected fixture, every adapter that writes the format, and the frontend's loader, which accepts only the versions it was built for.
 5. Validate every fixture, and add one deliberately bad trace that the new rule must reject.
 
@@ -109,7 +109,7 @@ What an adapter is made of:
 How to know it is done:
 
 1. **Twins of the six golden fixtures.** Write each fixture's Solution in the new language (`fixtures/<name>_trace.<ext>`), record its trace (`fixtures/<name>.<language>.trace.json`), and check that it is valid, that it is like the C++ one (`check_trace.py --like`), and that it matches it call by call (`compare_traces.py --core`).
-2. **The hard cases behave**: an infinite loop leaves a truncated trace, deep recursion stops with a clear error, a cyclic structure terminates, and a type with no kind is left out.
+2. **The hard cases behave**: an infinite loop leaves a trace truncated at the step limit, a large input or endless recursion one truncated at the size budget, a cyclic structure terminates, and a type with no kind is left out.
 3. **The pipeline and the service know it**: `pipeline/` dispatches on the language, `backend/app.py` accepts it, and the sandbox's isolation tests cover its image.
 4. **It is documented** in `docs/adapters/<language>.md` (the strategy, the normalization table, known limitations), with a CI job and a row in the README.
 

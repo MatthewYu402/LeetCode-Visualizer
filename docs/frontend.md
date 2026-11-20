@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.19 (reads trace format v0.14)
+> **Status:** Draft v0.19 (reads trace format v0.15 and v0.14)
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -110,21 +110,22 @@ The only module that knows which language is selected is `App.tsx`, and it uses 
 The page has no trace until the code runs: a run's trace goes through `checkTrace` in `api/client.ts`. The tests import `fixtures/*.trace.json` with Vite's `?raw` suffix, so they arrive as text and go through the same `JSON.parse` call in the loader. Nothing is copied into `frontend/`; `vite.config.ts` adds the repository root to `server.fs.allow`. `JSON.parse` rejects the bare tokens `NaN` and `Infinity` on its own.
 
 #### Version check
-The loader accepts exactly `"0.14"` and rejects everything else with an error shown in the visual panel:
+The loader accepts `"0.15"` and `"0.14"` and rejects everything else with an error shown in the visual panel:
 
 ```
-Unsupported trace version "0.2". This frontend reads version 0.14 only.
+Unsupported trace version "0.2". This frontend reads versions 0.15 and 0.14 only.
 ```
 
-Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting exactly one version keeps the rule simple while the major version is 0.
+Spec [§9](trace-format.md#9-versioning): while the major version is 0, any minor bump may break, so there is no "compatible range". A `0.1` trace would be misread, because its `list` means today's `array`, and a `0.3` trace may carry `"truncated": false`, which v0.4 forbids. A `0.4` trace would in fact draw correctly, but accepting only versions checked against this frontend keeps the rule simple while the major version is 0. v0.14 is kept because v0.15 only added the size budget and `truncated_by`: a v0.14 trace draws the same, and a truncated one stopped at the step limit, its only limit.
 
 #### How the run ended
-`result` and `truncated` are optional ([trace-format.md §3, Unfinished runs](trace-format.md#unfinished-runs)), so the loader requires neither. `runEnd(trace)` in `trace/types.ts` reads them once:
+`result` and `truncated` are optional ([trace-format.md §3, Unfinished runs](trace-format.md#unfinished-runs)), so the loader requires neither. `runEnd(trace)` in `trace/types.ts` reads them once, and `truncatedBy(trace)` says which limit stopped a truncated run:
 
 | `result` | `truncated` | `runEnd` | Last step of the state panel |
 |---|---|---|---|
 | present | absent or `true` | `returned` | The `result` row, even when it is `null` (a real return value) |
-| absent | `true` | `truncated` | `did not return: stopped at the step limit` |
+| absent | `true`, `truncated_by: "steps"` (or absent, in v0.14) | `truncated` | `did not return: stopped at the step limit` |
+| absent | `true`, `truncated_by: "size"` | `truncated` | `did not return: stopped at the size limit`, and its tooltip says why: every step holds every value and every call, so a large input or deep recursion fills it; try a smaller input |
 | absent | absent | `stopped` | `did not return: the run ended early` |
 
 A `void` method that returned has `"result": null`, which alone would read as a returned null pointer. `returnsVoid(problem)` in `trace/types.ts` checks `problem.returns.type === "void"` ([trace-format.md §3, The return value](trace-format.md#the-return-value)), and the state panel then shows `returned, no value` with the kind `void` instead of `null`.
@@ -445,7 +446,7 @@ The player holds `{ index, cameFrom, playing }`. All transitions are a pure redu
 > **Key insight 2: the player only moves an index.** It never computes state. Drawing step N reads `steps[N]`, and the diff reads `steps[N-1]` and `steps[N]`, nothing earlier. There is no replay path to get wrong.
 
 ## 9. State panel
-- **Header:** `Step N of M`, counted from 1 like the playback bar, with a thin progress bar, plus a `truncated` badge when the trace sets `"truncated": true`.
+- **Header:** `Step N of M`, counted from 1 like the playback bar, with a thin progress bar, plus a `truncated` badge when the trace sets `"truncated": true`, whose tooltip names the limit.
 - **The running line:** a muted `Line i` pill, the statement on that line as written (trimmed, cut with `…` when long), an arrow, and a chip for what the line produced. The statement comes from the code the run was made from, kept with the run's result, so editing the code afterwards does not put other text beside the trace's line numbers.
 - **Chips** come from the top frame's `outcomes` (trace format v0.8, spec §6) in order, except reads, which are drawn on the canvas ([Reads](#reads)): a condition is a green `true` or a muted red `false` (the condition's code on hover); a store is `name = value`. In a return step the chip is purple: `returns [0, 1]`, or just `returns` for a function that returns nothing (every return step of it has `return_value: null`, `voidFunctions`). A line with nothing recorded shows the pill and the statement only, so traces from adapters that do not record outcomes yet still read well.
 - **Locals:** `Locals in twoSum`, then a full-width rounded table: Name, Kind, Value. The kind of a bare number is `int` when it is an integer and `float` otherwise; strings, booleans, and `null` show `string`, `bool`, and `null`. A `ref` shows its node's value (`→ 7`), with the id on hover, so the table never shows heap ids.

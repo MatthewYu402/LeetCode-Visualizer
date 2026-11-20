@@ -68,7 +68,8 @@ def main(argv=None):
         print(f"pipeline: note: {warning}", file=sys.stderr)
     trace = result.trace
     if trace.get("truncated"):
-        ending = "stopped at the step limit (no result)"
+        ending = ("stopped at the size budget (no result)" if trace.get("truncated_by") == "size"
+                  else "stopped at the step limit (no result)")
     elif "result" in trace:
         ending = "result " + json.dumps(trace["result"])[:80]
     else:

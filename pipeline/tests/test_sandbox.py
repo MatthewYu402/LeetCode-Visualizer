@@ -403,8 +403,11 @@ class JavaIsolation(unittest.TestCase):
         self.assertEqual(self.result(source), int(PROGRAM_USER.split(":")[0]) * 1000 + 1)
 
     def test_memory_limit(self):
-        error = self.fails(jv("        byte[][] big = new byte[512][];\n        for (int i = 0; i < 512; i++) big[i] = new byte[1 << 20];\n        return big.length;"),
-                           limits=Limits(memory="256m"))
+        # In a class the rewriter does not trace: as a local of the Solution, every step would write
+        # the arrays, and the size budget would stop the trace before the memory ran out.
+        error = self.fails(jv("        return Helper.big();") + "class Helper {\n    static int big() {\n"
+                           "        byte[][] big = new byte[512][];\n        for (int i = 0; i < 512; i++) big[i] = new byte[1 << 20];\n"
+                           "        return big.length;\n    }\n}\n", limits=Limits(memory="256m"))
         self.assertEqual((error.stage, error.exit_code), ("run", EXIT_RUN), str(error))
 
     def test_time_limit_removes_the_container(self):

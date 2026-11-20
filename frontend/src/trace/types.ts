@@ -211,12 +211,14 @@ export interface Trace {
   result_heap?: Record<string, ObjectValue>;
   /** Present only as true. Absent means false. */
   truncated?: boolean;
+  /** Present exactly when `truncated` is (v0.15): which limit stopped recording. */
+  truncated_by?: "steps" | "size";
 }
 
 /**
  * How the run ended (spec §3, Unfinished runs):
  *   returned   the method returned, so `result` is present (it may also be truncated)
- *   truncated  recording stopped at the step limit before the method returned
+ *   truncated  recording stopped at a limit before the method returned (which one: truncatedBy)
  *   stopped    the run ended early for another reason, such as a crash
  */
 export type RunEnd = "returned" | "truncated" | "stopped";
@@ -224,6 +226,16 @@ export type RunEnd = "returned" | "truncated" | "stopped";
 export function runEnd(trace: Trace): RunEnd {
   if ("result" in trace && trace.result !== undefined) return "returned";
   return trace.truncated === true ? "truncated" : "stopped";
+}
+
+/**
+ * Which limit stopped recording (spec §6, Limits), or null when the trace is not truncated:
+ * "steps" for the step limit, "size" for the size budget. A v0.14 trace has no
+ * `truncated_by`; the step limit was its only one.
+ */
+export function truncatedBy(trace: Trace): "steps" | "size" | null {
+  if (trace.truncated !== true) return null;
+  return trace.truncated_by === "size" ? "size" : "steps";
 }
 
 /**
