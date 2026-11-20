@@ -493,7 +493,7 @@ The top bar has an **Examples** button beside the language select (`components/E
 ```
 
 - **Tabs** C++, Python, and Java across the top; the menu opens on the editor's language. Left and right arrows move between tabs, up and down between problems, Escape closes, and so does a click outside.
-- **Eight problems**, one per topic: Hashing (Two Sum), Two pointers (Container With Most Water), Stack (Valid Parentheses), Linked list (Reverse Linked List), Tree (Maximum Depth of Binary Tree), Graph (Number of Islands), Backtracking (Subsets), DP (Climbing Stairs), each in all three languages (`home/examples.ts`, copied from the manual suite, [Section 12.3](#123-examples)).
+- **Eight problems**, one per topic: Hashing (Two Sum), Two pointers (Container With Most Water), Stack (Valid Parentheses), Linked list (Reverse Linked List), Tree (Maximum Depth of Binary Tree), Graph (Course Schedule), Backtracking (Subsets), DP (Unique Paths), each in all three languages (`home/examples.ts`, copied from the manual suite, [Section 12.3](#123-examples)).
 - **Picking one** opens `#/sandbox/<slug>/<language>`: a fresh sandbox in that language, the Solution in the editor and the example in the inputs, filled once, not run. Picking the example already open starts it fresh too.
 - **The user's own code is not lost without asking.** When the editor holds anything other than the starter or example it was given, picking an example opens a dialog, "Replace your code with Two Sum?", with Keep my code and Replace (focused). Escape or a click outside keeps it.
 
@@ -596,7 +596,7 @@ The page scrolls (the sandbox does not), inside `.home`, since `body` never scro
 - **Below 1040 px** the four "how it works" steps go two to a row; **below 640 px** one, the bar drops the name, and the title shrinks so its first line stays whole.
 
 ### 12.3 Examples
-`home/examples.ts` lists eight problems, one per topic, the same eight as the sandbox's Examples menu ([Section 10.2](#102-the-examples-menu)): Two Sum, Container With Most Water, Valid Parentheses, Reverse Linked List, Maximum Depth of Binary Tree, Number of Islands, Subsets, and Climbing Stairs. Each has its Solution in C++, Python, and Java. Each card shows the title, the difficulty, one sentence on what to watch, and tags in the canvas's words, and opens the C++ version; the menu opens the others.
+`home/examples.ts` lists eight problems, one per topic, the same eight as the sandbox's Examples menu ([Section 10.2](#102-the-examples-menu)): Two Sum, Container With Most Water, Valid Parentheses, Reverse Linked List, Maximum Depth of Binary Tree, Course Schedule, Subsets, and Unique Paths. Each has its Solution in C++, Python, and Java. Each card shows the title, the difficulty, one sentence on what to watch, and tags in the canvas's words, and opens the C++ version; the menu opens the others.
 
 - **Copied from the manual suite.** Each example's code and `Input:`/`Output:` text, in each language, are the verbatim text of its case in `docs/manual-test-suite.md`, so every one is known to run. `examples.test.ts` reads the suite and fails if they drift apart.
 - **A link preloads, it does not run.** The sandbox opens with the Solution in the editor and the example text in the inputs panel's box, and fills the fields from it once (the same call as pasting, so the note says "From the example, … were filled"). The reader presses Run code. Running on arrival would spend a sandbox run on every click, including clicks from someone only looking.

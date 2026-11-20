@@ -335,9 +335,9 @@ final class Rewriter {
 
       @Override
       public Void visitArrayAccess(ArrayAccessTree node, Void v) {
-        ExpressionTree a = node.getExpression();
-        while (a instanceof ArrayAccessTree inner) a = inner.getExpression();
-        pair(a, node.getIndex());
+        // Only the container named directly (spec §3, Indexes): in `grid[r][c]`, `r` indexes
+        // `grid`, but `c` indexes `grid[r]`, which is not a local, so `c` pairs nothing.
+        pair(node.getExpression(), node.getIndex());
         return super.visitArrayAccess(node, v);
       }
 

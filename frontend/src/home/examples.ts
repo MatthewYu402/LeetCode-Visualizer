@@ -407,92 +407,93 @@ class Solution {
     },
   },
   {
-    slug: "number-of-islands",
-    title: "Number of Islands",
+    slug: "course-schedule",
+    title: "Course Schedule",
     topic: "Graph",
     difficulty: "Medium",
-    tags: ["grid", "graph"],
-    blurb: "Each island is sunk as it is found, cell by cell across the grid.",
+    tags: ["graph", "queue"],
+    blurb: "Prerequisites drawn as a graph; courses leave the queue as their last prerequisite is taken.",
     solutions: {
       cpp: {
-        suiteCase: 44,
+        suiteCase: 45,
         code: `class Solution {
 public:
-    int numIslands(vector<vector<char>>& grid) {
-        int count = 0;
-        for (int r = 0; r < (int)grid.size(); r++) {
-            for (int c = 0; c < (int)grid[0].size(); c++) {
-                if (grid[r][c] == '1') {
-                    count++;
-                    sink(grid, r, c);
-                }
+    bool canFinish(int numCourses, vector<vector<int>>& prerequisites) {
+        vector<vector<int>> adj(numCourses);
+        vector<int> indegree(numCourses, 0);
+        for (auto& p : prerequisites) {
+            adj[p[1]].push_back(p[0]);
+            indegree[p[0]]++;
+        }
+        queue<int> ready;
+        for (int i = 0; i < numCourses; i++) {
+            if (indegree[i] == 0) ready.push(i);
+        }
+        int taken = 0;
+        while (!ready.empty()) {
+            int course = ready.front();
+            ready.pop();
+            taken++;
+            for (int next : adj[course]) {
+                if (--indegree[next] == 0) ready.push(next);
             }
         }
-        return count;
-    }
-
-    void sink(vector<vector<char>>& grid, int r, int c) {
-        if (r < 0 || c < 0 || r >= (int)grid.size() || c >= (int)grid[0].size() || grid[r][c] != '1') return;
-        grid[r][c] = '0';
-        sink(grid, r + 1, c);
-        sink(grid, r - 1, c);
-        sink(grid, r, c + 1);
-        sink(grid, r, c - 1);
+        return taken == numCourses;
     }
 };
 `,
-        text: "Input: grid = [[\"1\",\"1\",\"0\"],[\"0\",\"1\",\"0\"],[\"0\",\"0\",\"1\"]]\nOutput: 2\n",
+        text: "Input: numCourses = 4, prerequisites = [[1,0],[2,0],[3,1],[3,2]]\nOutput: true\n",
       },
       python: {
-        suiteCase: 75,
+        suiteCase: 96,
         code: `class Solution:
-    def numIslands(self, grid: List[List[str]]) -> int:
-        rows, cols = len(grid), len(grid[0])
-        islands = 0
-        for r in range(rows):
-            for c in range(cols):
-                if grid[r][c] == "1":
-                    islands += 1
-                    grid[r][c] = "0"
-                    q = deque([(r, c)])
-                    while q:
-                        x, y = q.popleft()
-                        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                            nx, ny = x + dx, y + dy
-                            if 0 <= nx < rows and 0 <= ny < cols and grid[nx][ny] == "1":
-                                grid[nx][ny] = "0"
-                                q.append((nx, ny))
-        return islands
+    def canFinish(self, numCourses: int, prerequisites: List[List[int]]) -> bool:
+        adj = [[] for _ in range(numCourses)]
+        indegree = [0] * numCourses
+        for course, pre in prerequisites:
+            adj[pre].append(course)
+            indegree[course] += 1
+        ready = deque(i for i in range(numCourses) if indegree[i] == 0)
+        taken = 0
+        while ready:
+            course = ready.popleft()
+            taken += 1
+            for nxt in adj[course]:
+                indegree[nxt] -= 1
+                if indegree[nxt] == 0:
+                    ready.append(nxt)
+        return taken == numCourses
 `,
-        text: "Input: grid = [[\"1\",\"1\",\"0\"],[\"0\",\"1\",\"0\"],[\"0\",\"0\",\"1\"]]\nOutput: 2\n",
+        text: "Input: numCourses = 4, prerequisites = [[1,0],[2,0],[3,1],[3,2]]\nOutput: true\n",
       },
       java: {
-        suiteCase: 90,
+        suiteCase: 97,
         code: `class Solution {
-    public int numIslands(char[][] grid) {
-        int count = 0;
-        for (int r = 0; r < grid.length; r++) {
-            for (int c = 0; c < grid[0].length; c++) {
-                if (grid[r][c] == '1') {
-                    count++;
-                    sink(grid, r, c);
-                }
+    public boolean canFinish(int numCourses, int[][] prerequisites) {
+        List<List<Integer>> adj = new ArrayList<>();
+        for (int i = 0; i < numCourses; i++) adj.add(new ArrayList<>());
+        int[] indegree = new int[numCourses];
+        for (int[] p : prerequisites) {
+            adj.get(p[1]).add(p[0]);
+            indegree[p[0]]++;
+        }
+        Queue<Integer> ready = new ArrayDeque<>();
+        for (int i = 0; i < numCourses; i++) {
+            if (indegree[i] == 0) ready.offer(i);
+        }
+        int taken = 0;
+        while (!ready.isEmpty()) {
+            int course = ready.poll();
+            taken++;
+            for (int next : adj.get(course)) {
+                if (--indegree[next] == 0) ready.offer(next);
             }
         }
-        return count;
-    }
-
-    private void sink(char[][] grid, int r, int c) {
-        if (r < 0 || c < 0 || r >= grid.length || c >= grid[0].length || grid[r][c] != '1') return;
-        grid[r][c] = '0';
-        sink(grid, r + 1, c);
-        sink(grid, r - 1, c);
-        sink(grid, r, c + 1);
-        sink(grid, r, c - 1);
+        return taken == numCourses;
     }
 }
 `,
-        text: "Input: grid = [[\"1\",\"1\",\"0\"],[\"0\",\"1\",\"0\"],[\"0\",\"0\",\"1\"]]\nOutput: 2\n",
+        text: "Input: numCourses = 4, prerequisites = [[1,0],[2,0],[3,1],[3,2]]\nOutput: true\n",
       },
     },
   },
@@ -569,59 +570,58 @@ public:
     },
   },
   {
-    slug: "climbing-stairs",
-    title: "Climbing Stairs",
+    slug: "unique-paths",
+    title: "Unique Paths",
     topic: "DP",
-    difficulty: "Easy",
-    tags: ["map", "recursion"],
-    blurb: "A memo on the Solution keeps each answer, so no call repeats.",
+    difficulty: "Medium",
+    tags: ["grid", "dp"],
+    blurb: "A 2D table filled row by row, each cell the sum of the one above and the one to the left.",
     solutions: {
       cpp: {
-        suiteCase: 68,
+        suiteCase: 52,
         code: `class Solution {
-    unordered_map<int, int> memo;
 public:
-    int climbStairs(int n) {
-        if (n <= 2) return n;
-        if (memo.count(n)) return memo[n];
-        memo[n] = climbStairs(n - 1) + climbStairs(n - 2);
-        return memo[n];
+    int uniquePaths(int m, int n) {
+        vector<vector<int>> dp(m, vector<int>(n, 1));
+        for (int r = 1; r < m; r++) {
+            for (int c = 1; c < n; c++) {
+                dp[r][c] = dp[r - 1][c] + dp[r][c - 1];
+            }
+        }
+        return dp[m - 1][n - 1];
     }
 };
 `,
-        text: "Input: n = 5\nOutput: 8\n",
+        text: "Input: m = 3, n = 4\nOutput: 10\n",
       },
       python: {
-        suiteCase: 80,
+        suiteCase: 98,
         code: `class Solution:
-    def climbStairs(self, n: int) -> int:
-        self.memo = {}
-        return self._ways(n)
-
-    def _ways(self, n: int) -> int:
-        if n <= 2:
-            return n
-        if n in self.memo:
-            return self.memo[n]
-        self.memo[n] = self._ways(n - 1) + self._ways(n - 2)
-        return self.memo[n]
+    def uniquePaths(self, m: int, n: int) -> int:
+        dp = [[1] * n for _ in range(m)]
+        for r in range(1, m):
+            for c in range(1, n):
+                dp[r][c] = dp[r - 1][c] + dp[r][c - 1]
+        return dp[m - 1][n - 1]
 `,
-        text: "Input: n = 5\nOutput: 8\n",
+        text: "Input: m = 3, n = 4\nOutput: 10\n",
       },
       java: {
-        suiteCase: 92,
+        suiteCase: 99,
         code: `class Solution {
-    private Map<Integer, Integer> memo = new HashMap<>();
-
-    public int climbStairs(int n) {
-        if (n <= 2) return n;
-        if (memo.containsKey(n)) return memo.get(n);
-        memo.put(n, climbStairs(n - 1) + climbStairs(n - 2));
-        return memo.get(n);
+    public int uniquePaths(int m, int n) {
+        int[][] dp = new int[m][n];
+        for (int[] row : dp) Arrays.fill(row, 1);
+        for (int r = 1; r < m; r++) {
+            for (int c = 1; c < n; c++) {
+                dp[r][c] = dp[r - 1][c] + dp[r][c - 1];
+            }
+        }
+        return dp[m - 1][n - 1];
     }
 }
 `,
-        text: "Input: n = 5\nOutput: 8\n",
+        text: "Input: m = 3, n = 4\nOutput: 10\n",
       },
     },
   },

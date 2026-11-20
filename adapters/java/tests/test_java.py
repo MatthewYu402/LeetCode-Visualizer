@@ -281,6 +281,16 @@ class Outcomes(unittest.TestCase):
         self.assertIn(("m[nums[0]]", 1), [(o["target"], o["value"]) for line, o in outcomes(t, "store")])
         self.assertEqual(t["indexes"], {"f": {"i": ["nums", "s"]}})
 
+    def test_only_the_container_named_directly_is_indexed(self):
+        # In grid[r][c], r indexes grid; c indexes grid[r], which is not a local (spec §3, Indexes).
+        body = """        int[][] dp = new int[m][n];
+        for (int r = 1; r < m; r++) {
+            for (int c = 1; c < n; c++) dp[r][c] = dp[r - 1][c] + dp[r][c - 1];
+        }
+        return dp[m - 1][n - 1];"""
+        t = trace(solution(body, signature="public int f(int m, int n)"), "m = 2, n = 2")
+        self.assertEqual(t["indexes"], {"f": {"r": ["dp"], "m": ["dp"]}})
+
 
 if __name__ == "__main__":
     unittest.main()
