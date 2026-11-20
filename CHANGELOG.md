@@ -10,6 +10,8 @@ Each entry says what changed, and for a design change, why. New entries go under
 
 ### Added
 
+- **The tab shows Visi's eye.** The browser tab's icon is the white eye on a dark rounded tile, legible on light and dark tab bars alike, instead of the browser's default. A PNG copy covers browsers without SVG icons, and a home-screen icon covers phones.
+
 - **The page can be served apart from the API.** A build of the frontend can name the API's address (`VITE_API_BASE`), so the page and the API can live on different hosts; development is unchanged. When it cannot reach that address, the page now says the server cannot be reached instead of asking whether you started the backend. The build uses relative paths, so it works at a domain's root or under a path.
 - **CI publishes what it tested.** After a push to `main` passes, CI pushes the three sandbox images to the GitHub container registry and deploys the frontend to GitHub Pages.
 

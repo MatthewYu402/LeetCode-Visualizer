@@ -79,6 +79,8 @@ src/
 └── styles/              theme.css (tokens), app.css (layout)
 ```
 
+`public/` holds the tab icons, copied into the build as they are: `favicon.svg` (the white eye on a rounded tile in the dark theme's `--bg`), `favicon-32.png` (the same, for browsers without SVG icons), and `apple-touch-icon.png` (180 px, square, for a phone's home screen). `index.html` links them; the PNGs were rendered once from the SVG.
+
 Tests live next to the code as `*.test.ts(x)` and run in Node. Components are tested with `react-dom/server`, so no DOM library is needed.
 
 ## Rules
@@ -91,7 +93,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 6. **Map order is the trace's order.** Never sort map entries (or set, multiset, multimap members) for display. Diffs match by key, never by position; multiset and multimap match by count. `canonical` sorts members only to compare.
 7. **Pointer markers** come from one rule only: an integer local that the trace's `indexes` pairs with that array in the running function (`indexes[frame.function][name]` lists the array; spec §3, Indexes) and whose value is a valid index into it, and an `iterator` local whose `container` is that array and whose `index` is in range. An iterator's marker is labeled with its own name, so `it` points at `nums[2]`; one at `end` gets no marker. A local that never changes in the run (`amount` in `dp[amount]`) keeps its marker, muted (`steady`).
 8. **Unknown kinds go to the fallback**, never crash.
-9. **Colours come from the theme tokens.** No hex values in components or CSS outside `styles/theme.css` (the one exception is a fully transparent constant in `editor/monaco.ts`), and no colour or shadow that is right in one theme only. A new token gets a value in both the dark `:root` block and the `:root[data-theme="light"]` block. The Monaco theme reads the same variables.
+9. **Colours come from the theme tokens.** No hex values in components or CSS outside `styles/theme.css` (the exceptions are a fully transparent constant in `editor/monaco.ts`, and the tab icons in `public/`, which are image files in the dark theme's `--bg`), and no colour or shadow that is right in one theme only. A new token gets a value in both the dark `:root` block and the `:root[data-theme="light"]` block. The Monaco theme reads the same variables.
 10. **Fixtures are imported from `../fixtures`**, never copied into `frontend/`. `vite.config.ts` allows the repo root in `server.fs.allow`. Tests import them, and so does one page: the home page's preview replays the Reverse Linked List trace (`docs/frontend.md` Q27). The sandbox always opens with no trace.
 11. **A missing `result` means the run did not finish**, never a wrong answer. A missing `truncated` means `false`. Read both through `runEnd`, and which limit stopped a truncated run through `truncatedBy` (a v0.14 trace, with no `truncated_by`, stopped at the step limit).
 12. **Wherever the problem's title is shown, it is `problem.name`, or `problem.method` when the name is absent.** Use `problemTitle`. (The top bar shows the app's name, not the problem's.)
