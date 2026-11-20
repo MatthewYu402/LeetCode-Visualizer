@@ -1,13 +1,11 @@
-# LeetCode-Visualizer
+# Visi
 
-## Goals
-I am currently practicing LeetCode style questions, but for most students, including myself, learn much better visually rather than conceptually. Seeing the problem unfold and understanding why one solution may not work while another might as a data structure on the screen feels more tangible. Instead of picturing how a data structure works in a given problem, a visual can help immensely.
+## Inspiration behind the project
+For most students learning visually is more effective rather than pure conceptual practice. Seeing the problem unfold and understanding why one solution may not work while another might as a data structure on the screen feels more tangible. Instead of picturing how a data structure works in a given problem, a visual can help immensely.
 
 I want to help other aspiring software engineers with their goals of getting their dream job, and most of the time they need to go though multiple rounds of technical interviews, which are more often than not a multitude of LeetCode-style questions. With this in mind, those who are also visuals learners should use this tool to understand a given problem.
 
 The rest of the file goes over the project, including the architecture, and decisions made throughout the process.
-
----
 
 ## What it does
 
