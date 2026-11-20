@@ -15,6 +15,8 @@ Each entry says what changed, and for a design change, why. New entries go under
 
 - **New Graph and DP examples.** The Examples menu and the home page now show Course Schedule for Graph (the prerequisites drawn as a graph, a queue of courses ready to take) and Unique Paths for DP (a 2D table filled cell by cell, with the cells each one adds outlined), each in C++, Python, and Java. They replace Number of Islands and Climbing Stairs, whose traces were right but showed a grid and a recursion tree, not the graph and the table their topics promise; the examples are there to show what the canvas can draw. Both stay in the manual test suite.
 
+- **Arrows are drawn as one stroke, and draw themselves in.** Every arrow (linked lists, trees, graphs, graphs from rows, and the recursion card's return arrow) now has a filled head with rounded corners that sits on the end of its line, pointing the way the line arrives, instead of an open chevron that looked cut off from it. A new arrow's line draws from its tail and its head appears as the line reaches it, as the trace line does while a run goes; the head used to appear before the line got there.
+
 ### Fixed
 
 - **The Java adapter paired the inner index of a 2D access with the array.** In `dp[r][c]`, `c` indexes `dp[r]`, not `dp`, so the spec leaves it out of `indexes`; the Java rewriter recorded it, unlike C++ and Python. Found by comparing the three languages' Unique Paths traces.

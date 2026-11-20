@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
+import { Arrow } from "../render/Arrow";
 import { CardHeader } from "../render/Card";
 import { callState, type Call, type CallState, type CallTree } from "../trace/calls";
 import { isReturning, topFrame, type Step } from "../trace/types";
@@ -20,9 +21,6 @@ const BOX_H = 28;
 const ROW = BOX_H + 26;
 const CHAR = 6.7;
 const PAD = 12;
-/** The return arrow's head: a filled triangle this long, its tip on the caller's box. The line stops at its base. */
-const HEAD_L = 7;
-const HEAD_W = 4.5;
 const EASE = { duration: 0.45, ease: [0.22, 1, 0.36, 1] } as const;
 
 export type CallsView = "tree" | "stack";
@@ -184,26 +182,16 @@ function TreeView({ tree, layout, step, index }: { tree: CallTree; layout: Map<s
             .filter((n) => n.parent && byKey.has(n.parent))
             .map((n) => {
               const p = byKey.get(n.parent!)!;
-              const back = n.state === "returning" || n.state === "base";
-              const tone = back ? "call-edge-return" : n.state === "current" || n.state === "waiting" ? "call-edge-path" : "";
-              return (
-                <motion.path
-                  key={`edge-${n.key}`}
-                  className={`call-edge ${tone}`}
-                  initial={{ opacity: 0, d: link(p, n, back) }}
-                  animate={{ opacity: 1, d: link(p, n, back) }}
-                  exit={{ opacity: 0 }}
-                  transition={EASE}
-                />
-              );
+              const tone = n.state === "current" || n.state === "waiting" || n.state === "returning" || n.state === "base" ? "call-edge-path" : "";
+              return <Arrow key={`edge-${n.key}`} d={link(p, n)} head={false} className={`call-edge ${tone}`} headClassName="" move={EASE} />;
             })}
         </AnimatePresence>
-        {/* The return arrow's head, drawn as its own filled shape: the edge stops at its base, so no line runs through it. */}
+        {/* The return: drawn from the call up to its caller over the edge, then its head (render/Arrow.tsx). */}
         <AnimatePresence>
           {nodes
             .filter((n) => (n.state === "returning" || n.state === "base") && n.parent && byKey.has(n.parent))
             .map((n) => (
-              <motion.path key={`head-${n.key}`} className="call-return-head" d={head(byKey.get(n.parent!)!)} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EASE} />
+              <Arrow key={`return-${n.key}`} d={rise(byKey.get(n.parent!)!, n)} className="call-edge call-edge-return" headClassName="call-return-head" move={EASE} />
             ))}
         </AnimatePresence>
         <AnimatePresence>
@@ -272,22 +260,20 @@ function StackView({ tree, step, index }: { tree: CallTree; step: Step; index: n
   );
 }
 
-/**
- * The edge from a caller's bottom centre to a call's top centre. Both ends leave vertically, so on a
- * return step the head's axis is the line's own direction; the line then starts at the head's base.
- */
-function link(p: CallNode, n: CallNode, back = false): string {
-  const y1 = p.y + BOX_H + (back ? HEAD_L + 1 : 2);
+/** The edge from a caller's bottom centre to a call's top centre. Both ends leave vertically. */
+function link(p: CallNode, n: CallNode): string {
+  const y1 = p.y + BOX_H + 2;
   const y2 = n.y;
   const my = (y1 + y2) / 2;
   return `M ${p.x} ${y1} C ${p.x} ${my}, ${n.x} ${my - 4}, ${n.x} ${y2}`;
 }
 
-/** A filled triangle under the caller's box, pointing up at it: the head of the return arrow. */
-function head(p: CallNode): string {
-  const tip = p.y + BOX_H + 1;
-  const base = tip + HEAD_L;
-  return `M ${p.x - HEAD_W} ${base} L ${p.x} ${tip} L ${p.x + HEAD_W} ${base} Z`;
+/** The same edge the other way, from the call up to its caller: the return arrow, its tip on the caller's box. */
+function rise(p: CallNode, n: CallNode): string {
+  const y1 = p.y + BOX_H + 1;
+  const y2 = n.y;
+  const my = (y1 + y2) / 2;
+  return `M ${n.x} ${y2} C ${n.x} ${my - 4}, ${p.x} ${my}, ${p.x} ${y1}`;
 }
 
 /** A small run's whole drawing: wide and tall enough for every call it will make. */

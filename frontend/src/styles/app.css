@@ -2678,23 +2678,28 @@ tr.diff-removed td {
   stroke: var(--done);
 }
 
+/* An arrow's head (render/Arrow.tsx): a filled triangle in the line's colour, its corners rounded
+   by a stroke of the same colour, so it reads as the end of the line, not a separate mark. */
 .heap .arrow-head {
-  fill: none;
+  fill: var(--edge);
   stroke: var(--edge);
-  stroke-width: 1.6;
-  stroke-linecap: round;
+  stroke-width: 1.5;
   stroke-linejoin: round;
+  transition: fill 300ms ease-out, stroke 300ms ease-out;
 }
 
 .heap .arrow-head-new {
+  fill: var(--success);
   stroke: var(--success);
 }
 
 .heap .arrow-head-path {
+  fill: var(--accent);
   stroke: var(--accent);
 }
 
 .heap .arrow-head-result {
+  fill: var(--done);
   stroke: var(--done);
 }
 
@@ -3177,6 +3182,20 @@ select.field-input {
 
 .rows-graph-head {
   fill: var(--edge);
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  transition: fill 300ms ease-out, stroke 300ms ease-out;
+}
+
+.rows-graph-head.is-added {
+  fill: var(--success);
+  stroke: var(--success);
+}
+
+.rows-graph-head.is-on {
+  fill: var(--accent);
+  stroke: var(--accent);
 }
 
 .rows-graph-node circle {

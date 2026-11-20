@@ -65,6 +65,7 @@ src/
 │   ├── MapRenderer.tsx (map, multimap), SequenceRenderer.tsx (stack, queue/deque tube, list, tuple, set/multiset), HeapRenderer.tsx (priority queue), FallbackRenderer.tsx
 │   ├── layout.ts        layoutTrace(trace): fixed places for every node of every linked structure, once per trace
 │   ├── HeapView.tsx     LinkedCard: one linked structure of one step as a card (nodes, edges, pointer tags, highlights); NullPointers
+│   ├── Arrow.tsx        every arrow: the line, a head of its own (filled, rounded, on the line's end), drawn in then headed; arrowParts
 │   ├── pointers.ts      pointer markers: integer locals the trace's `indexes` pairs with an array, and iterators
 │   ├── reads.ts         readsFrom(ctx.reads): the cells and keys the running line read, for the dashed outline
 │   └── types.ts         Renderer, RendererProps, RenderContext
@@ -100,7 +101,7 @@ Tests live next to the code as `*.test.ts(x)` and run in Node. Components are te
 16. **Members are drawn once, not per frame.** A step's `members` (the Solution's memo, visited) are cards after the running call's own, with the `member` tag (`MemberCard` context in `render/Card.tsx`), diffed through `diff.members`, and listed under "Members of Solution" in the state panel. A local of the running call hides a member of the same name.
 17. **"View as" is UI state, not a step.** `VisualPanel` keeps the reader's pick per local name for the current trace and passes the chosen hint down as `ctx.hint` (and an edge list's `ctx.direction`); a renderer never reads the pick itself. A hint or pick is used only when `fits` says the value has that shape at this step. Locals start on the drawing by kind: never guess a hint in the frontend.
 18. **A shared container is noted, never merged.** Each place a container with an `id` is reached from is drawn in full, as the trace writes it; `SharedNote` under the card names the places that are one (`trace/shared.ts`, `docs/frontend.md` §6.8), and only the outermost of nested shared containers (a row of a shared `grid` is not noted again unless it is also reached on its own). The `id` is identity, not content: `canonical` leaves a container's `id` out (never a ref's), so it never makes a diff.
-19. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Keep `MotionConfig reducedMotion="user"` at the top.
+19. **Nothing appears instantly.** New elements fade (and scale) in, removed ones fade out, moved ones glide, new edges draw in. Every arrow is an `Arrow` (`render/Arrow.tsx`), never an SVG marker: its line draws first and its head appears as the line arrives. Keep `MotionConfig reducedMotion="user"` at the top.
 
 ## Theme tokens
 

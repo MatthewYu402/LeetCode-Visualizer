@@ -89,7 +89,8 @@ describe("graphs from rows", () => {
       <GraphRowsRenderer name="graph" value={value} diff={diffValue(rows([[1], [0], []]), value)} ctx={{ locals: { graph: value, u: 2 }, indexes: { u: ["graph"] }, hint: "adjacency-list" }} />,
     );
     expect(html).toContain("graph · 3 nodes · 2 edges · from an adjacency list");
-    expect(count(html, "is-added")).toBe(1);
+    expect(count(html, "rows-graph-edge is-added")).toBe(1);
+    expect(count(html, "rows-graph-head is-added")).toBe(1);
     expect(html).toContain('class="rows-graph-node is-on"');
   });
 });

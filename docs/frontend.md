@@ -349,7 +349,7 @@ The **Tree view** draws every call that has begun as a compact rounded box (28 p
 | base case | The running frame at its return step, having made no call | `--attention` border and tint |
 | returned | Finished | muted |
 
-On the step a call returns, the edge to its caller turns `--done` with an arrowhead at the caller's end: **return to caller**. The head is a filled triangle drawn as its own shape, its tip on the caller's box, and the edge stops at its base; both ends of an edge leave vertically, so the head's axis is the line's own direction. (A stroked chevron as an SVG marker, with the line running to its tip, showed the line cutting through the head.) Edges down to calls on the stack are blue; edges to finished calls are muted.
+On the step a call returns, a `--done` arrow draws itself from the call up its edge to the caller, and its head appears on the caller's box: **return to caller** ([Arrows](#arrows)). Edges down to calls on the stack are blue; edges to finished calls are muted.
 
 A run of up to 80 calls is drawn whole, every call in a fixed place, and the drawing is sized for the run's whole tree from the first step, so the tree is centred in the card once and nothing slides sideways as calls appear. A lopsided tree (fib's `n - 1` side is the larger) has its root right of centre; that is the tree's real shape. A larger run is drawn **focused on the running call**: the calls on the stack, the calls each of them has made so far, and every finished branch folded into one box (`fib(7)` with `→ 13 · 41 calls` inside). A stack deeper than 14 keeps its top 3 and bottom 10 calls and folds the middle into one box (`⋮ 40 calls`). Either way the number of boxes stays small however deep the recursion goes. The tree scrolls inside the card, which scrolls to keep the running call in view.
 
@@ -367,6 +367,15 @@ The structure card above follows along through the pointers ([Section 6.5](#65-l
 
 ### 6.7 Motion
 Motion uses `framer-motion`. Nothing appears or disappears instantly: nodes, boxes, and labels fade and scale in and out, edges draw themselves in, pointer labels and items glide to their new places, and flashes fade over about 900 ms. Motion only describes the step before; drawing with no diff (step 0, a jump, moving back) shows the step without flashes. `MotionConfig reducedMotion="user"` turns movement off for anyone whose system asks for reduced motion.
+
+#### Arrows
+Every arrow on the canvas, a list's `next`, a tree's or a graph's edge, a null tail, a graph drawn from rows, and the recursion card's return arrow, is drawn by one component, `Arrow` in `render/Arrow.tsx`:
+
+- **The head is its own shape.** A filled triangle in the line's colour, its corners rounded by a stroke of the same colour, its tip on the target's rim. The line ends a hair inside the head's base, so line and head read as one stroke with no gap and no line poking through.
+- **It points the way the line arrives.** On a curve, the head follows the curve near its end (the point at t = 0.8 on the last segment), not the steeper pull of the last control point, so a shallow S-curve gets a head that leans with it.
+- **A new arrow draws, then gets its head.** Like the trace line while a run goes, the line draws from its tail (400 ms), and the head fades in as the line reaches it. An arrow already on the canvas is never drawn again; when its nodes move, line and head move together.
+
+An SVG marker could not do any of this: a marker is drawn at the path's end at once, before a drawing line gets there, and it is shared by every edge, so it cannot wait for one.
 
 ### 6.8 Shared containers
 Since v0.14 a container reached from two or more places in a step carries the same `id` at every place ([trace-format.md, Shared containers](trace-format.md#shared-containers)): `dp = [[0] * 3] * 3` is one row three times, and `first = dp[0]` is that row again. The cards keep drawing each place in full, as before; what the id adds is a note under each card that holds a shared container, naming every place that is the same one:

@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { ReactNode } from "react";
 import { edgeKey, edgesOf, isPrimaryField, nodeLabel, pointersOf, slotKey, type Edge, type HeapDiff, type Pointer, type Shape } from "../trace/heap";
 import type { ObjectValue, Step, Value } from "../trace/types";
+import { Arrow } from "./Arrow";
 import { CardHeader } from "./Card";
 import { LIST_H, LIST_W, NEXT_W, NODE_R, NULL_W, treeLayoutAt, type Point, type TraceLayout } from "./layout";
 
@@ -75,7 +76,6 @@ export function LinkedCard({ index, step, diff, layout, resultId = null, params 
 
   const name = cardName(pointers, params, c.shape, resultId !== null && members.has(resultId));
   const count = c.shape === "graph" ? `${ids.length} nodes · ${drawn.length} edges` : `${ids.length} ${ids.length === 1 ? "node" : "nodes"}`;
-  const marker = (k: string) => `arrow-${index}-${k}`;
 
   return (
     <section className="structure" aria-label={`${name}: ${SHAPE_NAME[c.shape]} with ${ids.length} nodes`}>
@@ -88,24 +88,15 @@ export function LinkedCard({ index, step, diff, layout, resultId = null, params 
           </div>
         ))}
         <svg className="heap" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${SHAPE_NAME[c.shape]} drawing`}>
-          <defs>
-            {(["plain", "new", "path", "result"] as const).map((k) => (
-              <marker key={k} id={marker(k)} viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                <path d="M 1 1 L 9 5 L 1 9" className={`arrow-head arrow-head-${k}`} />
-              </marker>
-            ))}
-          </defs>
-
           <AnimatePresence>
             {drawn.map((e) => (
-              <motion.path
+              <Arrow
                 key={e.key}
+                d={e.d}
+                head={e.arrow}
                 className={["edge", `edge-${e.tone}`, e.primary ? "" : "edge-secondary"].filter(Boolean).join(" ")}
-                initial={{ pathLength: 0, opacity: 0, d: e.d }}
-                animate={{ pathLength: 1, opacity: 1, d: e.d }}
-                exit={{ opacity: 0, transition: FADE }}
-                transition={EASE}
-                markerEnd={e.arrow ? `url(#${marker(e.tone)})` : undefined}
+                headClassName={`arrow-head arrow-head-${e.tone}`}
+                move={EASE}
               />
             ))}
             {drawn
@@ -117,7 +108,7 @@ export function LinkedCard({ index, step, diff, layout, resultId = null, params 
               ))}
             {tails.map((t) => (
               <motion.g key={`null-${t.id}`} className="null-tail" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={EASE}>
-                <motion.path className="edge edge-plain" initial={{ d: t.d }} animate={{ d: t.d }} transition={EASE} markerEnd={t.box ? `url(#${marker("plain")})` : undefined} />
+                <Arrow d={t.d} head={t.box !== null} className="edge edge-plain" headClassName="arrow-head arrow-head-plain" move={EASE} />
                 {t.box ? (
                   <motion.g initial={{ x: t.box.x, y: t.box.y }} animate={{ x: t.box.x, y: t.box.y }} transition={EASE}>
                     <rect className="null-box" x={-NULL_W / 2} y={-LIST_H / 2} width={NULL_W} height={LIST_H} rx={8} />
@@ -360,11 +351,11 @@ export function listEdges(edges: Edge[], pos: Map<string, Point>, diff: HeapDiff
     const base = { key: edgeKey(e), from: e.from, arrow: true, primary, tone, label: primary ? null : e.field };
     if (primary && a.y === b.y && b.x > a.x) {
       const sx = a.x + dotX;
-      const ex = b.x - LIST_W / 2 - 3;
+      const ex = b.x - LIST_W / 2 - 1.5;
       return [{ ...base, d: path(["M", sx, a.y, "L", ex, b.y]), mid: { x: (sx + ex) / 2, y: a.y - 6 } }];
     }
-    if (primary && a.y === b.y && b.x < a.x) return [{ ...base, ...under(a.x + dotX, a.y, b.x - 6, LIST_H / 2 + 3) }];
-    if (e.from === e.to) return [{ ...base, d: path(["M", a.x + dotX, a.y - 3, "C", a.x + dotX + 20, a.y - 46, a.x - 20, a.y - 46, a.x - 6, a.y - LIST_H / 2 - 3]), mid: { x: a.x, y: a.y - 40 } }];
+    if (primary && a.y === b.y && b.x < a.x) return [{ ...base, ...under(a.x + dotX, a.y, b.x - 6, LIST_H / 2 + 1.5) }];
+    if (e.from === e.to) return [{ ...base, d: path(["M", a.x + dotX, a.y - 3, "C", a.x + dotX + 20, a.y - 46, a.x - 20, a.y - 46, a.x - 6, a.y - LIST_H / 2 - 1.5]), mid: { x: a.x, y: a.y - 40 } }];
     // A straight line that would run through another node (Merge Two Lists' dummy, below both
     // lists, pointing at the top row's head) bends around it, so it never lies on another edge.
     const bend = crosses(a, b, e.from, e.to, pos, { w: LIST_W / 2, h: LIST_H / 2 }) ? 2.2 : primary ? 0 : 1;
@@ -421,10 +412,10 @@ function listNulls(ids: string[], heap: Record<string, ObjectValue>, pos: Map<st
       const rightBox = p.x + LIST_W / 2 + NULL_GAP + NULL_W / 2;
       if (!taken(rightBox, p.y)) {
         const sx = p.x + dotX;
-        return { id, d: path(["M", sx, p.y, "L", rightBox - NULL_W / 2 - 3, p.y]), box: { x: rightBox, y: p.y }, at: p };
+        return { id, d: path(["M", sx, p.y, "L", rightBox - NULL_W / 2 - 1.5, p.y]), box: { x: rightBox, y: p.y }, at: p };
       }
       const leftBox = p.x - LIST_W / 2 - NULL_GAP - NULL_W / 2;
-      if (leftNull && p.x === minX) return { id, ...under(p.x + dotX, p.y, leftBox, LIST_H / 2 + 3), box: { x: leftBox, y: p.y }, at: p };
+      if (leftNull && p.x === minX) return { id, ...under(p.x + dotX, p.y, leftBox, LIST_H / 2 + 1.5), box: { x: leftBox, y: p.y }, at: p };
       const sx = p.x + dotX;
       return { id, d: path(["M", sx, p.y, "L", sx, p.y + LIST_H / 2 + 12]), box: null, at: { x: sx, y: p.y + LIST_H / 2 + 22 } };
     });
@@ -488,7 +479,7 @@ export function curve(e: { a: Point; b: Point; bend: number; arrow: boolean }, b
   const c = { x: (a.x + b.x) / 2 + (-dy / len) * off, y: (a.y + b.y) / 2 + (dx / len) * off };
   const rim = (p: Point, extra: number) => (box ? toBox(p, c, box, extra) : toward(p, c, NODE_R + extra));
   const start = rim(a, 2);
-  const end = rim(b, e.arrow ? 3 : 2);
+  const end = rim(b, e.arrow ? 1.5 : 2);
   return path(["M", start.x, start.y, "Q", c.x, c.y, end.x, end.y]);
 }
 

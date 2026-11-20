@@ -1,8 +1,11 @@
-import { motion } from "framer-motion";
+import { Arrow } from "./Arrow";
 import { CardHeader } from "./Card";
 import { pointersFor } from "./pointers";
 import type { RendererProps } from "./types";
 import { adjacencyOf, pairsOf, type Direction } from "./views";
+
+/** How an arrow follows a node that moved (the layout is fixed, so rarely). */
+const MOVE = { duration: 0.45, ease: [0.22, 1, 0.36, 1] } as const;
 
 /** Node circle size, and the space between layers and between nodes in a layer, in px. */
 const NODE = 36;
@@ -141,11 +144,6 @@ export function GraphRowsRenderer({ name, value, diff, ctx }: RendererProps) {
     <section className="structure" aria-label={`${name}: graph`}>
       <CardHeader name={name} meta={`graph · ${nodes.length} ${nodes.length === 1 ? "node" : "nodes"} · ${edges.length} ${edges.length === 1 ? "edge" : "edges"} · ${from}`} op={ctx.op} />
       <svg className="rows-graph" width={width} height={height} role="img" aria-label={`${name} as a graph: ${edges.map((e) => `${e.from}${e.directed ? "→" : "–"}${e.to}`).join(", ") || "no edges"}`}>
-        <defs>
-          <marker id={`arrow-${name}`} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0 0 8 4 0 8z" className="rows-graph-head" />
-          </marker>
-        </defs>
         {edges.map((e) => {
           const a = at(e.from);
           const b = at(e.to);
@@ -154,7 +152,7 @@ export function GraphRowsRenderer({ name, value, diff, ctx }: RendererProps) {
           const cls = `rows-graph-edge${on ? " is-on" : ""}${added ? " is-added" : ""}`;
           if (e.from === e.to) {
             const d = `M ${a.x - 8} ${a.y - NODE / 2 + 2} C ${a.x - 26} ${a.y - NODE - 14}, ${a.x + 26} ${a.y - NODE - 14}, ${a.x + 8} ${a.y - NODE / 2 + 2}`;
-            return <motion.path key={e.key} d={d} className={cls} markerEnd={e.directed ? `url(#arrow-${name})` : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} />;
+            return <Arrow key={e.key} d={d} head={e.directed} className={cls} headClassName={`rows-graph-head${on ? " is-on" : ""}${added ? " is-added" : ""}`} move={MOVE} />;
           }
           const dx = b.x - a.x;
           const dy = b.y - a.y;
@@ -164,11 +162,12 @@ export function GraphRowsRenderer({ name, value, diff, ctx }: RendererProps) {
           const r = NODE / 2 + 2;
           const x1 = a.x + ux * r;
           const y1 = a.y + uy * r;
-          const x2 = b.x - ux * (r + (e.directed ? 2 : 0));
-          const y2 = b.y - uy * (r + (e.directed ? 2 : 0));
+          const tip = e.directed ? NODE / 2 + 1 : r;
+          const x2 = b.x - ux * tip;
+          const y2 = b.y - uy * tip;
           return (
             <g key={e.key}>
-              <motion.line x1={x1} y1={y1} x2={x2} y2={y2} className={cls} markerEnd={e.directed ? `url(#arrow-${name})` : undefined} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} />
+              <Arrow d={`M ${x1} ${y1} L ${x2} ${y2}`} head={e.directed} className={cls} headClassName={`rows-graph-head${on ? " is-on" : ""}${added ? " is-added" : ""}`} move={MOVE} />
               {e.weight !== undefined && (
                 <text x={(x1 + x2) / 2 - uy * 10} y={(y1 + y2) / 2 + ux * 10 + 4} className="rows-graph-weight" textAnchor="middle">
                   {e.weight}
