@@ -5,10 +5,11 @@
 
 A LeetCode `Solution` class cannot run on its own. It has no `main`, it does not define `ListNode` or `TreeNode`, and nothing turns the text `nums = [2,7,11,15], target = 9` into real arguments. On LeetCode a hidden harness does all of that. This document describes how we rebuild that harness. We call it the **driver**.
 
-```
-Solution source ─┐
-                 ├──► DRIVER ──► problem.json + prelude.hpp + main ──► compile ──► run ──► trace JSON
-example text ────┘
+```mermaid
+flowchart LR
+    src["Solution source"] --> driver["`**Driver**`"]
+    ex["Example text"] --> driver
+    driver --> out["problem.json + prelude.hpp + main"] --> compile["Compile"] --> run["Run"] --> trace["Trace JSON"]
 ```
 
 The system has **no problem catalog**. The only inputs are the `Solution` source and the example text. Everything in the trace's `problem` object is derived from those two.

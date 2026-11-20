@@ -6,9 +6,11 @@ The frontend replays a trace. It highlights the line about to run, draws each da
 
 This document covers two pages. The **sandbox page** opens on the bare Two Sum Solution with no trace, and with the API service running it traces the user's own Solution on their inputs ([Section 10.1](#101-inputs-and-runs)). The **home page** says what the tool is, replays a real trace, and links into the sandbox with example problems filled in ([Section 12](#12-home-page)). It describes what exists in `frontend/` and the decisions behind it. What is planned is listed in [Section 13](#13-out-of-scope) and is only proposals.
 
-```
-POST /api/run ──► loader ──► step player ──► code panel
-                                                                       └───► diff ──► renderer registry ──► renderers
+```mermaid
+flowchart LR
+    run["POST /api/run"] --> loader["Loader"] --> player["Step player"]
+    player --> code["Code panel"]
+    player --> diff["Diff"] --> registry["Renderer registry"] --> renderers["Renderers"]
 ```
 
 ---

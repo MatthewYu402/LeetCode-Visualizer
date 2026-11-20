@@ -9,14 +9,22 @@ The API service is the frontend's only way to run code. It is a thin layer over 
 
 ## 1. One run, from the page
 
-```
-page                         API service (this machine)                 sandbox (one container)
-paste Solution  ──────────►  POST /api/signature: describe()
-one field per parameter ◄──  methods, parameters, neutral types
-fill fields, Run code ─────► POST /api/run: fields -> example text
-                             pipeline.run(..., sandbox="gvisor") ─────► rewrite, compile, run
-                             validate the trace (outside)        ◄───── trace bytes
-replay the trace  ◄────────  {trace, output, warnings}
+```mermaid
+sequenceDiagram
+    participant page as Page
+    participant api as API service (this machine)
+    participant sb as Sandbox (one container)
+    page->>api: paste a Solution: POST /api/signature
+    Note over api: describe(): methods, parameters, neutral types
+    api-->>page: one field per parameter
+    page->>api: fill the fields, Run code: POST /api/run
+    Note over api: fields → example text
+    api->>sb: pipeline.run(..., sandbox="gvisor")
+    Note over sb: rewrite, compile, run
+    sb-->>api: trace bytes
+    Note over api: validate the trace (outside the sandbox)
+    api-->>page: {trace, output, warnings}
+    Note over page: replay the trace
 ```
 
 > **Key insight 1: the form's fields become LeetCode's example text on the server.** `{"nums": "[2,7,11,15]", "target": "9"}` becomes `nums = [2,7,11,15], target = 9`, which the driver already reads. So the form needs no parser of its own, and a value is checked once, by the same code that runs it.

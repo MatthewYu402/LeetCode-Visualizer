@@ -17,10 +17,23 @@ The sandbox also protects the frontend from the trace itself. The tracer runs in
 
 ## 2. One run, start to finish
 
-```
-outside (this machine)          inside (one container per run)          outside
-1. driver: prelude + main  ──►  2. rewriter  3. compile  4. run   ──►  5. validate
-   (never runs user code)          (all three see untrusted input)        (out of the code's reach)
+```mermaid
+flowchart LR
+    subgraph before["Outside (this machine)"]
+        driver["`**1. Driver**
+        prelude + main
+        never runs the user's code`"]
+    end
+    subgraph inside["Inside: one container per run, where all three see untrusted input"]
+        direction LR
+        rewriter["`**2. Rewriter**`"] --> compile["`**3. Compile**`"] --> run["`**4. Run**`"]
+    end
+    subgraph after["Outside"]
+        validate["`**5. Validate**
+        out of the code's reach`"]
+    end
+    driver --> rewriter
+    run --> validate
 ```
 
 1. **Driver, outside.** `generate()` reads the Solution and the example as text and writes the prelude and `main`. It never runs or compiles the user's code, so it needs no sandbox, and a bad example fails fast.

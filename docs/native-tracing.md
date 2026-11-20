@@ -4,10 +4,11 @@
 
 This document describes how an adapter **observes a running solution and produces a trace** using tooling that belongs to the language: its runtime hooks, or source instrumentation. It is one of two strategies for the "tracer" box in the architecture.
 
-```
-user's Solution ──► driver ──► TRACER ──► normalizer ──► trace JSON ──► frontend
-                                  ▲
-                    native tracing (this doc)  or  DAP client (dap.md)
+```mermaid
+flowchart LR
+    sol["User's Solution"] --> driver["Driver"] --> tracer["`**Tracer**`"] --> norm["Normalizer"] --> trace["Trace JSON"] --> fe["Frontend"]
+    native["Native tracing (this doc)"] -.-> tracer
+    dap["or a DAP client (dap.md)"] -.-> tracer
 ```
 
 `trace-format.md` defines **what** a trace is. This document defines **how** an adapter gets there.

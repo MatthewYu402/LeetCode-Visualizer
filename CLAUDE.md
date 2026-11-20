@@ -214,7 +214,7 @@ Design docs in this repo share one house style. Match it when adding or editing 
 - A closing **Design questions** section with the reasoning written out.
 - Plain, direct prose. Say what is a decision and what is only a proposal.
 
-Architecture diagrams are ASCII with box-drawing characters. Keep every box the same width on all of its lines, and re-check alignment after editing one.
+Diagrams of how parts connect (architecture, pipelines, data flow, request sequences) are Mermaid code blocks, which GitHub draws: a `flowchart` for what talks to what, a `sequenceDiagram` for a run's steps in order. Give each box a bold title and its description on the lines under it (a Markdown string, ``"`**Title**\ndetails`"``), label arrows with what travels on them, and set no colours, so GitHub's light and dark themes both work. File trees and drawings of what the page shows (wireframes, a card's look) stay as text.
 
 ## Working agreements
 

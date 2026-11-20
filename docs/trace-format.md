@@ -20,10 +20,12 @@ Without a shared format, every language would need to be taught to every rendere
 
 With a shared format in the middle:
 
-```
-C++ adapter    ─┐
-Python adapter ─┼──► trace (JSON) ──► frontend renderers
-Go adapter     ─┘
+```mermaid
+flowchart LR
+    cpp["C++ adapter"] --> trace["`**Trace** (JSON)`"]
+    py["Python adapter"] --> trace
+    go["Go adapter"] --> trace
+    trace --> fe["Frontend renderers"]
 ```
 
 the cost drops to $L + R$. Adding Go means writing one adapter. Adding a priority-queue renderer means writing one component. Neither touches the other side.

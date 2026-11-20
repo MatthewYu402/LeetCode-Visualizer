@@ -5,13 +5,13 @@
 
 This document describes how an adapter **observes a running solution through an existing debugger**, using the Debug Adapter Protocol (DAP), and turns what the debugger reports into a trace. It is the second of two strategies for the "observe" stage of the pipeline.
 
-```
-user code
-   │
-   ▼
-OBSERVE ──► SNAPSHOT ──► NORMALIZE ──► trace JSON ──► SCHEMA VALIDATION ──► frontend
-(DAP client                                            (outside the sandbox)
- driving a debugger)
+```mermaid
+flowchart LR
+    code["User code"] --> observe["`**Observe**
+    a DAP client driving a debugger`"]
+    observe --> snapshot["`**Snapshot**`"] --> normalize["`**Normalize**`"] --> trace["Trace JSON"]
+    trace --> validate["`**Schema validation**
+    outside the sandbox`"] --> fe["Frontend"]
 ```
 
 `trace-format.md` defines **what** a trace is. `native-tracing.md` covers observation logic we write per language. This document covers the case where we reuse **one generic client** across many languages.
