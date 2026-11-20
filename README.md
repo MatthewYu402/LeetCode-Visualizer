@@ -1,11 +1,9 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
-    <img src="logo-light.svg" alt="The Visi eye" width="220">
+    <img src="logo-light.svg" alt="Visi" width="260">
   </picture>
 </p>
-
-<h1 align="center">Visi</h1>
 
 <p align="center">Step through a LeetCode solution and watch its data structures change.</p>
 
@@ -41,19 +39,6 @@ It works with the `Solution` class exactly as LeetCode gives it to you. No annot
 - **Work in a dark or a light theme.**
 
 Every run is a stranger's code, so it runs in a locked-down container under gVisor with no network and strict limits ([`docs/sandboxing.md`](docs/sandboxing.md)), and its trace is validated against the schema outside that container before the page sees it.
-
-### Known limitations
-
-- **Design problems are not supported** (LRU Cache, Min Stack, and the like, where the example is a sequence of calls on an object you construct). One trace covering a call sequence needs a change to the trace format ([`docs/driver-generation.md` §8](docs/driver-generation.md)).
-- **A run stops recording at 2,000 steps, or once the trace reaches 10 MB.** The steps up to that point are still shown, and the page says which limit it was. Every step holds every value, so a large input (thousands of numbers) or recursion hundreds of calls deep reaches the size limit in a few hundred steps; a long loop reaches the step limit.
-- **Lambdas are not traced** in C++ or Java, nor lambdas, generators, and comprehensions in Python: their lines take no steps of their own. Recursion written as a recursive lambda (`function<void(int)> dfs = [&](...)`) shows no calls.
-- **C++ does not mark shared containers.** A `vector<int>&` passed down a recursion is drawn correctly in every frame, but without the note that the frames hold one container ([`docs/adapters/cpp.md`](docs/adapters/cpp.md) §10).
-- **A C++ pointer that does not point at a live object** (dangling or uninitialized) is followed as if it were valid ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
-- **Where use decides the kind** is an open question: a Python list used through `heapq` is drawn as a priority queue, and a Java `Deque` used only through push, pop, and peek as a stack ([`docs/trace-format.md` §5](docs/trace-format.md#where-use-decides-the-kind)).
-- **Hints are not inferred for locals.** A 2D-array parameter starts on the drawing its name and example suggest; a local starts as a grid or rows, and the card's View menu switches it.
-- **The three languages' traces differ where the languages do**: step counts, hash-map order, and containers C++ declares without a value. [`tools/compare_traces.py`](tools/compare_traces.py) checks that they agree on everything else.
-
-Per-language details are in each adapter's notes: [C++](docs/adapters/cpp.md), [Python](docs/adapters/python.md) §9, [Java](docs/adapters/java.md) §9.
 
 ## How it works
 
@@ -175,6 +160,19 @@ npm run build      # typecheck + production build
 | [`CLAUDE.md`](CLAUDE.md), [`Skills.md`](Skills.md), [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Rules and repeatable procedures for working in this repo |
 
 Plans and bugs are tracked in [GitHub issues](https://github.com/MatthewYu402/LeetCode-Visualizer/issues).
+
+## Known limitations
+
+- **Design problems are not supported** (LRU Cache, Min Stack, and the like, where the example is a sequence of calls on an object you construct). One trace covering a call sequence needs a change to the trace format ([`docs/driver-generation.md` §8](docs/driver-generation.md)).
+- **A run stops recording at 2,000 steps, or once the trace reaches 10 MB.** The steps up to that point are still shown, and the page says which limit it was. Every step holds every value, so a large input (thousands of numbers) or recursion hundreds of calls deep reaches the size limit in a few hundred steps; a long loop reaches the step limit.
+- **Lambdas are not traced** in C++ or Java, nor lambdas, generators, and comprehensions in Python: their lines take no steps of their own. Recursion written as a recursive lambda (`function<void(int)> dfs = [&](...)`) shows no calls.
+- **C++ does not mark shared containers.** A `vector<int>&` passed down a recursion is drawn correctly in every frame, but without the note that the frames hold one container ([`docs/adapters/cpp.md`](docs/adapters/cpp.md) §10).
+- **A C++ pointer that does not point at a live object** (dangling or uninitialized) is followed as if it were valid ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
+- **Where use decides the kind** is an open question: a Python list used through `heapq` is drawn as a priority queue, and a Java `Deque` used only through push, pop, and peek as a stack ([`docs/trace-format.md` §5](docs/trace-format.md#where-use-decides-the-kind)).
+- **Hints are not inferred for locals.** A 2D-array parameter starts on the drawing its name and example suggest; a local starts as a grid or rows, and the card's View menu switches it.
+- **The three languages' traces differ where the languages do**: step counts, hash-map order, and containers C++ declares without a value. [`tools/compare_traces.py`](tools/compare_traces.py) checks that they agree on everything else.
+
+Per-language details are in each adapter's notes: [C++](docs/adapters/cpp.md), [Python](docs/adapters/python.md) §9, [Java](docs/adapters/java.md) §9.
 
 ## Adding a new language
 
