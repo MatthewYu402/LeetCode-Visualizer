@@ -6,6 +6,10 @@ import { version } from "./package.json";
 
 export default defineConfig({
   plugins: [react()],
+  // Relative asset paths, so a build works wherever it is served: at a domain's root
+  // or under a path such as /<repo>/. The pages use hash routes (route.ts), so no
+  // server-side routing is needed either.
+  base: "./",
   define: { __APP_VERSION__: JSON.stringify(version) },
   server: {
     // The fixtures live in the repo's fixtures/ directory, one level up.

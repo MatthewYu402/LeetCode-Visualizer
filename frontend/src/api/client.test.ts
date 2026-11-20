@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import twoSum from "../../../fixtures/two-sum.trace.json?raw";
-import { run, signature } from "./client";
+import { apiUrl, normalizeBase, run, signature } from "./client";
 
 /** A fetch that answers once with this status and body, and records what it was sent. */
 function fakeFetch(status: number, body: unknown) {
@@ -75,5 +75,33 @@ describe("signature", () => {
   it("a malformed answer is an error", async () => {
     const { f } = fakeFetch(200, { nope: true });
     expect((await signature("src", undefined, { fetch: f })).ok).toBe(false);
+  });
+});
+
+describe("the API's address", () => {
+  it("is the page's own origin when no base is set", () => {
+    expect(apiUrl("/api/run", "")).toBe("/api/run");
+  });
+
+  it("puts the base in front of the path, without a doubled slash", () => {
+    expect(apiUrl("/api/run", normalizeBase("https://api.example.org/"))).toBe("https://api.example.org/api/run");
+    expect(normalizeBase("  https://api.example.org//  ")).toBe("https://api.example.org");
+    expect(normalizeBase(undefined)).toBe("");
+  });
+
+  it("sends a call to the base when one is given", async () => {
+    const { f, sent } = fakeFetch(200, { methods: [], method: null });
+    await signature("src", undefined, { fetch: f, base: "https://api.example.org" });
+    expect(sent[0].url).toBe("https://api.example.org/api/signature");
+  });
+
+  it("an unreachable deployed API is not blamed on a backend left unstarted", async () => {
+    const failing = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    const deployed = await run(REQUEST, { fetch: failing, base: "https://api.example.org" });
+    const local = await run(REQUEST, { fetch: failing, base: "" });
+    expect(deployed.ok || deployed.error.message).not.toContain("python3 -m backend");
+    expect(local.ok || local.error.message).toContain("python3 -m backend");
   });
 });

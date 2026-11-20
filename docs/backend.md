@@ -134,7 +134,7 @@ Limits per minute or per day per visitor are not here. They only matter against 
 | `TRACE_POOL_PYTHON`, `TRACE_POOL_JAVA` | `TRACE_POOL` | The same for one language alone, when it should differ |
 | `TRACE_RUN_MEMORY`, `TRACE_RUN_CPUS`, `TRACE_RUN_PIDS` | `1g`, `1`, `64` | Each run's limits ([`sandboxing.md`](sandboxing.md) §3) |
 | `TRACE_TRUSTED_PROXIES` | `127.0.0.1,::1` | Peers whose `X-Forwarded-For` names the visitor (§4.1) |
-| `TRACE_ALLOWED_ORIGINS` | (none) | Comma-separated origins for CORS. Unset is right in development, where the page's dev server proxies `/api` |
+| `TRACE_ALLOWED_ORIGINS` | (none) | Comma-separated origins for CORS. Unset is right in development, where the page's dev server proxies `/api`. Set it to the page's origin when the page is served from another host; that build of the page names the API in `VITE_API_BASE` (`frontend/src/api/client.ts`) |
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate

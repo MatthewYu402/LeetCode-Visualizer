@@ -4,6 +4,12 @@
 //                                (options.language: "cpp", the default, or "python")
 //   run(request)                 POST /api/run: a validated trace, or why there is none
 //
+// Where the API is: the same origin by default (/api/..., which the Vite dev server
+// proxies to python3 -m backend), or VITE_API_BASE when the page is served from
+// another host than the API, such as a static build. It is read at build time:
+//   VITE_API_BASE=https://api.example.org npm run build
+// The API must then list the page's origin in TRACE_ALLOWED_ORIGINS (docs/backend.md §5).
+//
 // Every answer is a discriminated union, never a thrown error, so a component
 // can show any failure as text. A trace still goes through checkTrace(): the
 // backend validated it against the schema, and the loader checks the version
@@ -68,10 +74,29 @@ export type Answer<T> = { ok: true; value: T } | { ok: false; error: ApiError };
 
 type Fetch = typeof fetch;
 
+/** The API's origin from the build (VITE_API_BASE), without a trailing slash; "" for the page's own origin. */
+export const API_BASE = normalizeBase(import.meta.env.VITE_API_BASE);
+
+export function normalizeBase(base: string | undefined): string {
+  return (base ?? "").trim().replace(/\/+$/, "");
+}
+
+/** The full URL of an API path such as "/api/run": the path itself when base is "". */
+export function apiUrl(path: string, base: string = API_BASE): string {
+  return base + path;
+}
+
+interface CallOptions {
+  signal?: AbortSignal;
+  fetch?: Fetch;
+  /** Overrides API_BASE (tests). */
+  base?: string;
+}
+
 export async function signature(
   source: string,
   example?: string,
-  options: { signal?: AbortSignal; fetch?: Fetch; language?: string } = {},
+  options: CallOptions & { language?: string } = {},
 ): Promise<Answer<Signature>> {
   const body: Record<string, string> = { source };
   if (options.language) body.language = options.language;
@@ -83,7 +108,7 @@ export async function signature(
   return { ok: true, value: data as Signature };
 }
 
-export async function run(request: RunRequest, options: { signal?: AbortSignal; fetch?: Fetch } = {}): Promise<Answer<RunResult>> {
+export async function run(request: RunRequest, options: CallOptions = {}): Promise<Answer<RunResult>> {
   const answer = await post("/api/run", request, options);
   if (!answer.ok) return answer;
   const data = answer.value as { trace?: unknown; output?: unknown; warnings?: unknown };
@@ -99,11 +124,12 @@ export async function run(request: RunRequest, options: { signal?: AbortSignal; 
   };
 }
 
-async function post(url: string, body: unknown, options: { signal?: AbortSignal; fetch?: Fetch }): Promise<Answer<unknown>> {
+async function post(path: string, body: unknown, options: CallOptions): Promise<Answer<unknown>> {
   const doFetch = options.fetch ?? fetch;
+  const base = options.base ?? API_BASE;
   let response: Response;
   try {
-    response = await doFetch(url, {
+    response = await doFetch(apiUrl(path, base), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -111,7 +137,11 @@ async function post(url: string, body: unknown, options: { signal?: AbortSignal;
     });
   } catch (e) {
     if ((e as Error).name === "AbortError") return { ok: false, error: { stage: "aborted", message: "Cancelled." } };
-    return { ok: false, error: { stage: "network", message: "Cannot reach the backend. Is it running? (python3 -m backend)" } };
+    // A page with its own API address is a deployed one: the hint about starting the backend is for development.
+    const message = base
+      ? "Cannot reach the server. Check your connection, or try again in a moment."
+      : "Cannot reach the backend. Is it running? (python3 -m backend)";
+    return { ok: false, error: { stage: "network", message } };
   }
   let data: unknown;
   try {

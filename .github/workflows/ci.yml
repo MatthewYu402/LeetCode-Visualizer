@@ -18,6 +18,17 @@
 #                tests, with real runs under gVisor (docs/backend.md)
 #   frontend     the sandbox page's tests and production build
 #
+# On a push to main, once the jobs above pass (the macOS ones aside), two more
+# publish what was tested:
+#   images       the three sandbox images, to the GitHub container registry
+#                (ghcr.io/<owner>/visi-sandbox-cpp, -python, -java), tagged
+#                latest and with the commit
+#   pages        the frontend, built and deployed to GitHub Pages. The API's
+#                address comes from the repository variable VISI_API_BASE
+#                (Settings > Secrets and variables > Actions > Variables), so it
+#                is not written in the repo; frontend/src/api/client.ts reads it
+#                as VITE_API_BASE
+#
 # The C++ jobs run the same targets a contributor runs locally:
 # `make -C adapters/cpp both header e2e` (see adapters/cpp/Makefile).
 
@@ -239,3 +250,73 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  images:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [schema, cpp-linux, python-adapter, java-adapter, rewriter-linux, sandbox-linux, frontend]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Log in to the GitHub container registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      # Registry names must be lower case; the owner's name may not be. The
+      # source label links each package to this repository.
+      - name: Build and push the sandbox images
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          SHORT="${GITHUB_SHA::12}"
+          for lang in cpp python java; do
+            IMAGE="ghcr.io/$OWNER/visi-sandbox-$lang"
+            docker build -f "sandbox/$lang.Dockerfile" \
+              --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              -t "$IMAGE:latest" -t "$IMAGE:$SHORT" .
+            docker push "$IMAGE:latest"
+            docker push "$IMAGE:$SHORT"
+          done
+
+  pages:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [schema, cpp-linux, python-adapter, java-adapter, rewriter-linux, sandbox-linux, frontend]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # Without the variable the page would call /api on Pages itself, which has
+      # no API, so the deploy stops here instead.
+      - name: Build with the API's address
+        env:
+          VITE_API_BASE: ${{ vars.VISI_API_BASE }}
+        run: |
+          if [ -z "$VITE_API_BASE" ]; then
+            echo "::error::Set the repository variable VISI_API_BASE to the API's origin (https://...)."
+            exit 1
+          fi
+          npm run build
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: frontend/dist
+      - id: deploy
+        uses: actions/deploy-pages@v4

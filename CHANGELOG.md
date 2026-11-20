@@ -8,6 +8,11 @@ Each entry says what changed, and for a design change, why. New entries go under
 
 ## [Unreleased]
 
+### Added
+
+- **The page can be served apart from the API.** A build of the frontend can name the API's address (`VITE_API_BASE`), so the page and the API can live on different hosts; development is unchanged. When it cannot reach that address, the page now says the server cannot be reached instead of asking whether you started the backend. The build uses relative paths, so it works at a domain's root or under a path.
+- **CI publishes what it tested.** After a push to `main` passes, CI pushes the three sandbox images to the GitHub container registry and deploys the frontend to GitHub Pages.
+
 ### Changed
 
 - **The project is now Visi.** The page's tab title, top bar, and home page say Visi, the README opens with the Visi logo, the eye over the word Visi set in Jost, an open-source typeface modelled on Futura (a light and a dark version at the repository's root, picked by the reader's theme), and the docs and code use the name throughout. The sandbox images are now `visi-sandbox-cpp`, `visi-sandbox-python`, and `visi-sandbox-java`: build them again under the new names.

@@ -10,7 +10,7 @@ Two pages, chosen by the URL's hash (`route.ts`, `docs/frontend.md` §12): the h
 
 The sandbox page: a top bar, a Monaco code panel, an inputs panel, a visual panel (the canvas), a state panel, and a playback bar at the bottom. It opens on the bare Two Sum Solution with no trace. The inputs panel shows one field per parameter of the pasted Solution's method (read through the API, `docs/backend.md`), and Run code (top bar, or Cmd/Ctrl + Enter) traces it. The design was agreed as mockups first; `docs/frontend.md` §2 and §11 describe it. The visual panel draws linked lists, trees, and graphs from the heap, every container kind, and the calls: a recursion card (tree or stack view) when calls return values, a call-stack card when they return nothing (`docs/frontend.md` §6). It has a dark theme and a light one (`theme.ts`, `docs/frontend.md` §11). While a run is going, the canvas shows `RunningCanvas`. When the program printed something, the state panel has an Output tab. A 2D array can be drawn as a graph or as intervals, from the parameter's hint or the card's View menu (`docs/frontend.md` §5.1).
 
-The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000.
+The API service must be running for the inputs to work: `python3 -m backend` from the repository root. `vite.config.ts` proxies `/api` to it on 127.0.0.1:8000. A build served from another host than the API sets `VITE_API_BASE` to the API's origin at build time (`api/client.ts`); CI's `pages` job takes it from the repository variable `VISI_API_BASE`. The build uses relative asset paths (`base: "./"`), so it works at a domain's root or under a path.
 
 ## Commands
 
