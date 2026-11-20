@@ -17,9 +17,9 @@ locked-down container, and --sandbox gvisor runs them under gVisor too, which
 is what anyone else's code needs (docs/sandboxing.md). The language's image
 must be built first:
 
-    docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
-    docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
-    docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+    docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
+    docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
+    docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
 """
 
 import argparse

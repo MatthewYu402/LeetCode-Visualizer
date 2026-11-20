@@ -37,7 +37,7 @@ export function Toolbar({ language, onLanguage, showCalls, onShowCalls, onRun, r
     <header className="topbar">
       <a className="brand" href={href({ page: "home" })} title="Home">
         <Logo height={18} />
-        <span className="brand-name">LeetCode Visualizer</span>
+        <span className="brand-name">Visi</span>
       </a>
       <span className="topbar-sep" aria-hidden="true" />
 

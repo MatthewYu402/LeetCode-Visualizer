@@ -1,10 +1,10 @@
 # Skills
 
-Repeatable procedures for working on LeetCode-Visualizer. Each one lists when to use it, the steps, and how to tell it is finished.
+Repeatable procedures for working on Visi. Each one lists when to use it, the steps, and how to tell it is finished.
 
 Read [`CLAUDE.md`](CLAUDE.md) first. It holds the rules these procedures must respect. Most procedures involve the contract in [`docs/trace-format.md`](docs/trace-format.md) and [`schema/trace.schema.json`](schema/trace.schema.json).
 
-> **Status:** Draft v0.2. `backend/` does not exist yet. Create it when you first need it, and update the README's layout and status table when you do.
+> **Status:** Beta (Visi 1.0.0-beta.1).
 
 | Skill | Use it to |
 |---|---|
@@ -48,7 +48,7 @@ Read [`CLAUDE.md`](CLAUDE.md) first. It holds the rules these procedures must re
 6. Save it as `fixtures/<problem-name>.trace.json` (kebab-case), next to the solution source it records.
 7. [Validate it](#1-validate-a-trace).
 8. For a language that has an adapter, add a hand-instrumented copy of the solution and check that running it produces the fixture: `tools/check_trace.py --equals <fixture> <trace>`. For C++, add it to the `e2e` target in `adapters/cpp/Makefile`.
-9. Add a row to the README's documentation map if the fixture is a notable addition.
+9. Add it to the repository layout in `docs/architecture.md` if the fixture is a notable addition.
 
 **Done when:** it validates, a person can read it and follow the algorithm, it exercises something the existing fixtures do not, and any adapter for its language reproduces it.
 
@@ -70,9 +70,9 @@ The spec, schema, fixtures, and docs are one contract. Change them together. Pro
 5. Edit `schema/trace.schema.json` to match. Keep `additionalProperties: false`.
 6. Update every fixture that is affected, including its `version`.
 7. [Validate every fixture](#1-validate-a-trace), and write one deliberately **bad** trace for the new rule to confirm the schema rejects it.
-8. Update the places that quote the format: the README's "trace format in brief" and renderer table, `CLAUDE.md`'s conventions, `docs/native-tracing.md`, `docs/dap.md`, and the adapter docs under `docs/adapters/`.
+8. Update the places that quote the format: `docs/architecture.md`'s "trace format in brief" and renderer table, `CLAUDE.md`'s conventions, `docs/native-tracing.md`, `docs/dap.md`, and the adapter docs under `docs/adapters/`.
 9. Update what reads or writes the format: the adapter runtimes (for C++, the `VERSION` constant in `trace.hpp`) and the frontend's loader, which accepts only the versions it was built for.
-10. If it closes one of the open questions, remove it from `docs/native-tracing.md` section 8 and the README's open questions.
+10. If it closes one of the open questions, remove it from `docs/native-tracing.md` section 8 and `docs/architecture.md`'s open questions.
 
 **Done when:** spec, schema, fixtures, and quoting docs agree, all fixtures validate, a bad example is rejected, and CI is green.
 
@@ -95,7 +95,7 @@ The spec, schema, fixtures, and docs are one contract. Change them together. Pro
 7. **Image:** one container image with the toolchain, run with no network and strict CPU, memory, and time limits (`docs/sandboxing.md`).
 8. **Test:** run the adapter on the existing fixtures' inputs. Its traces must [validate](#1-validate-a-trace) and match the golden traces for **structural equivalence** (same kinds and shapes). A fixture recorded from this language's own solution must match exactly, apart from the order of sets and maps.
 9. **Adversarial cases:** infinite loop (must leave a truncated trace, or time out if it never reaches the tracer), deep recursion, a cyclic structure, a very long run (must truncate), an unsupported type (must error).
-10. Add `docs/adapters/<language>.md` covering the strategy, normalization rules, and quirks, add a CI job, and update the README.
+10. Add `docs/adapters/<language>.md` covering the strategy, normalization rules, and quirks, add a CI job, and update the README's documentation map and `docs/architecture.md`'s components table.
 
 **Done when:** it passes validation and comparison on every fixture, the adversarial cases behave, and the frontend needed no changes.
 
@@ -115,7 +115,7 @@ The spec, schema, fixtures, and docs are one contract. Change them together. Pro
 5. Register it in the renderer registry under the kind and hint it handles.
 6. Add a fixture that exercises it, using [Add a golden fixture](#2-add-a-golden-fixture).
 7. Add a "view as" option if the data could reasonably be shown another way.
-8. Add a row to the renderer table in the README.
+8. Add a row to the renderer table in `docs/architecture.md` (§4).
 
 **Done when:** it draws correctly from fixtures alone, works for every step in any order, and contains no language-specific code.
 
@@ -130,7 +130,7 @@ The spec, schema, fixtures, and docs are one contract. Change them together. Pro
 2. Keep examples consistent with the spec, and [validate](#1-validate-a-trace) any full trace you include.
 3. Separate what is decided from what is proposed or open.
 4. Link to other docs by section so readers can follow a decision to its explanation.
-5. Add the doc to the README's documentation map with an accurate status, and to the repository layout if it is a new file.
+5. Add the doc to the README's documentation map, and to the repository layout in `docs/architecture.md` if it is a new file.
 6. If you drew a diagram, check that every box has one width on all of its lines.
 
-**Done when:** the doc follows the house style, its examples validate, and the README's map and layout list it.
+**Done when:** the doc follows the house style, its examples validate, and the README's map and `docs/architecture.md`'s layout list it.

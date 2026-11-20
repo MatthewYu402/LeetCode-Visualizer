@@ -38,7 +38,7 @@ export function href(route: Route): string {
 
 /** The window title for a route. */
 export function titleFor(route: Route): string {
-  return route.page === "home" ? "LeetCode Visualizer" : "LeetCode Visualizer · Sandbox";
+  return route.page === "home" ? "Visi" : "Visi · Sandbox";
 }
 
 /** The current route, following the hash as links and the back button change it. */

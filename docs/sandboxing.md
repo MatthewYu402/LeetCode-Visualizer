@@ -1,6 +1,6 @@
 # Sandboxing
 
-> **Status:** Draft v0.4. The sandbox exists (`sandbox/`, `pipeline/runners.py`, `python3 -m pipeline --sandbox`), with one image per language: C++, Python, and Java.
+> **Status:** Beta (Visi 1.0.0-beta.1). The sandbox exists (`sandbox/`, `pipeline/runners.py`, `python3 -m pipeline --sandbox`), with one image per language: C++, Python, and Java.
 > **Related:** [`trace-format.md`](trace-format.md) (the contract), [`adapters/cpp.md`](adapters/cpp.md) §7 (how the C++ runtime writes a trace), [`adapters/python.md`](adapters/python.md) §7 and [`adapters/java.md`](adapters/java.md) §7 (how the Python and Java adapters run), [`native-tracing.md`](native-tracing.md) §6 (why tracer output is untrusted)
 
 This document describes how the system runs a stranger's code safely: where the code runs, what it is allowed to use, how files get in and out, and what comes back for each way a run can end.
@@ -96,7 +96,7 @@ Measured for Two Sum under Docker on Linux, end to end through `pipeline.run()`,
 
 Three changes, each keeping one container per run:
 
-- **A precompiled header.** Every prelude begins with the same 33 standard headers and the runtime, now one file, `adapters/cpp/runtime/prelude_common.hpp`. The image compiles it once with `clang++-18` into `prelude_common.hpp.pch`, and the rewriter and the compiler both load it with `-include-pch` instead of parsing it again. A precompiled header works only with the compiler that built it, so the image's label `org.leetcode-visualizer.pch` says where it is, and an image without one still runs, only slower. Runs outside the sandbox (macOS, Apple Clang) never use it.
+- **A precompiled header.** Every prelude begins with the same 33 standard headers and the runtime, now one file, `adapters/cpp/runtime/prelude_common.hpp`. The image compiles it once with `clang++-18` into `prelude_common.hpp.pch`, and the rewriter and the compiler both load it with `-include-pch` instead of parsing it again. A precompiled header works only with the compiler that built it, so the image's label `org.visi.pch` says where it is, and an image without one still runs, only slower. Runs outside the sandbox (macOS, Apple Clang) never use it.
 - **One `docker exec` per step.** Build, run, and collect are one command each. Inside the build, `timeout` gives each step its own limit and the exit status says which step failed. The program file is assembled inside the container exactly as the driver assembles it: the instrumented Solution without its trailing newlines, a blank line, then `main`.
 - **Containers started ahead of time** (`runners.Pool`, used by the API service, `TRACE_POOL`, default 1). A pooled container is started with the same limits and is handed out once, for one run, then removed like any other; it is never returned. So the pool moves the start earlier and changes nothing about isolation. Under Docker the start is only 0.12 s; under gVisor it is longer, which is where the pool helps. The pool keeps containers per image, so each language has its own waiting (`TRACE_POOL` each; `TRACE_POOL_PYTHON` and `TRACE_POOL_JAVA` set one language's alone). A waiting container runs only `sleep infinity`: under Docker's own runtime one measured under 0.8 MiB with `docker stats`, the same for every image. Under gVisor it also holds gVisor's own kernel, so measure it there with `docker stats` before choosing the pool sizes.
 
@@ -137,19 +137,19 @@ A plain Docker container shares the host's kernel, so on its own it is not a str
 | gVisor (`runsc`) | A user-space kernel between the code and the host | A slower start and slower system calls | `--sandbox gvisor`: the backend, and local runs that should match it |
 | Firecracker | A small virtual machine per run | Strongest, and the most work to operate | Not used |
 
-**The C++ image** (`sandbox/cpp.Dockerfile`, `leetcode-visualizer-sandbox-cpp`) has two stages. The first builds the rewriter against Clang 18. The second holds only what a run needs: `trace-rewrite`, the runtime headers, and `clang++-18` with libstdc++. It has no Python, no driver, and no checker, since those run outside. The same image builds natively on x86-64 Linux and on Apple Silicon.
+**The C++ image** (`sandbox/cpp.Dockerfile`, `visi-sandbox-cpp`) has two stages. The first builds the rewriter against Clang 18. The second holds only what a run needs: `trace-rewrite`, the runtime headers, and `clang++-18` with libstdc++. It has no Python, no driver, and no checker, since those run outside. The same image builds natively on x86-64 Linux and on Apple Silicon.
 
-**The Python image** (`sandbox/python.Dockerfile`, `leetcode-visualizer-sandbox-python`) is `python:3.12-slim-bookworm` with `sortedcontainers` 2.4.0 and the adapter's three files in `/opt/trace/python/`. It has no driver and no checker either.
+**The Python image** (`sandbox/python.Dockerfile`, `visi-sandbox-python`) is `python:3.12-slim-bookworm` with `sortedcontainers` 2.4.0 and the adapter's three files in `/opt/trace/python/`. It has no driver and no checker either.
 
-**The Java image** (`sandbox/java.Dockerfile`, `leetcode-visualizer-sandbox-java`) is Eclipse Temurin 21 (a JDK: the rewriter runs javac in-process) with the adapter compiled into `/opt/trace/java/` by a first stage. No driver, no checker. Each image's build context is kept to the files it copies by its own `.dockerignore` (`sandbox/<language>.Dockerfile.dockerignore`).
+**The Java image** (`sandbox/java.Dockerfile`, `visi-sandbox-java`) is Eclipse Temurin 21 (a JDK: the rewriter runs javac in-process) with the adapter compiled into `/opt/trace/java/` by a first stage. No driver, no checker. Each image's build context is kept to the files it copies by its own `.dockerignore` (`sandbox/<language>.Dockerfile.dockerignore`).
 
 **macOS.** gVisor runs only on Linux. Docker on a Mac already runs containers in a Linux VM, so gVisor goes in that VM. Docker Desktop's VM does not officially support extra runtimes, so the supported setup is **Colima**, a Docker VM you control: `sandbox/colima-gvisor.yaml` installs `runsc` in it and registers it on every start. Colima runs alongside Docker Desktop as a separate Docker context, `colima-gvisor`. The Mac then runs exactly what the backend runs, under the same libstdc++, so a run that passes locally behaves the same on the server.
 
 ```bash
 export DOCKER_CONTEXT=colima-gvisor
-docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
-docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
-docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
+docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
+docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
 python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 python3 -m pipeline fixtures/two_sum_trace.py --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 python3 -m pipeline fixtures/two_sum_trace.java --example "nums = [2,7,11,15], target = 9" --sandbox gvisor

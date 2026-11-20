@@ -4,7 +4,7 @@ Guidance for Claude Code (and any contributor) working in this repository.
 
 ## What this project is
 
-LeetCode-Visualizer steps through a LeetCode `Solution` class and draws its data structures (array, hash map, stack, queue, linked list, tree, graph, ...) as they change. It must work with the `Solution` class exactly as LeetCode provides it, in any supported language.
+Visi steps through a LeetCode `Solution` class and draws its data structures (array, hash map, stack, queue, linked list, tree, graph, ...) as they change. It must work with the `Solution` class exactly as LeetCode provides it, in any supported language.
 
 There is no problem catalog. The system knows only the user's `Solution` source and the example input, so the adapter derives everything else: the `problem` object, neutral parameter types, and hints.
 
@@ -18,8 +18,9 @@ How the pieces fit: each language has an adapter (C++: a header-only runtime and
 
 | File | Role |
 |---|---|
-| [`README.md`](README.md) | Overview, architecture diagrams, doc map |
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract (Draft v0.15). Source of truth |
+| [`README.md`](README.md) | What Visi does, its status and known limitations, how it works in brief, getting started, the documentation map |
+| [`docs/architecture.md`](docs/architecture.md) | How Visi works: the components and their pipelines, the trace format in brief, tracing strategies, design decisions, open questions, tech stack, the repository layout |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract (trace format v0.15). Source of truth |
 | [`docs/native-tracing.md`](docs/native-tracing.md) | Runtime hooks and source instrumentation |
 | [`docs/dap.md`](docs/dap.md) | Tracing through a debugger via the Debug Adapter Protocol |
 | [`docs/driver-generation.md`](docs/driver-generation.md), [`docs/frontend.md`](docs/frontend.md), [`docs/sandboxing.md`](docs/sandboxing.md), [`docs/hint-inference.md`](docs/hint-inference.md) | Design notes. `driver-generation.md`, `sandboxing.md`, and [`backend.md`](docs/backend.md) describe what is implemented; `frontend.md` describes the sandbox page, including linked structures and the calls cards, and the home page; `hint-inference.md` is a proposal |
@@ -77,10 +78,10 @@ These are the decisions the project is built on. Do not weaken them without aski
 
 The spec, schema, fixtures, and docs describe one contract and must stay in sync.
 
-- A change to `docs/trace-format.md` means a matching change to `schema/trace.schema.json`, to every affected fixture, and to any doc that quotes the affected part (the README's "trace format in brief" and renderer table, `docs/native-tracing.md` and `docs/dap.md` examples).
+- A change to `docs/trace-format.md` means a matching change to `schema/trace.schema.json`, to every affected fixture, and to any doc that quotes the affected part (`docs/architecture.md`'s "trace format in brief" and renderer table, `docs/native-tracing.md` and `docs/dap.md` examples).
 - Versioning is `MAJOR.MINOR` (spec section 9). Adding optional fields or new kinds is a **minor** bump. Anything that breaks existing traces is **major**, except while the major version is 0, when a minor bump may break.
 - The `version` string in fixtures must match the spec.
-- Known gaps are listed in `docs/native-tracing.md` section 8 and the README's open questions: **pointers that do not point at a live object** (member variables became `members` in v0.12, and container aliasing became shared container ids in v0.14). Do not silently implement one of them. Propose the change, then follow the procedure in `Skills.md`.
+- Known gaps are listed in `docs/native-tracing.md` section 8 and `docs/architecture.md`'s open questions: **pointers that do not point at a live object** (member variables became `members` in v0.12, and container aliasing became shared container ids in v0.14). Do not silently implement one of them. Propose the change, then follow the procedure in `Skills.md`.
 
 ## Commands
 
@@ -132,9 +133,9 @@ python3 -m unittest discover -s pipeline/tests -t .    # every fixture end to en
 Run it in the sandbox instead (needs Docker and the image; `docs/sandboxing.md` §6). `--sandbox docker` uses Docker's own runtime; `--sandbox gvisor` adds gVisor, which is what anyone else's code needs. On macOS, gVisor runs in a Colima VM set up from `sandbox/colima-gvisor.yaml`; point Docker at it with `DOCKER_CONTEXT=colima-gvisor`:
 
 ```bash
-docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
-docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
-docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
+docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
+docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
 python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 python3 -m pipeline fixtures/two_sum_trace.py --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v   # every limit, proven (skipped without Docker or the image)
@@ -207,7 +208,7 @@ python3 -I tools/check_trace.py --expect-truncated adapters/cpp/build/traces/cla
 
 Design docs in this repo share one house style. Match it when adding or editing them:
 
-- A `> **Status:** Draft vX.Y` line and a `**Related:**` line under the title.
+- A `> **Status:**` line and a `**Related:**` line under the title. A doc that describes what is built says `Beta (Visi 1.0.0-beta.1)`, the app's version, then what it covers; a doc for something not built says `Proposal` or `Reference`. Versions are tracked in `CHANGELOG.md`, not per doc; the trace format keeps its own version (`v0.15`), which is part of the contract.
 - Numbered sections, tables for comparisons, and short code or JSON examples that are consistent with the spec.
 - Callouts in the form `> **Key insight N: ...**` for the idea a reader must not miss.
 - A closing **Design questions** section with the reasoning written out.
@@ -217,11 +218,11 @@ Architecture diagrams are ASCII with box-drawing characters. Keep every box the 
 
 ## Working agreements
 
-- **Never edit the "Goals" section at the top of `README.md`.** It is the author's personal note. Fix nothing in it, including typos, without asking.
+- **Never edit the "Inspiration behind the project" section at the top of `README.md`** (once called "Goals"). It is the author's personal note. Fix nothing in it, including typos, without asking.
 - **Claude writes the frontend code, and since 2026-11-14 also the adapter runtime and rewriter** (the author's decision). Explain the design and any trade-off before a change to them, as for any other part of the project.
 - Do not invent details about how LeetCode behaves. If unsure, say so.
 - Before claiming an example is valid, run it through the schema.
 - Do not add dependencies, frameworks, or directories that the docs have not proposed without checking first. Approved so far: `jsonschema` (Python, for `tools/check_trace.py`), LLVM/Clang for the LibTooling rewriter (`brew install llvm` on macOS; the sandbox image has it), Docker with gVisor (`runsc`) for the sandbox, the `python:3.12-slim-bookworm` base image and `sortedcontainers` (2.4.0, inside the Python sandbox image only, for Solutions to use), the `eclipse-temurin:21-jdk` base image for the Java sandbox (and a JDK 21 locally, to run Java Solutions and the Java adapter's tests), with Colima on macOS (`brew install colima`) to run gVisor locally, FastAPI with Uvicorn for the API service (`backend/requirements.txt`; httpx only for its tests), `framer-motion` for the frontend's motion, and the Geist and Geist Mono fonts for the frontend (`@fontsource-variable/geist`, `@fontsource-variable/geist-mono`, SIL Open Font License). The driver uses only Python's standard library.
 - **Every change that a user or an adapter author would notice gets a line in `CHANGELOG.md`** under `Unreleased`, saying what changed and, for a design change, why.
 - When a doc and the code disagree, the spec in `docs/trace-format.md` wins until it is deliberately changed.
-- Keep `README.md`'s status table, doc map, and repository layout accurate whenever files are added or removed.
+- Keep `README.md`'s status and documentation map, and `docs/architecture.md`'s components table and repository layout, accurate whenever files are added or removed. Plans live in GitHub issues, not in a roadmap file.

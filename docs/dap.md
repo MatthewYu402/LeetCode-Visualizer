@@ -1,6 +1,6 @@
 # DAP-Based Tracing
 
-> **Status:** Draft v0.1
+> **Status:** Reference. No adapter traces through a debugger: every adapter uses native tracing ([`native-tracing.md`](native-tracing.md)). This describes the alternative, for a language where native tracing is impractical.
 > **Related:** [`trace-format.md`](trace-format.md) (the output contract), [`native-tracing.md`](native-tracing.md) (the per-language alternative)
 
 This document describes how an adapter **observes a running solution through an existing debugger**, using the Debug Adapter Protocol (DAP), and turns what the debugger reports into a trace. It is the second of two strategies for the "observe" stage of the pipeline.

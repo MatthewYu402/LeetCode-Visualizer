@@ -28,7 +28,7 @@ describe("href", () => {
   });
 
   it("names each page in the title", () => {
-    expect(titleFor({ page: "home" })).toBe("LeetCode Visualizer");
-    expect(titleFor({ page: "sandbox", example: "two-sum" })).toBe("LeetCode Visualizer · Sandbox");
+    expect(titleFor({ page: "home" })).toBe("Visi");
+    expect(titleFor({ page: "sandbox", example: "two-sum" })).toBe("Visi · Sandbox");
   });
 });

@@ -11,7 +11,7 @@
 # tracer, so it runs inside, beside the user's code, like the C++ runtime.
 #
 # Build from the repository root:
-#   docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
+#   docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
 # sandbox/python.Dockerfile.dockerignore keeps the build context to the files below.
 
 ARG BASE=python:3.12-slim-bookworm

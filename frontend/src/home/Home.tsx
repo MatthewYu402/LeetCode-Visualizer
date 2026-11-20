@@ -45,7 +45,7 @@ export function Home() {
       <header className="home-bar">
         <a className="brand" href={href({ page: "home" })}>
           <Logo height={18} />
-          <span className="brand-name">LeetCode Visualizer</span>
+          <span className="brand-name">Visi</span>
         </a>
         <nav className="home-nav" aria-label="Sections">
           {sections.map((n) => (
@@ -161,7 +161,7 @@ export function Home() {
 
         <footer className="home-foot">
           <Logo height={14} />
-          <span>LeetCode Visualizer · Apache License 2.0</span>
+          <span>Visi · Apache License 2.0</span>
           <span className="home-foot-links">
             <a className="foot-link" href={REPO_URL} target="_blank" rel="noopener noreferrer">
               <CodeIcon />

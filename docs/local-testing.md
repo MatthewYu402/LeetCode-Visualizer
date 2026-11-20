@@ -54,14 +54,14 @@ source .venv/bin/activate
 colima start --profile gvisor
 export DOCKER_CONTEXT=colima-gvisor
 docker info --format '{{json .Runtimes}}' | grep -o runsc
-docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
-docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
-docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
+docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
+docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
 ```
 
 `grep` must print `runsc`. Rebuild the C++ image whenever `adapters/cpp/runtime/`, `adapters/cpp/rewriter/`, or `sandbox/cpp.Dockerfile` changes, the Python image whenever `adapters/python/` or `sandbox/python.Dockerfile` changes, and the Java image whenever `adapters/java/src/` or `sandbox/java.Dockerfile` changes: each image holds its own copy of its adapter. `DOCKER_CONTEXT` lasts only for that terminal, so export it in every terminal that runs Docker or the backend.
 
-The old single image (`leetcode-visualizer-sandbox`, from `sandbox/Dockerfile`) is no longer used; remove it with `docker image rm leetcode-visualizer-sandbox`.
+Images built before the project was renamed Visi are no longer used: the old single image (`leetcode-visualizer-sandbox`, from `sandbox/Dockerfile`) and the three per-language ones (`leetcode-visualizer-sandbox-cpp`, `-python`, `-java`). Remove them with `docker image rm leetcode-visualizer-sandbox leetcode-visualizer-sandbox-cpp leetcode-visualizer-sandbox-python leetcode-visualizer-sandbox-java`.
 
 ## 3. Everything CI tests
 
@@ -89,7 +89,7 @@ In order: fixtures against the schema (C++ and Python goldens); adapter tests, h
 Idle memory of a pooled container, per image (for choosing `TRACE_POOL`, `TRACE_POOL_PYTHON`, and `TRACE_POOL_JAVA`), with the backend running and after one run of each language:
 
 ```
-docker stats --no-stream --filter label=org.leetcode-visualizer.sandbox
+docker stats --no-stream --filter label=org.visi.sandbox
 ```
 
 ## 4. Run the page
@@ -115,8 +115,8 @@ Open http://localhost:5173. Choose C++, Python, or Java in the top bar (or pick 
 Stop the backend and the dev server with Ctrl-C in their terminals. Then:
 
 ```
-docker ps -a --filter label=org.leetcode-visualizer.sandbox
-docker rm -f $(docker ps -aq --filter label=org.leetcode-visualizer.sandbox)
+docker ps -a --filter label=org.visi.sandbox
+docker rm -f $(docker ps -aq --filter label=org.visi.sandbox)
 colima stop --profile gvisor
 unset DOCKER_CONTEXT
 ```
@@ -126,7 +126,7 @@ The first lists any sandbox containers left behind (the backend's pools, or a cr
 To reclaim disk (images and build cache), before stopping the VM:
 
 ```
-docker image rm leetcode-visualizer-sandbox-cpp leetcode-visualizer-sandbox-python leetcode-visualizer-sandbox-java
+docker image rm visi-sandbox-cpp visi-sandbox-python visi-sandbox-java
 docker builder prune -f
 ```
 
@@ -142,7 +142,7 @@ colima delete --profile gvisor
 |---|---|---|
 | `Docker has no runtime named 'runsc'`, or the page answers 503 | The terminal is not on the Colima context, or the profile has no `docker: runtimes:` section | `export DOCKER_CONTEXT=colima-gvisor`; `grep -n -A3 runsc ~/.colima/gvisor/colima.yaml` must print the section; then `colima restart --profile gvisor` |
 | `context "colima-gvisor": context not found` or `no builder "colima-gvisor" found` | Colima removed its context when the VM stopped, and a start was skipped as "already running" | `unset DOCKER_CONTEXT`, `colima restart --profile gvisor`, `docker context ls` (or `docker context create colima-gvisor --docker "host=unix://$HOME/.colima/gvisor/docker.sock"`) |
-| `The sandbox image 'leetcode-visualizer-sandbox-python' is not built` (or `-cpp`, `-java`) | That language's image is missing | Build it (section 2) |
+| `The sandbox image 'visi-sandbox-python' is not built` (or `-cpp`, `-java`) | That language's image is missing | Build it (section 2) |
 | Fixture tests: `trace has "0.7", fixture has "0.8"` | The image was built from an older runtime | Rebuild the image (section 2) |
 | The page rejects every run with a version error | Same: the image's runtime writes an older version | Rebuild the image |
 | Python tests: `These tests need Python 3.12 or later` | The venv was made with an older Python and no `python3.12` is on PATH | `brew install python@3.12`, then remake the venv (section 1), or set `TRACE_PYTHON` to a 3.12 interpreter |

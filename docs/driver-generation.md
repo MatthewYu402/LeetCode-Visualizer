@@ -1,6 +1,6 @@
 # Driver Generation
 
-> **Status:** Draft v0.2. The C++ driver is implemented in [`driver/`](../driver/) (Python), with tests. Every golden fixture produces its golden trace through a generated `main`.
+> **Status:** Beta (Visi 1.0.0-beta.1). The driver is implemented in [`driver/`](../driver/) (Python) for C++, Python, and Java, with tests. Every golden fixture produces its golden trace through a generated `main`.
 > **Related:** [`trace-format.md`](trace-format.md) (the output contract), [`native-tracing.md`](native-tracing.md) (how the run is observed), [`hint-inference.md`](hint-inference.md) (choosing hints), [`sandboxing.md`](sandboxing.md) (where the program runs), [`adapters/cpp.md`](adapters/cpp.md) (the C++ runtime the driver calls)
 
 A LeetCode `Solution` class cannot run on its own. It has no `main`, it does not define `ListNode` or `TreeNode`, and nothing turns the text `nums = [2,7,11,15], target = 9` into real arguments. On LeetCode a hidden harness does all of that. This document describes how we rebuild that harness. We call it the **driver**.

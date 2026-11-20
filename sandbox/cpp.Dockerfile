@@ -10,7 +10,7 @@
 # the checker after it, both outside (CLAUDE.md invariant 9).
 #
 # Build from the repository root:
-#   docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
+#   docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
 # sandbox/cpp.Dockerfile.dockerignore keeps the build context to the files below.
 
 ARG BASE=ubuntu:24.04
@@ -41,7 +41,7 @@ COPY adapters/cpp/runtime/ /opt/trace/runtime/
 RUN clang++-18 -std=c++20 -x c++-header /opt/trace/runtime/prelude_common.hpp \
       -o /opt/trace/runtime/prelude_common.hpp.pch
 # Tells the pipeline the precompiled header exists (pipeline/runners.py).
-LABEL org.leetcode-visualizer.pch="/opt/trace/runtime/prelude_common.hpp.pch"
+LABEL org.visi.pch="/opt/trace/runtime/prelude_common.hpp.pch"
 # Every run gets a fresh tmpfs at /work (docs/sandboxing.md §4). The directory
 # exists so the image also works without one, for debugging.
 RUN mkdir -m 1777 /work

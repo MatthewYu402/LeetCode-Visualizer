@@ -1,4 +1,13 @@
-# Visi
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
+    <img src="logo-light.svg" alt="The Visi eye" width="220">
+  </picture>
+</p>
+
+<h1 align="center">Visi</h1>
+
+<p align="center">Step through a LeetCode solution and watch its data structures change.</p>
 
 ## Inspiration behind the project
 For most students learning visually is more effective rather than pure conceptual practice. Seeing the problem unfold and understanding why one solution may not work while another might as a data structure on the screen feels more tangible. Instead of picturing how a data structure works in a given problem, a visual can help immensely.
@@ -46,567 +55,27 @@ Every run is a stranger's code, so it runs in a locked-down container under gVis
 
 Per-language details are in each adapter's notes: [C++](docs/adapters/cpp.md), [Python](docs/adapters/python.md) §9, [Java](docs/adapters/java.md) §9.
 
-### Components
+## How it works
 
-| Area | State |
-|---|---|
-| Trace format, schema, and golden fixtures | v0.15. Six problems (Two Sum, Reverse Linked List, iterative preorder, Clone Graph, Maximum Depth, Subsets), each in C++, Python, and Java, with the other languages' traces matching the C++ one call by call |
-| C++ adapter | Header-only runtime, a Clang LibTooling rewriter that instruments a plain Solution without adding lines, and a driver that rebuilds LeetCode's harness |
-| Python adapter | `sys.settrace` for the steps and a syntax-tree rewrite for what each line evaluated, on Python 3.12 |
-| Java adapter | Source instrumentation on the JDK's own parser, compiled with javac in the same JVM, on JDK 21 |
-| CLI (`pipeline/`) | `python3 -m pipeline` takes a Solution and an example to a validated trace in one command, on this machine or in the sandbox |
-| Sandbox (`sandbox/`) | One image per language; one container per run with no network, capped memory, CPU, processes, disk, and time, never root, under gVisor |
-| API service (`backend/`) | `/api/signature` and `/api/run`, with size caps, run slots and a capped line, and one run per visitor |
-| Frontend (`frontend/`) | The home page and the sandbox page, in a dark and a light theme |
-| CI | Every push and pull request to `main`: fixtures, every adapter's tests on Linux and macOS, the three sandbox images under Docker and gVisor, the frontend's tests and build |
-
----
-
-## Documentation map
-
-Start with the trace format. Everything else hangs off it.
-
-| Document | Read it to learn | Status |
-|---|---|---|
-| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors | Draft v0.15 |
-| [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation | Draft v0.1 |
-| [`docs/dap.md`](docs/dap.md) | How an adapter observes a program through a debugger using the Debug Adapter Protocol | Draft v0.1 |
-| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable version of the contract. Every adapter's output must validate against it | v0.15 |
-| [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json) | A golden trace for the Two Sum example. The other golden traces sit next to it | v0.15 |
-| [`adapters/cpp/runtime/trace.hpp`](adapters/cpp/runtime/trace.hpp) | The C++ runtime: serializers, recorder, and document writer | Implemented |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to set up, test, and send a change; how to add a language | Done |
-| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version, and the history of the decisions behind it | Done |
-| [`CLAUDE.md`](CLAUDE.md) / [`Skills.md`](Skills.md) | Rules and repeatable procedures for working in this repo | Draft |
-| [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types | Draft v0.2, implemented for C++ |
-| [`docs/frontend.md`](docs/frontend.md) | The sandbox page: layout, renderer registry, linked structures, calls cards, diffing, motion, playback, dark and light themes; and the home page and its routes | Draft v0.17 |
-| [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Frontend commands, structure, theme tokens, and rules | Draft |
-| [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs, how a run can end, gVisor on macOS | Draft v0.2, implemented |
-| [`docs/backend.md`](docs/backend.md) | The API service: endpoints, errors and status codes, limits, settings, running it with the frontend | Draft v0.1, implemented |
-| [`docs/hint-inference.md`](docs/hint-inference.md) | How an adapter will work out which structure a value is when its type does not say | Proposal, not started |
-| [`docs/adapters/cpp.md`](docs/adapters/cpp.md) | The C++ adapter: instrumentation, STL normalization rules | Draft |
-| [`docs/adapters/python.md`](docs/adapters/python.md) | The Python adapter: `sys.settrace`, the syntax-tree rewrite for outcomes, normalization rules, the driver | Draft v0.15 |
-| [`docs/adapters/java.md`](docs/adapters/java.md) | The Java adapter: the rewriter on the JDK's parser, the runtime, normalization rules, the driver | Draft v0.15 |
-| [`LICENSE`](LICENSE), [`NOTICE`](NOTICE) | Apache License 2.0 terms, and the copyright notice that must travel with copies | Done |
-
-**Suggested reading order:** this README, then `trace-format.md`, then `native-tracing.md` or `dap.md` depending on which part you are working on.
-
----
-
-## Architecture
-
-Getting state out of a running `Solution` class without asking the user to change their code is the hard part, so this is where most of the design effort went.
-
-The key decision: **the backend and the frontend only talk through a trace format.** Each side can be built, tested, and replaced without the other.
-
-> The data flow and the boundaries between the components are the stable part of this design. How the service is hosted is not described here.
-
-### 1. System overview: what is connected to what
-
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ FRONTEND  (browser)                                                            │
-│                                                                                │
-│   code editor · example input · step controls                                  │
-│   trace player · diff animator · renderer registry                             │
-│                                                                                │
-│   Knows only the trace format. Never knows which language ran.                 │
-└─────────────┬──────────────────────────────────────────────────────────────────┘
-              │  ▼ run request: language, source code, example input
-              │  ▲ validated trace (JSON), or an error
-              ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ API SERVICE                                                                    │
-│                                                                                │
-│   receives the Solution source and the example (no problem catalog)            │
-│   starts one sandboxed job per run                                             │
-│   validates every returned trace against schema/trace.schema.json              │
-└─────────────┬──────────────────────────────────────────────────────────────────┘
-              │  ▼ job: language image + user source + example input
-              │  ▲ raw trace  (untrusted: validated before it goes any further)
-              ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ SANDBOX  (untrusted code runs here)                                            │
-│                                                                                │
-│   no network · CPU / memory / time limits · short-lived                        │
-│   one container image per language (toolchain + tracer)                        │
-│                                                                                │
-│   LANGUAGE ADAPTER                                                             │
-│     1. driver       wraps the user's Solution, calls it on the example         │
-│     2. tracer       observes the run, one snapshot per executed line           │
-│     3. normalizer   language values -> trace kinds (array, map, ref ...)       │
-│     also derives the problem metadata: neutral types, inferred hints           │
-└────────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 300}}}%%
+flowchart LR
+    fe["`**Frontend** (browser)
+    code editor · inputs · step player · renderers`"]
+    api["`**API service**
+    one sandboxed run per request
+    validates every trace`"]
+    sb["`**Sandbox** (gVisor)
+    language adapter: driver → tracer → normalizer`"]
+    fe <-- "▶ Solution + example
+    ◀ validated trace (JSON)" --> api
+    api <-- "▶ job
+    ◀ raw trace" --> sb
 ```
 
-| Component | Responsibility | Language-aware? |
-|---|---|---|
-| **Frontend** | Replays a trace: highlights the current line, draws each structure, animates changes | **No** |
-| **API service** | Receives the source and example, orchestrates jobs, **validates every trace** | **No** |
-| **Sandbox** | Runs untrusted code with strict limits | Only the image it starts from |
-| **Language adapter** | Driver, tracer, normalizer, problem metadata and hints | **Yes. This is the only place language knowledge lives** |
+The browser sends your `Solution` and example to the API service, which runs them in a locked-down container for that language. There, a language adapter wraps your code in LeetCode's harness, records the state before every line, and turns each language's values into one neutral **trace format**: a JSON list of snapshots in which an `unordered_map`, a `dict`, and a `HashMap` are all just a `map`. The service validates the trace and sends it back, and the frontend replays it. The frontend never knows which language ran, so every structure is drawn the same way in C++, Python, and Java.
 
-Everything that comes out of the sandbox is treated as **untrusted data**. The user's code runs in the same environment as the tracer, so the trace is checked against the schema outside the sandbox before the frontend ever sees it.
-
-### 2. Inside a language adapter
-
-An adapter turns "the user's code plus an example" into a trace. Four stages:
-
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ 1. DRIVER                                                                      │
-│                                                                                │
-│   wraps the user's Solution in a main()                                        │
-│   parses the example into the method's argument types                          │
-│   supplies LeetCode helpers (ListNode, TreeNode, Node)                         │
-│   derives the problem metadata: neutral param types, inferred hints            │
-└─────────────┬──────────────────────────────────────────────────────────────────┘
-              │  the program runs
-              ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ 2. OBSERVE   get control just before each line of user code runs               │
-│                                                                                │
-│   pick ONE strategy per language:                                              │
-│     A. runtime hooks      Python sys.settrace · V8 inspector · JVM debug API   │
-│     B. source instrument  rewrite code to call record(line, vars...) (C++, Go) │
-│     C. DAP client         one generic client driving lldb-dap, debugpy, dlv ...│
-│                                                                                │
-│   details: native-tracing.md (A, B)   dap.md (C)                               │
-└─────────────┬──────────────────────────────────────────────────────────────────┘
-              │  'about to run line N' + the live variables
-              ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ 3. SNAPSHOT                                                                    │
-│                                                                                │
-│   deep-copy the state at this instant (never keep live references)             │
-│   record: step index, line (in the user's original source), locals             │
-└─────────────┬──────────────────────────────────────────────────────────────────┘
-              │  native values: vector, unordered_map, stack, TreeNode*, dict ...
-              ▼
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ 4. NORMALIZE                                                                   │
-│                                                                                │
-│   native values -> trace kinds: array · list · stack · queue · deque           │
-│     priority-queue · tuple · set · map · object · ref · int · float            │
-│     iterator (a position in a local container)                                 │
-│   pointers / references -> stable ids (n1, n2 ...), never addresses            │
-│   unknown type -> fail loudly, never emit raw debugger or runtime text         │
-└─────────────┬──────────────────────────────────────────────────────────────────┘
-              │  one step of the trace
-              ▼
-trace JSON:  steps[] + result      (format: docs/trace-format.md)
-```
-
-- **Only stage 2 differs fundamentally between languages.** Stages 3 and 4 have the same shape everywhere but different details.
-- Native tracers usually do stages 3 and 4 in one pass. A DAP client normalizes what the debugger returned after the fact.
-- **Every observation strategy ends in the same normalized kinds and the same schema validation.** The frontend cannot tell which strategy produced a trace.
-
-### 3. Inside the frontend
-
-```
-trace JSON  (from the API service)
-              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ TRACE LOADER                                                         │
-│   checks the version (rejects unsupported versions), indexes steps   │
-└─────────────┬────────────────────────────────────────────────────────┘
-              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ STEP PLAYER                                                          │
-│   holds the current step index · play · pause · step · scrub         │
-│   any step draws from its own data, so rewind and jump are free      │
-└─────────────┬────────────────────────────────────┬───────────────────┘
-              ▼                                    ▼
-┌──────────────────────────┐  ┌────────────────────────────────────────┐
-│ CODE PANEL               │  │ DIFF  +  RENDERER REGISTRY             │
-│   highlights step.line   │  │   diff step N-1 -> N:                  │
-│   in the user's own      │  │   added / removed / changed            │
-│   source code            │  │   pick a renderer by value             │
-│                          │  │   kind + the problem's hint            │
-└──────────────────────────┘  └────────────────────┬───────────────────┘
-                                                   ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ RENDERERS   (one per structure, shared by every language)            │
-│   array · grid · list · stack · queue · deque · priority queue       │
-│   tuple · map · set · linked list · tree · graph · fallback          │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-The frontend picks a renderer in this order: the user's "view as" override, then the inferred hint, then the value `kind`, then the shape of an `object`, then a generic fallback.
-
-| Trace value | Hint | Renderer |
-|---|---|---|
-| `array` | | Indexed boxes with pointer markers (`i`, `left`, `right`) |
-| `array` of `array` | `grid` / `adjacency-matrix` | 2D grid |
-| `array` of `array` | `adjacency-list` / `edge-list` / `graph` | Node-link diagram |
-| `array` of `array` | `intervals` | Intervals on a number line |
-| `list` | | Chain of value nodes |
-| `stack` | | Vertical column, top at the top |
-| `queue` / `deque` | | Horizontal row, front at the left |
-| `priority-queue` | | Array plus tree view, top highlighted |
-| `tuple` | | Fixed group of values |
-| `map` | | Key-value table |
-| `set` | | Set of items |
-| `object` + `ref` | `tree`, or shape `val` + `left` + `right` | Tree layout |
-| `object` + `ref` | `linked-list`, or shape `val` + `next` | Nodes and arrows |
-| `object` + `ref` | `graph`, or shape `val` + `neighbors` | Node-link diagram |
-| unknown kind | | Generic fallback |
-
-An `array<array<int>>` could be a grid, an adjacency list, or intervals. The adapter infers a hint, and a user-selectable "view as" override corrects it, so the ambiguity is resolved once instead of once per language.
-
-### 4. Why a trace format sits in the middle
-
-```
-WITHOUT a shared format          (L x R)    WITH a shared format             (L + R)
-
-C++    ──► array   map   tree               C++    ─┐               ┌─► array
-Python ──► array   map   tree               Python ─┼─► TRACE ──────┼─► map
-Java   ──► array   map   tree               Java   ─┘               └─► tree
-
-3 languages x 3 renderers                   3 adapters + 3 renderers
-= 9 pieces of glue code                     = 6 pieces of code
-```
-
-Adding a language costs one adapter. Adding a renderer works for every language at once. The trace format is the only thing both sides share, so it is the only thing that must stay stable.
-
-### 5. Worked example: Two Sum
-
-Input `nums = [2, 7, 11, 15]`, `target = 9`, using the `Solution` from LeetCode as-is. The full trace is in [`fixtures/two-sum.trace.json`](fixtures/two-sum.trace.json). One step of it:
-
-```json
-{
-  "step": 5,
-  "frames": [
-    {"id": "f1", "function": "twoSum", "line": 8,
-     "locals": {
-       "nums":   {"kind": "array", "items": [2, 7, 11, 15]},
-       "target": 9,
-       "numMap": {"kind": "map", "entries": [[2, 0]]},
-       "i": 1
-     }}
-  ],
-  "heap": {}
-}
-```
-
-`frames` is the call stack, bottom to top. Two Sum calls no function of its own, so it always has one frame. A recursive solution has one frame per call level, each with its own `line` and `locals`, and every call ends with a **return step** whose top frame carries `return_value`, so you can watch the answer travel back up the stack. See [steps](docs/trace-format.md#6-steps).
-
-What the frontend draws for that step:
-
-```
-  line 8:   int complement = target - nums[i];      <- highlighted in the code panel
-
-  nums     ┌────┬────┬────┬────┐
-           │  2 │  7 │ 11 │ 15 │
-           └────┴────┴────┴────┘
-              0    1    2    3
-                   ▲
-                   i
-
-  numMap   ┌─────┬───────┐
-           │ key │ value │
-           ├─────┼───────┤
-           │  2  │   0   │     <- added since the last visit to line 8 (found by the diff)
-           └─────┴───────┘
-```
-
-The frontend reads `nums` as an `array` and `numMap` as a `map`. It never learns that `numMap` was a C++ `unordered_map`.
-
----
-
-## The trace format in brief
-
-The full specification is [`docs/trace-format.md`](docs/trace-format.md). The short version: every value is a primitive or a tagged object, and the `kind` field says which renderer applies. The type decides the kind:
-
-```json
-{"kind": "array",          "items": [2, 7, 11, 15]}
-{"kind": "stack",          "items": [1, 2, 3]}
-{"kind": "queue",          "items": [1, 2, 3]}
-{"kind": "priority-queue", "items": [5, 4, 3, 1, 1], "order": "max"}
-{"kind": "tuple",          "items": [0, "a"]}
-{"kind": "set",            "items": [1, 2]}
-{"kind": "map",            "entries": [[2, 0]]}
-{"kind": "ref",            "id": "n3"}
-```
-
-The full list (`array`, `list`, `stack`, `queue`, `deque`, `priority-queue`, `tuple`, `set`, `map`, `object`, `ref`, `int`, `float`, and `iterator` for a position in a container) is in the [summary of kinds](docs/trace-format.md#summary-of-kinds). A container reached from more than one place, such as two names for one list, carries the same `id` at every place, so the frontend can show they are one ([shared containers](docs/trace-format.md#shared-containers)). What the type cannot say, such as whether an `array` of `array`s is a grid or a graph, is a **hint** that the adapter infers.
-
-Numbers are plain JSON whenever JavaScript can read them back exactly, as the kind they are. Three cases cannot be, so they are tagged, with the exact value kept in a string:
-
-```json
-{"kind": "int",   "value": "9007199254740993"}
-{"kind": "float", "value": "NaN"}
-{"kind": "float", "value": "3.0"}
-```
-
-`int` is for integers outside ±(2^53 − 1), which `JSON.parse` would silently round. `float` is for `NaN`, `Infinity`, and `-Infinity`, which JSON has no syntax for, and for whole floats like `3.0`, which a bare `3` would turn into an int. See [numbers JSON cannot carry exactly](docs/trace-format.md#numbers-json-cannot-carry-exactly).
-
-A trace also says how the run ended. `result` is present only when the method returned, and `"truncated": true` appears only when recording stopped at a limit, with `truncated_by` saying which: the 2,000-step limit (`"steps"`) or the 10 MB size budget (`"size"`). At a limit the adapter writes the trace straight away, so a solution stuck in an infinite loop still gives you a trace to step through instead of only a timeout. See [unfinished runs](docs/trace-format.md#unfinished-runs).
-
-When the method returns a pointer, `result` is a `ref`, and the objects it points to come in a top-level `result_heap` with the same shape as a step's `heap` and the same ids. A `void` method that returned has `"result": null`, and the problem metadata says `"returns": {"type": "void"}`, which tells it apart from a returned null pointer. See [the return value](docs/trace-format.md#the-return-value).
-
-For linked structures (trees, linked lists, graphs) the trace uses Python Tutor's approach: a **heap of objects with ids**, plus **references** between them. A C++ `TreeNode*`, a Python `TreeNode` object, and a Java `TreeNode` reference all become the same thing:
-
-```json
-{
-  "frames": [{"id": "f1", "function": "maxDepth", "line": 4,
-              "locals": {"root": {"kind": "ref", "id": "n3"}}}],
-  "heap": {
-    "n3": {"kind": "object", "type": "TreeNode",
-           "fields": {"val": 5,
-                      "left":  {"kind": "ref", "id": "n4"},
-                      "right": null}},
-    "n4": {"kind": "object", "type": "TreeNode",
-           "fields": {"val": 3, "left": null, "right": null}}
-  }
-}
-```
-
-The frontend recognizes a tree by shape (an object with `val`, `left`, and `right`), or from a hint in the problem metadata such as "this parameter is a `TreeNode`". See [value model](docs/trace-format.md#5-the-value-model) and [steps](docs/trace-format.md#6-steps).
-
-A step is taken before its line runs, so the top frame can also carry `outcomes`: what its line evaluated once it ran, such as a condition that was false, the value a store left, or the cell a read used (`dp[i - 1][j]`). The frontend shows them next to the line instead of guessing. See [outcomes](docs/trace-format.md#outcomes).
-
-```json
-"outcomes": [{"kind": "condition", "code": "numMap.count(complement)", "value": false}]
-```
-
----
-
-## Language-agnostic design
-
-**Language-agnostic** means the visualizer never depends on the language a solution was written in. A solution in C++, Python, Java, or any other supported language produces the same visualization for the same problem and input.
-
-It works because the system is split into two halves that communicate only through the shared trace format:
-
-1. **Language adapters (backend).** Each supported language has an adapter with three jobs:
-   - **Driver generation:** wrap the user's `Solution` so it can be called with the parsed example. LeetCode signatures differ by language (`vector<int>&` vs `List[int]` vs `int[]`), but every adapter derives the same problem metadata (parameter names, neutral types, inferred hints).
-   - **Tracing:** run the code and record a snapshot per step.
-   - **Normalization:** convert language-specific values (`std::unordered_map`, `dict`, `HashMap`) into the shared value model.
-2. **Visualization engine (frontend).** Reads only the trace. It knows nothing about C++ or Python, chooses a renderer from the normalized kinds, and animates the changes between steps.
-
-```
-C++ adapter    ─┐
-Python adapter ─┤
-Java adapter   ─┼──► common trace format ──► same frontend
-Rust adapter   ─┤
-JS/TS adapter  ─┘
-```
-
-### What this guarantees
-- Adding a new language requires only a new adapter. The frontend and trace schema stay unchanged.
-- Adding a new data structure renderer works for every language at once.
-- Two solutions to the same problem in different languages can be compared side by side, because they emit the same kind of trace.
-
-### What this does not mean
-- It does not mean translating code between languages. Each solution runs in its own language.
-- It does not mean every language produces identical traces. Different algorithms, iteration orders (for example, hash maps), and value semantics (copy vs. reference) can still change what is shown. The model normalizes *representation*, not *behavior*. See [rules for adapter authors](docs/trace-format.md#8-rules-for-adapter-authors).
-- It does not mean all languages are supported on day one. The trace format is the contract, and languages are added incrementally.
-
----
-
-## Tracing strategies
-
-An adapter observes the running program in one of three ways. All three end in the same normalized trace.
-
-| Strategy | How it works | Good for | Doc |
-|---|---|---|---|
-| **Runtime hooks** | The runtime calls our code before each line (Python `sys.settrace`, V8 inspector, JVM debug interfaces) | Python, JavaScript, Java | [`native-tracing.md`](docs/native-tracing.md) |
-| **Source instrumentation** | Rewrite the code to call a recording function (`trace::record(...)` in C++) before each statement, then run it | C++, Go (full control over STL serialization) | [`native-tracing.md`](docs/native-tracing.md) |
-| **DAP client** | One generic client drives an external debugger (`lldb-dap`, `debugpy`, `dlv`) | Breadth: adding languages cheaply | [`dap.md`](docs/dap.md) |
-
-The dividing line is who writes the per-language logic. With native tracing we write a tracer per language. With DAP the stepping logic is written once, and what remains per language is a launch configuration and normalization rules.
-
-Order: **C++** and **Java** (instrumentation) and **Python** (runtime hooks) are implemented; others follow, using DAP where a native tracer would be expensive.
-
----
-
-## Design decisions
-
-These are the decisions that shaped the project. Each links to where it is explained in full.
-
-| Decision | Why | Details |
-|---|---|---|
-| **Contract first.** A trace format sits between backend and frontend | Turns an L × R problem into L + R, and lets each half be built and tested alone | [`trace-format.md` §1](docs/trace-format.md#1-why-this-exists) |
-| **Snapshots, not an event log** | Any step draws from its own data, so rewind and jump are free. Costs size, which is negligible for small examples with a step cap | [`trace-format.md` §6](docs/trace-format.md#6-steps) |
-| **Normalize representation, never hide behavior** | The same concept always looks the same in the trace, but real differences (map ordering, overflow) are not erased | [`trace-format.md` §8](docs/trace-format.md#8-rules-for-adapter-authors) |
-| **Deliberately lossy** | Drops addresses, buckets, capacity. A small format is a stable format | [`trace-format.md` §2](docs/trace-format.md#2-design-principles) |
-| **Abstract, not primitive** | The trace raises `unordered_map` and `dict` up to one concept (`map`) instead of lowering toward the machine like a compiler IR | [`trace-format.md` §1](docs/trace-format.md#1-why-this-exists) |
-| **The type decides the kind, the problem decides the hint** | `stack<int>` is a `stack` from its type alone. Whether an `array` of `array`s is a grid or a graph is only knowable from the problem, so it is a hint | [`trace-format.md` §5](docs/trace-format.md#summary-of-kinds) |
-| **Hints are inferred, never asked for** | There is no problem catalog. The adapter infers hints from types, parameter names, and code patterns, and a "view as" override corrects them | [`trace-format.md` §4](docs/trace-format.md#4-problem-metadata) |
-| **Bare numbers only when exact** | Integers beyond ±(2^53 − 1), NaN/±Infinity, and whole floats are tagged so JavaScript never silently rounds, fails to parse, or turns 3.0 into an int | [`trace-format.md` §5](docs/trace-format.md#numbers-json-cannot-carry-exactly) |
-| **Tracer output is untrusted** | User code runs next to the tracer, so run it in a sandbox and validate the trace outside it | [`native-tracing.md` §6](docs/native-tracing.md#6-security) |
-| **Two observation strategies behind one contract** | Native tracing gives control, DAP gives breadth. The frontend cannot tell them apart | [`dap.md` §8](docs/dap.md#8-native-tracing-vs-dap) |
-
----
-
-## Open questions
-
-Gaps in the trace format that the tracing work exposed. They are planned for a minor version. Details in [`native-tracing.md` §8](docs/native-tracing.md#8-open-questions).
-
-1. **Pointers that do not point at a live object.** A dangling or uninitialized C++ pointer is followed as if it were valid, and the trace has no way to say "this points at nothing". A documented limit for now ([`docs/adapters/cpp.md` §3.7](docs/adapters/cpp.md#37-limits-of-address-identity)).
-
-Resolved: tuples, which v0.1 flattened to `list`, have the `tuple` kind since v0.2. A `ref` result, which had no heap to point into, has `result_heap` since v0.5. The call stack, which recursive solutions need, is `frames` with return steps since v0.6. Iterators, which had no kind and were left out, are `iterator` values naming a local container since v0.7. What a line evaluated, a condition's result or the value a store left, is the top frame's `outcomes` since v0.8. Which locals index which array, which a list of conventional names guessed at, is `indexes` since v0.9. Which cells a line read, which nothing recorded, is the `read` outcome since v0.10. Member variables of the `Solution` (memo tables, visited sets), which had nowhere to go, are a step's `members` since v0.12. A whole float, which a bare `3` made look like an int, is a tagged `float` since v0.13. Two names for one container, which looked like two copies, share an `id` since v0.14.
-
----
-
-## Repository layout
-
-```
-.
-├── README.md
-├── CHANGELOG.md               what changed in each version, and why
-├── CONTRIBUTING.md            setting up, testing, sending a change, adding a language
-├── CLAUDE.md                  rules for working in this repo
-├── Skills.md                  repeatable procedures
-├── LICENSE                    Apache License 2.0
-├── NOTICE                     the copyright notice to keep with copies
-├── .clang-format              C++ formatting (attached braces, 2 spaces)
-├── .github/
-│   └── workflows/
-│       └── ci.yml             CI: fixtures, the C++, Python, and Java adapters, sandbox, frontend
-├── docs/
-│   ├── trace-format.md        the contract
-│   ├── native-tracing.md      runtime hooks and source instrumentation
-│   ├── dap.md                 DAP-based tracing
-│   ├── driver-generation.md   signatures, example parsing, helper types
-│   ├── frontend.md            the sandbox and home pages: registry, diff, playback, routes
-│   ├── sandboxing.md          isolation, limits, where validation runs
-│   ├── backend.md             the API service: endpoints, errors, limits
-│   ├── hint-inference.md      (proposal) inferring hints
-│   └── adapters/
-│       ├── cpp.md             the C++ adapter
-│       ├── python.md          the Python adapter
-│       └── java.md            the Java adapter
-├── schema/
-│   └── trace.schema.json      machine-readable contract
-├── fixtures/
-│   ├── <name>.trace.json      golden traces: two-sum, reverse-list,
-│   │                          preorder-traversal, clone-graph,
-│   │                          max-depth, subsets
-│   ├── <name>_trace.cpp       the solution each golden trace records
-│   ├── <name>_hand_inst.cpp   the same solution, instrumented by hand
-│   ├── <name>_trace.py        the same solution in Python
-│   ├── <name>.python.trace.json  its golden trace (like the C++ one: check_trace.py --like)
-│   ├── <name>_trace.java      the same solution in Java
-│   └── <name>.java.trace.json its golden trace
-├── tools/
-│   ├── check_trace.py         validate a trace; compare with a fixture, or with another language's (--like)
-│   └── compare_traces.py      two languages' traces of one Solution, call by call (--all: every fixture's twins)
-├── pipeline/                  the CLI: python3 -m pipeline SOLUTION --example TEXT
-│   ├── __init__.py            run(): driver, rewriter, compile, run, validate (C++ or Python)
-│   ├── __main__.py            the command line and its exit codes
-│   ├── runners.py             where stages 2 to 4 run: this machine, or a container (one image per language)
-│   └── tests/                 every fixture end to end, each failure, each sandbox limit
-├── sandbox/                   the sandbox (docs/sandboxing.md)
-│   ├── cpp.Dockerfile         the C++ image: rewriter, clang++, runtime headers
-│   ├── cpp.Dockerfile.dockerignore  its build context
-│   ├── python.Dockerfile      the Python image: Python 3.12, sortedcontainers, the adapter
-│   ├── python.Dockerfile.dockerignore  its build context
-│   ├── java.Dockerfile        the Java image: JDK 21, the adapter compiled
-│   ├── java.Dockerfile.dockerignore  its build context
-│   └── colima-gvisor.yaml     gVisor on macOS: a Colima profile's runsc setup
-├── driver/                    LeetCode's harness, rebuilt (Python): python3 -m driver
-│   ├── example.py             example text -> neutral JSON (every language)
-│   ├── shapes.py              LeetCode's notations for lists, trees, graphs (every language)
-│   ├── hints.py               a 2D-array parameter's hint, from its name and the example's shape (every language)
-│   ├── cpp/                   signature, node comments, prelude and main for C++
-│   ├── python/                signature (type hints), node comments, run.json for Python
-│   ├── java/                  signature, node comments, LvMain.java and Nodes.java for Java
-│   └── tests/                 unit tests, compile-and-run tests, golden fixtures
-├── adapters/
-│   ├── python/
-│   │   ├── run.py             the program: run.json in, the method run under the tracer, the trace out
-│   │   ├── tracer.py          sys.settrace steps, normalization, outcomes, the document writer
-│   │   ├── instrument.py      the syntax-tree rewrite: outcome calls, indexes, heapq lists
-│   │   └── tests/             every fixture, kinds, outcomes, limits (Python 3.12)
-│   ├── java/
-│   │   ├── Makefile           compiles the adapter to build/classes
-│   │   ├── src/lvtrace/       Build (rewrite + javac), Rewriter, Trace (the runtime), Snapshot, Args, ...
-│   │   └── tests/             every fixture, kinds, outcomes, limits (JDK 21)
-│   └── cpp/
-│       ├── Makefile           the adapter's tests and end-to-end check
-│       ├── rewriter/          trace-rewrite: inserts record() etc. (Clang LibTooling)
-│       │   ├── instrumenter.hpp / .cpp   the AST visitor
-│       │   ├── main.cpp       the tool
-│       │   └── Makefile       builds with llvm-config; make test
-│       ├── runtime/
-│       │   ├── trace.hpp      serializers, recorder, document writer
-│       │   ├── leetcode_types.hpp  ListNode, TreeNode, and their field tables
-│       │   └── prelude_common.hpp  the standard headers every prelude includes (precompiled in the sandbox)
-│       └── tests/
-│           ├── test_serialize.cpp
-│           ├── test_record.cpp
-│           ├── test_write_file.cpp
-│           ├── test_pointers.cpp
-│           ├── test_frames.cpp
-│           ├── test_document.cpp
-│           ├── test_iterators.cpp
-│           └── programs/
-│               ├── loop_forever.cpp    never returns; proves the step cap
-│               ├── return_pointer.cpp  returns a ListNode*; proves result_heap
-│               └── void_method.cpp     returns void; proves the null result
-├── frontend/                  home page and sandbox page (React + TypeScript + Vite)
-│   ├── CLAUDE.md              commands, structure, rules
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── src/
-│       ├── App.tsx            the switch between the pages; loads the sandbox lazily
-│       ├── Sandbox.tsx        the sandbox page: layout, language select, shortcuts
-│       ├── route.ts           the hash route: #/ home, #/sandbox, #/sandbox/<example>
-│       ├── theme.ts           the page's theme: dark or light, the system's setting, the toggle
-│       ├── home/              the home page, its live preview, and its example problems
-│       ├── assets/            the logo, one file per theme
-│       ├── api/               API client, input form logic, useInputs hook
-│       ├── trace/             types, loader, value formatting, diff, heap edges, call tree
-│       ├── player/            playback reducer and Run timer
-│       ├── render/            renderer registry, renderers, heap layout and drawing
-│       ├── components/        toolbar, code, inputs, visual, state panels, calls cards, the running canvas
-│       ├── editor/            Monaco setup, theme, starter templates
-│       └── styles/            theme tokens and layout
-└── backend/                   the API service (FastAPI): python3 -m backend
-    ├── app.py                 /api/health, /api/signature, /api/run
-    ├── __main__.py            serves it with Uvicorn on 127.0.0.1:8000
-    ├── requirements.txt       fastapi, uvicorn (and httpx for the tests)
-    └── tests/                 every endpoint and error, and a real run in the sandbox
-```
-
-## Tech stack
-
-The architecture does not depend on these choices: another adapter or another frontend only has to read or write the trace format.
-
-| Layer | Choice |
-|---|---|
-| C++ adapter | C++20, header-only runtime, Clang LibTooling for the rewriter |
-| Python adapter | Python 3.12, `sys.settrace` and the `ast` module, standard library only (plus `sortedcontainers` for Solutions to use) |
-| Java adapter | JDK 21, the JDK's own parser and compiler (`com.sun.source`, `javax.tools`), no third-party libraries |
-| Frontend | React + TypeScript + Vite, Monaco editor for the code panel |
-| Renderers | HTML and SVG with Framer Motion, for containers and for linked lists, trees, and graphs (decided, [`docs/frontend.md`](docs/frontend.md) §6) |
-| API service | FastAPI on Uvicorn (decided, [`docs/backend.md`](docs/backend.md)) |
-| Sandbox | Docker with gVisor (`runsc`), one container per run, strict CPU, memory, process, disk, and time limits (decided, [`docs/sandboxing.md`](docs/sandboxing.md)) |
-| Contract | JSON Schema, validated in CI and at runtime |
-
-## Roadmap
-
-Done, in the beta:
-
-- [x] Trace format specification and JSON Schema (v0.15), with golden fixtures in three languages
-- [x] Tracing strategy docs (native, DAP)
-- [x] C++ adapter: serializers for every kind, the recorder, the call stack, iterators, outcomes, `indexes`, reads, members; the driver and the LibTooling rewriter
-- [x] Python adapter, proving the schema is truly language-neutral
-- [x] Java adapter, and a call-by-call comparison of the three languages' traces
-- [x] CLI: one command from a Solution and an example to a validated trace
-- [x] Sandbox: Docker and gVisor, one container per run, one image per language
-- [x] API service
-- [x] Frontend: the sandbox page (inputs, Run code, replay, a renderer per kind, linked structures, calls cards, "view as", motion, two themes) and the home page
-- [x] Public beta (1.0.0-beta.1)
-
-Next:
-
-- [ ] 1.0: the bugs reported in the beta fixed
-- [ ] Design problems (LRU Cache, Min Stack): a trace over a sequence of calls
-- [ ] Lambdas traced in C++ and Java, and hints inferred for locals
-- [ ] Shared containers marked by the C++ adapter
-- [ ] Resolve the open questions above
-- [ ] More renderers (union-find, trie)
+How each part works, and why it is set up this way, is in **[How Visi works](docs/architecture.md)**.
 
 ## Getting started
 
@@ -648,20 +117,20 @@ python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], ta
 python3 -m unittest discover -s pipeline/tests -t .  # its tests (need the rewriter)
 
 # The same run in the sandbox (needs Docker; gVisor on macOS: sandbox/colima-gvisor.yaml)
-docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
+docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
 python3 -m pipeline fixtures/two_sum_trace.cpp --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v
 
 # Python: the same command on a .py file (Python 3.12 on this machine, or its own image)
 python3 -m pipeline fixtures/two_sum_trace.py --example "nums = [2,7,11,15], target = 9" -o /tmp/two-sum-py.json
-docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
+docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
 python3 -m pipeline fixtures/two_sum_trace.py --example "nums = [2,7,11,15], target = 9" --sandbox gvisor
 python3 -m unittest discover -s adapters/python/tests   # the adapter's tests (pip install sortedcontainers==2.4.0 too)
 
 # Java: the same on a .java file (JDK 21; build the adapter first), and every fixture's twins compared
 make -C adapters/java
 python3 -m pipeline fixtures/two_sum_trace.java --example "nums = [2,7,11,15], target = 9" -o /tmp/two-sum-java.json
-docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
 python3 -m unittest discover -s adapters/java/tests
 python3 tools/compare_traces.py --all --core
 ```
@@ -685,6 +154,27 @@ npm run dev        # the page on http://localhost:5173; /api is proxied to the A
 npm test           # vitest
 npm run build      # typecheck + production build
 ```
+
+## Documentation
+
+| Document | Read it to learn |
+|---|---|
+| [How Visi works](docs/architecture.md) | The architecture: components, the adapter and frontend pipelines, the trace format in brief, tracing strategies, design decisions, open questions, the repository layout |
+| [`docs/trace-format.md`](docs/trace-format.md) | The contract between backend and frontend: value kinds, steps, rules for adapter authors |
+| [`docs/native-tracing.md`](docs/native-tracing.md) | How an adapter observes a program using runtime hooks or source instrumentation |
+| [`docs/dap.md`](docs/dap.md) | How an adapter could observe a program through a debugger (Debug Adapter Protocol); not used yet |
+| [`docs/driver-generation.md`](docs/driver-generation.md) | Parsing method signatures and example input, LeetCode helper types |
+| [`docs/adapters/cpp.md`](docs/adapters/cpp.md), [`python.md`](docs/adapters/python.md), [`java.md`](docs/adapters/java.md) | Each language's adapter: how it traces, and its normalization rules |
+| [`docs/sandboxing.md`](docs/sandboxing.md) | The sandbox: isolation, resource limits, how files get in and out, where validation runs |
+| [`docs/backend.md`](docs/backend.md) | The API service: endpoints, errors and status codes, limits, settings |
+| [`docs/frontend.md`](docs/frontend.md) | The sandbox page and the home page: layout, renderers, linked structures, calls cards, diffing, motion, themes |
+| [`docs/hint-inference.md`](docs/hint-inference.md) | How an adapter works out which structure a value is when its type does not say (a proposal, partly built) |
+| [`schema/trace.schema.json`](schema/trace.schema.json) | The machine-readable contract. Every adapter's output must validate against it |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to set up, test, and send a change; how to add a language |
+| [`CHANGELOG.md`](CHANGELOG.md) | What changed in each version, and the history of the decisions behind it |
+| [`CLAUDE.md`](CLAUDE.md), [`Skills.md`](Skills.md), [`frontend/CLAUDE.md`](frontend/CLAUDE.md) | Rules and repeatable procedures for working in this repo |
+
+Plans and bugs are tracked in [GitHub issues](https://github.com/MatthewYu402/LeetCode-Visualizer/issues).
 
 ## Adding a new language
 

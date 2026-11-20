@@ -1,5 +1,5 @@
 # Native Tracing
-> **Status:** Draft v0.1
+> **Status:** Beta (Visi 1.0.0-beta.1). Both strategies are in use: the Python adapter traces through runtime hooks, and the C++ and Java adapters through source instrumentation.
 > **Related:** [`trace-format.md`](trace-format.md) (the output contract), [`dap.md`](dap.md) (the debugger-based alternative), [`adapters/cpp.md`](adapters/cpp.md) (the C++ adapter)
 
 This document describes how an adapter **observes a running solution and produces a trace** using tooling that belongs to the language: its runtime hooks, or source instrumentation. It is one of two strategies for the "tracer" box in the architecture.

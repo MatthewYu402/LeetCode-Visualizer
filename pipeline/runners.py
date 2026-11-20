@@ -227,13 +227,13 @@ class LocalPython(Local):
 
 # One image per language (sandbox/<language>.Dockerfile), each set from the environment.
 IMAGES = {
-    "cpp": os.environ.get("TRACE_SANDBOX_IMAGE_CPP", "leetcode-visualizer-sandbox-cpp"),
-    "python": os.environ.get("TRACE_SANDBOX_IMAGE_PYTHON", "leetcode-visualizer-sandbox-python"),
-    "java": os.environ.get("TRACE_SANDBOX_IMAGE_JAVA", "leetcode-visualizer-sandbox-java"),
+    "cpp": os.environ.get("TRACE_SANDBOX_IMAGE_CPP", "visi-sandbox-cpp"),
+    "python": os.environ.get("TRACE_SANDBOX_IMAGE_PYTHON", "visi-sandbox-python"),
+    "java": os.environ.get("TRACE_SANDBOX_IMAGE_JAVA", "visi-sandbox-java"),
 }
 IMAGE = IMAGES["cpp"]
-LABEL = "org.leetcode-visualizer.sandbox"   # on every sandbox container, for cleaning up after a crash
-PCH_LABEL = "org.leetcode-visualizer.pch"   # on the image: where the precompiled header is
+LABEL = "org.visi.sandbox"   # on every sandbox container, for cleaning up after a crash
+PCH_LABEL = "org.visi.pch"   # on the image: where the precompiled header is
 
 # Inside the images (sandbox/cpp.Dockerfile, sandbox/python.Dockerfile, sandbox/java.Dockerfile).
 REWRITER_IN = "/opt/trace/bin/trace-rewrite"
@@ -393,7 +393,7 @@ class Pool:
     one started on demand; the pool only moves the start earlier. A container
     is never returned to the pool. Containers are kept per configuration
     (runtime, limits, image), since each was started with its own limits.
-    sizes overrides size for an image: {"leetcode-visualizer-sandbox-python": 0}.
+    sizes overrides size for an image: {"visi-sandbox-python": 0}.
     """
 
     def __init__(self, size=1, sizes=None):

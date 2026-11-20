@@ -1,6 +1,6 @@
 # API service
 
-> **Status:** Draft v0.3. Implemented in `backend/` (FastAPI), for C++, Python, and Java. Not hosted anywhere yet.
+> **Status:** Beta (Visi 1.0.0-beta.1). Implemented in `backend/` (FastAPI), for C++, Python, and Java. Not hosted anywhere yet.
 > **Related:** [`sandboxing.md`](sandboxing.md) (where the code runs), [`driver-generation.md`](driver-generation.md) (what reads the Solution and the example), [`frontend.md`](frontend.md) (the page that calls this), [`trace-format.md`](trace-format.md) (what comes back)
 
 The API service is the frontend's only way to run code. It is a thin layer over two things that already exist: the driver's `describe()`, which reads a Solution's declarations, and `pipeline.run()`, which runs the driver, then rewrites, compiles, and runs inside the sandbox, then validates the trace. The service itself never compiles or runs the user's code.

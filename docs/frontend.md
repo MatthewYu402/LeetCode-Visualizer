@@ -1,5 +1,5 @@
 # Frontend
-> **Status:** Draft v0.19 (reads trace format v0.15 and v0.14)
+> **Status:** Beta (Visi 1.0.0-beta.1). Reads trace format v0.15 and v0.14.
 > **Related:** [`trace-format.md`](trace-format.md) (the contract every renderer reads), [`schema/trace.schema.json`](../schema/trace.schema.json), [`backend.md`](backend.md) (the API the inputs call), [`frontend/CLAUDE.md`](../frontend/CLAUDE.md) (commands and rules for the code)
 
 The frontend replays a trace. It highlights the line about to run, draws each data structure from the current snapshot, and animates what changed since the step before. It knows nothing about the language that produced the trace.
@@ -36,7 +36,7 @@ One screen, dark theme, no page scroll on a 1440×900 window. Panels are separat
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ TOP BAR  logo · LeetCode Visualizer │ language · Call stack ◉   ☀ Run code │
+│ TOP BAR  logo · Visi │ language · Call stack ◉   ☀ Run code │
 ├──────────────────────────────┬───────────────────────────────────────────┤
 │ CODE PANEL  "Code" (i)   C++ │ CANVAS (dot grid)                         │
 │                              │   lists, trees, graphs from the heap      │
@@ -168,7 +168,7 @@ fallback: Renderer                        // object, and any kind from a future 
 
 **Selection order:** the reader's pick in the card's View menu, then the param's hint (from `problem.params`, if the local is a parameter and has one), then the value's `kind`, then the fallback. The first match wins, and a pick or a hint counts only when it fits the value at this step (`fits` in `render/views.ts`), so a hint that does not fit draws by kind instead of breaking. An unknown or future kind lands on the fallback instead of crashing (spec §9: "draw an unknown kind with a generic fallback").
 
-The README's full order is "view as override, hint, kind, object shape, fallback". Object shape is how linked structures are drawn, by `LinkedCard`, outside the registry.
+The full order ([`architecture.md` §4](architecture.md#4-inside-the-frontend)) is "view as override, hint, kind, object shape, fallback". Object shape is how linked structures are drawn, by `LinkedCard`, outside the registry.
 
 ### 5.1 View as
 A 2D array of numbers can mean several structures, and only the problem knows which (spec §4). Each one gets a drawing, and a card whose value more than one of them fits has a **View** button at the end of its header:
@@ -490,7 +490,7 @@ The top bar has an **Examples** button beside the language select (`components/E
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ eye LeetCode Visualizer │ [C++ ▾] [▦ Examples ▴]      [Call stack ●] ☀ ▶ │
+│ eye Visi │ [C++ ▾] [▦ Examples ▴]      [Call stack ●] ☀ ▶ │
 │                          ┌─────────────────────────────────────┐         │
 │                          │  C++   Python   Java                │  tabs   │
 │                          │  Hashing       Two Sum   array · map│         │
@@ -565,14 +565,14 @@ The page is chosen by the URL's hash (`src/route.ts`): no router dependency, no 
 | `#/sandbox/<slug>` | The sandbox with an example's C++ Solution in the editor and its example in the inputs ([Section 12.3](#123-examples)); a slug that names no example opens the bare sandbox |
 | `#/sandbox/<slug>/<language>` | The same in `cpp`, `python`, or `java`: what the Examples menu opens ([Section 10.2](#102-the-examples-menu)). Any other language is the home page |
 
-`App.tsx` is only the switch, inside `MotionConfig`. The sandbox moved to `Sandbox.tsx` and is loaded with `React.lazy`: it carries Monaco, most of the bundle, so the home page loads about 0.5 MB of script and the editor arrives only when the sandbox is opened. The sandbox is keyed by the example and its language, so following a second example link starts a fresh sandbox. The window title is "LeetCode Visualizer" on the home page and "LeetCode Visualizer · Sandbox" in the sandbox. The top bar's logo and name link home.
+`App.tsx` is only the switch, inside `MotionConfig`. The sandbox moved to `Sandbox.tsx` and is loaded with `React.lazy`: it carries Monaco, most of the bundle, so the home page loads about 0.5 MB of script and the editor arrives only when the sandbox is opened. The sandbox is keyed by the example and its language, so following a second example link starts a fresh sandbox. The window title is "Visi" on the home page and "Visi · Sandbox" in the sandbox. The top bar's logo and name link home.
 
 ### 12.2 Layout
 The page scrolls (the sandbox does not), inside `.home`, since `body` never scrolls. Top to bottom:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ eye LeetCode Visualizer  Examples How it works Languages  ☀ [Sandbox]   │  sticky, 52 px
+│ eye Visi  Examples How it works Languages  ☀ [Sandbox]   │  sticky, 52 px
 ├──────────────────────────────────────────────────────────────────────────┤
 │                               ( ● v0.1.0 )                               │
 │                         Watch your Solution run,                         │  the pitch,
@@ -590,7 +590,7 @@ The page scrolls (the sandbox does not), inside `.home`, since `body` never scro
 │ How it works   1 Solution + example › 2 sandbox › 3 trace › 4 canvas     │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ Languages      ● C++ available   ● Python available   ● Java available   │
-│ eye · LeetCode Visualizer · Apache License 2.0      <> GitHub  ✉ email   │
+│ eye · Visi · Apache License 2.0      <> GitHub  ✉ email   │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 

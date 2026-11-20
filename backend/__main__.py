@@ -13,7 +13,7 @@ from pipeline.runners import remove_leftovers
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="python3 -m backend", description="Serve the LeetCode Visualizer API.")
+    parser = argparse.ArgumentParser(prog="python3 -m backend", description="Serve the Visi API.")
     parser.add_argument("--host", default="127.0.0.1", help="address to listen on (default 127.0.0.1, this machine only)")
     parser.add_argument("--port", type=int, default=8000, help="port (default 8000)")
     args = parser.parse_args(argv)

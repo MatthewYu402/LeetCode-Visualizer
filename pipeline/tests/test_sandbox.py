@@ -4,9 +4,9 @@ These run the pipeline with sandbox=$TRACE_SANDBOX ("docker" by default, or
 "gvisor" for runsc). They need Docker and each language's image, and the tests
 for a language are skipped without its image:
 
-    docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
-    docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
-    docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+    docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
+    docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
+    docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
     python3 -m unittest pipeline.tests.test_sandbox
     TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox
 
@@ -438,13 +438,13 @@ class JavaIsolation(unittest.TestCase):
 class Setup(unittest.TestCase):
     def test_missing_image_is_a_sandbox_error(self):
         with self.assertRaises(SandboxError) as caught:
-            Container(image="leetcode-visualizer-no-such-image")
+            Container(image="visi-no-such-image")
         self.assertIn("docker build -f sandbox/cpp.Dockerfile", str(caught.exception))
         with self.assertRaises(SandboxError) as caught:
-            Container(image="leetcode-visualizer-no-such-image", language="python")
+            Container(image="visi-no-such-image", language="python")
         self.assertIn("docker build -f sandbox/python.Dockerfile", str(caught.exception))
         with self.assertRaises(SandboxError) as caught:
-            Container(image="leetcode-visualizer-no-such-image", language="java")
+            Container(image="visi-no-such-image", language="java")
         self.assertIn("docker build -f sandbox/java.Dockerfile", str(caught.exception))
 
     def test_missing_runtime_is_a_sandbox_error(self):

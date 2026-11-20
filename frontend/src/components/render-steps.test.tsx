@@ -273,7 +273,7 @@ describe("top bar", () => {
 
   it("has the name, the language, the call-stack switch, and Run code", () => {
     const html = bar();
-    expect(html).toContain("LeetCode Visualizer");
+    expect(html).toContain("Visi");
     expect(html).toContain('<option value="cpp" selected="">C++</option>');
     expect(html).toMatch(/role="switch" aria-checked="true"/);
     expect(html).toContain("Run code");

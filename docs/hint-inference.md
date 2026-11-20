@@ -1,6 +1,6 @@
 # Hint Inference
 
-> **Status:** Partly implemented. The driver writes hints for 2D-array parameters from their name and the example's shape (sources 2 and 4, `driver/hints.py`), and the frontend draws them and has a "view as" menu. Hints for locals (§4.1) are still open; the trace format has not changed for any of it.
+> **Status:** Proposal, partly implemented. The driver writes hints for 2D-array parameters from their name and the example's shape (sources 2 and 4, `driver/hints.py`), and the frontend draws them and has a "view as" menu. Hints for locals (§4.1) are still open; the trace format has not changed for any of it.
 > **Related:** [`trace-format.md`](trace-format.md) §4 (problem metadata and hints) and §5 (kinds), [`adapters/cpp.md`](adapters/cpp.md) (the C++ adapter), [`frontend.md`](frontend.md) (how a renderer is chosen)
 
 This document parks an idea so it is not lost: how an adapter works out **which data structure a value is meant to be** when its type does not say. It records what is decided, what is open, and when the work is planned.

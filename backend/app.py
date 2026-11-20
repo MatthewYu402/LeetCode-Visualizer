@@ -254,7 +254,7 @@ def create_app(sandbox=None, max_runs=None, max_waiting=None, run=pipeline_run, 
         if pool:
             await run_in_threadpool(pool.close)  # containers still waiting in the pool
 
-    app = FastAPI(title="LeetCode Visualizer API", version="0.2", lifespan=lifespan)
+    app = FastAPI(title="Visi API", version="0.2", lifespan=lifespan)
     app.state.pool = pool
 
     origins = [o.strip() for o in os.environ.get("TRACE_ALLOWED_ORIGINS", "").split(",") if o.strip()]

@@ -1,9 +1,9 @@
 # Contributing
 
-> **Status:** 1.0.0-beta.1
+> **Status:** Beta (Visi 1.0.0-beta.1)
 > **Related:** [`README.md`](README.md) (what the project is), [`CHANGELOG.md`](CHANGELOG.md), [`docs/trace-format.md`](docs/trace-format.md) (the contract), [`Skills.md`](Skills.md) (step-by-step procedures)
 
-Thank you for helping. LeetCode Visualizer is in public beta, so the most useful contributions right now are **bug reports from real solutions**: a Solution that fails to run, a trace that draws something wrong, or a structure that is hard to follow. Code is welcome too; this page says how to set up, what to check before sending a change, and how the project's rules shape a change.
+Thank you for helping. Visi is in public beta, so the most useful contributions right now are **bug reports from real solutions**: a Solution that fails to run, a trace that draws something wrong, or a structure that is hard to follow. Code is welcome too; this page says how to set up, what to check before sending a change, and how the project's rules shape a change.
 
 ---
 
@@ -33,7 +33,7 @@ Each part can be worked on alone. You only need the tools of the part you change
 | Java adapter (`adapters/java/`) | JDK 21 | `make -C adapters/java && python3 -m unittest discover -s adapters/java/tests` |
 | Driver (`driver/`) | Python 3.10+, a C++ compiler | `python3 -m unittest discover -s driver/tests -t .` |
 | CLI (`pipeline/`) | The adapters above | `python3 -m unittest discover -s pipeline/tests -t .` |
-| Sandbox (`sandbox/`) | Docker; gVisor (`runsc`) for the isolation tests, through Colima on macOS ([`sandbox/colima-gvisor.yaml`](sandbox/colima-gvisor.yaml)) | `docker build -f sandbox/<language>.Dockerfile -t leetcode-visualizer-sandbox-<language> .` for `cpp`, `python`, and `java`, then `TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v` |
+| Sandbox (`sandbox/`) | Docker; gVisor (`runsc`) for the isolation tests, through Colima on macOS ([`sandbox/colima-gvisor.yaml`](sandbox/colima-gvisor.yaml)) | `docker build -f sandbox/<language>.Dockerfile -t visi-sandbox-<language> .` for `cpp`, `python`, and `java`, then `TRACE_SANDBOX=gvisor python3 -m unittest pipeline.tests.test_sandbox -v` |
 | API service (`backend/`) | Python 3.10+ in a virtual environment, the sandbox images | `python3 -m pip install jsonschema -r backend/requirements.txt && python3 -m unittest discover -s backend/tests -t .` |
 | Trace checks (`tools/`) | `pip install jsonschema` | `python3 -I tools/check_trace.py fixtures/*.trace.json` and `python3 tools/compare_traces.py --all --core` |
 
@@ -111,7 +111,7 @@ How to know it is done:
 1. **Twins of the six golden fixtures.** Write each fixture's Solution in the new language (`fixtures/<name>_trace.<ext>`), record its trace (`fixtures/<name>.<language>.trace.json`), and check that it is valid, that it is like the C++ one (`check_trace.py --like`), and that it matches it call by call (`compare_traces.py --core`).
 2. **The hard cases behave**: an infinite loop leaves a trace truncated at the step limit, a large input or endless recursion one truncated at the size budget, a cyclic structure terminates, and a type with no kind is left out.
 3. **The pipeline and the service know it**: `pipeline/` dispatches on the language, `backend/app.py` accepts it, and the sandbox's isolation tests cover its image.
-4. **It is documented** in `docs/adapters/<language>.md` (the strategy, the normalization table, known limitations), with a CI job and a row in the README.
+4. **It is documented** in `docs/adapters/<language>.md` (the strategy, the normalization table, known limitations), with a CI job, a row in the README's documentation map, and a row in [`docs/architecture.md`](docs/architecture.md)'s components table.
 
 The Python adapter ([`docs/adapters/python.md`](docs/adapters/python.md)) is the simplest to read as a model for runtime hooks, and the Java one ([`docs/adapters/java.md`](docs/adapters/java.md)) for source instrumentation. The checklist is also in [`docs/trace-format.md` §11](docs/trace-format.md#11-adding-a-new-language) and, step by step, in [`Skills.md` §4](Skills.md#4-add-a-language-adapter).
 

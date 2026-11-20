@@ -1,5 +1,5 @@
-import logoForDark from "../assets/leetcode-visualizer-eye-white-dark-mode.svg";
-import logoForLight from "../assets/leetcode-visualizer-eye-black-light-mode.svg";
+import logoForDark from "../assets/visi-eye-white-dark-mode.svg";
+import logoForLight from "../assets/visi-eye-black-light-mode.svg";
 
 /**
  * The author's logo, an eye, as the two files they drew: white for the dark theme, black for
@@ -9,7 +9,7 @@ import logoForLight from "../assets/leetcode-visualizer-eye-black-light-mode.svg
  */
 export function Logo({ height = 20, className = "" }: { height?: number; className?: string }) {
   return (
-    <span className={`logo-eye ${className}`.trim()} role="img" aria-label="LeetCode Visualizer" style={{ height }}>
+    <span className={`logo-eye ${className}`.trim()} role="img" aria-label="Visi" style={{ height }}>
       <img className="logo-eye-dark" src={logoForDark} alt="" height={height} />
       <img className="logo-eye-light" src={logoForLight} alt="" height={height} />
     </span>

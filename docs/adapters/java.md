@@ -1,6 +1,6 @@
 # Java Adapter
 
-> **Status:** Draft v0.15
+> **Status:** Beta (Visi 1.0.0-beta.1). Writes trace format v0.15.
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §4 (source instrumentation), [`cpp.md`](cpp.md) (the C++ adapter, whose rules this one follows), [`python.md`](python.md), [`adapters/java/`](../../adapters/java/) (the runtime and the rewriter), [`driver/java/`](../../driver/java/) (the driver), [`sandboxing.md`](../sandboxing.md) (where it runs)
 
 This document describes how the Java adapter turns a running `Solution` into a trace: how the source is rewritten, what the runtime records, how Java values become the trace's kinds, and what the driver gives the program. Everything here is implemented, except what §9 lists as a limitation.
@@ -124,7 +124,7 @@ java -cp WORK/classes:RUNTIME LvMain       TRACE_OUT names the trace file
 
 - **JDK 21.** The image is Eclipse Temurin 21. Each JVM runs with `-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:-UsePerfData -XX:MaxRAMPercentage=50`: one GC thread and the quick compiler only, so it starts fast and stays well under the sandbox's process limit (each JVM thread counts), and no performance file is written to `/tmp`. A run takes about 2 s under Docker, most of it the two JVM starts.
 - **Deep recursion.** Each traced call takes at least one step, and every step holds every call, so a recursion that never ends reaches the size budget a few hundred calls deep, long before Java's stack runs out, and the reader gets those steps (`"truncated_by": "size"`). Recursion in code that is not traced (a helper class, a lambda) runs out of stack instead: the run stops with `StackOverflowError` and a note that the example may be too deep or the recursion may never reach its base case.
-- **The image** (`sandbox/java.Dockerfile`, `leetcode-visualizer-sandbox-java`) holds the JDK and the compiled adapter in `/opt/trace/java/`, and nothing else. It is locked down as the C++ image is ([`sandboxing.md`](../sandboxing.md)).
+- **The image** (`sandbox/java.Dockerfile`, `visi-sandbox-java`) holds the JDK and the compiled adapter in `/opt/trace/java/`, and nothing else. It is locked down as the C++ image is ([`sandboxing.md`](../sandboxing.md)).
 
 ## 8. Testing
 

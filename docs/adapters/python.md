@@ -1,6 +1,6 @@
 # Python Adapter
 
-> **Status:** Draft v0.15
+> **Status:** Beta (Visi 1.0.0-beta.1). Writes trace format v0.15.
 > **Related:** [`trace-format.md`](../trace-format.md) (the contract), [`native-tracing.md`](../native-tracing.md) §3 (runtime hooks), [`cpp.md`](cpp.md) (the C++ adapter, which this one matches step for step), [`adapters/python/`](../../adapters/python/) (the tracer), [`driver/python/`](../../driver/python/) (the driver), [`sandboxing.md`](../sandboxing.md) (where it runs)
 
 This document describes how the Python adapter turns a running `Solution` into a trace: where the steps come from, how Python values become the trace's kinds, how the outcomes of a line are found, and what the driver gives the tracer. Everything here is implemented, except what is marked as a limitation in §9.
@@ -130,7 +130,7 @@ python3 -I run.py WORK          # WORK holds run.json and solution.py; TRACE_OUT
 
 - **Python 3.12.** The sandbox image runs Python 3.12, which is what the line events above were checked against. On this machine, the pipeline uses `TRACE_PYTHON`, else `python3.12`, else its own interpreter when that is 3.12 or later.
 - **The recursion limit is Python's.** It stays at the default (about 1,000 nested calls). A run that reaches it stops with `RecursionError` and a note that the example may be too deep for recursion or the recursion may not reach its base case. The tracer's own calls run on the same stack, so the limit is reached a few calls earlier than without it; the message is the same.
-- **The image** (`sandbox/python.Dockerfile`, `leetcode-visualizer-sandbox-python`) holds Python 3.12, `sortedcontainers` 2.4.0, and the three adapter files, and nothing else. It is locked down exactly as the C++ image is ([`sandboxing.md`](../sandboxing.md)), and the user's code runs as the same unprivileged user.
+- **The image** (`sandbox/python.Dockerfile`, `visi-sandbox-python`) holds Python 3.12, `sortedcontainers` 2.4.0, and the three adapter files, and nothing else. It is locked down exactly as the C++ image is ([`sandboxing.md`](../sandboxing.md)), and the user's code runs as the same unprivileged user.
 
 ## 8. Testing
 

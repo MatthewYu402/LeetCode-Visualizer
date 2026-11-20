@@ -10,7 +10,7 @@
 # source, so it runs inside, as the C++ rewriter does.
 #
 # Build from the repository root:
-#   docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+#   docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
 # sandbox/java.Dockerfile.dockerignore keeps the build context to the files below.
 
 ARG BASE=eclipse-temurin:21-jdk

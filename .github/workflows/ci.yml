@@ -208,9 +208,9 @@ jobs:
           docker run --rm --runtime=runsc ubuntu:24.04 dmesg
       - name: Build the sandbox images
         run: |
-          docker build -f sandbox/cpp.Dockerfile -t leetcode-visualizer-sandbox-cpp .
-          docker build -f sandbox/python.Dockerfile -t leetcode-visualizer-sandbox-python .
-          docker build -f sandbox/java.Dockerfile -t leetcode-visualizer-sandbox-java .
+          docker build -f sandbox/cpp.Dockerfile -t visi-sandbox-cpp .
+          docker build -f sandbox/python.Dockerfile -t visi-sandbox-python .
+          docker build -f sandbox/java.Dockerfile -t visi-sandbox-java .
       - name: Isolation tests (Docker)
         run: TRACE_SANDBOX=docker python3 -m unittest pipeline.tests.test_sandbox -v
       - name: Isolation tests (gVisor)
