@@ -14,10 +14,12 @@
         document.documentElement.dataset.theme = t;
       })();
     </script>
-    <!-- The tab icon: the eye on a tile in the dark theme's page colour. The PNG is for browsers
-         without SVG icons, and the touch icon for a phone's home screen (public/). -->
+    <!-- The tab icon: the eye, black on a light tab bar and white on a dark one (the SVG switches by
+         itself). The PNGs are for browsers without SVG icons, one per browser theme, and the touch
+         icon, on the dark tile, is for a phone's home screen (public/). -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-32-light.png" type="image/png" sizes="32x32" media="(prefers-color-scheme: light)" />
+    <link rel="icon" href="/favicon-32-dark.png" type="image/png" sizes="32x32" media="(prefers-color-scheme: dark)" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Visi · Sandbox</title>
   </head>
