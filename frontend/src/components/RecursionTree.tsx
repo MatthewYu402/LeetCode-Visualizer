@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
-import { Arrow } from "../render/Arrow";
+import { Arrow, HEAD_LENGTH } from "../render/Arrow";
 import { CardHeader } from "../render/Card";
 import { callState, type Call, type CallState, type CallTree } from "../trace/calls";
 import { isReturning, topFrame, type Step } from "../trace/types";
@@ -183,7 +183,8 @@ function TreeView({ tree, layout, step, index }: { tree: CallTree; layout: Map<s
             .map((n) => {
               const p = byKey.get(n.parent!)!;
               const tone = n.state === "current" || n.state === "waiting" || n.state === "returning" || n.state === "base" ? "call-edge-path" : "";
-              return <Arrow key={`edge-${n.key}`} d={link(p, n)} head={false} className={`call-edge ${tone}`} headClassName="" move={EASE} />;
+              const back = n.state === "returning" || n.state === "base";
+              return <Arrow key={`edge-${n.key}`} d={back ? stemmed(p, n) : link(p, n)} head={false} className={`call-edge ${tone}`} headClassName="" move={EASE} />;
             })}
         </AnimatePresence>
         {/* The return: drawn from the call up to its caller over the edge, then its head (render/Arrow.tsx). */}
@@ -268,12 +269,29 @@ function link(p: CallNode, n: CallNode): string {
   return `M ${p.x} ${y1} C ${p.x} ${my}, ${n.x} ${my - 4}, ${n.x} ${y2}`;
 }
 
-/** The same edge the other way, from the call up to its caller: the return arrow, its tip on the caller's box. */
+/** How far the return arrow rises straight into its head before it curves away to the call. */
+const STEM = 10;
+
+/**
+ * The return arrow, from the call up to its caller. Its head stands upright on the caller's box,
+ * and the line rises straight into the head's base for STEM px before it curves away down to the
+ * call, so the head reads as the end of a vertical line (Round 5 of the mockups, option B).
+ */
 function rise(p: CallNode, n: CallNode): string {
-  const y1 = p.y + BOX_H + 1;
-  const y2 = n.y;
-  const my = (y1 + y2) / 2;
-  return `M ${n.x} ${y2} C ${n.x} ${my - 4}, ${p.x} ${my}, ${p.x} ${y1}`;
+  const { tip, stemBottom, bend } = stem(p, n);
+  return `M ${n.x} ${n.y} C ${n.x} ${n.y - bend}, ${p.x} ${stemBottom + bend}, ${p.x} ${stemBottom} L ${p.x} ${tip}`;
+}
+
+/** The call's edge on its return step: the return arrow's own shape, top down, so the arrow covers it exactly. */
+function stemmed(p: CallNode, n: CallNode): string {
+  const { stemBottom, bend } = stem(p, n);
+  return `M ${p.x} ${p.y + BOX_H + 2} L ${p.x} ${stemBottom} C ${p.x} ${stemBottom + bend}, ${n.x} ${n.y - bend}, ${n.x} ${n.y}`;
+}
+
+function stem(p: CallNode, n: CallNode): { tip: number; stemBottom: number; bend: number } {
+  const tip = p.y + BOX_H + 1;
+  const stemBottom = tip + HEAD_LENGTH + STEM;
+  return { tip, stemBottom, bend: (n.y - stemBottom) * 0.5 };
 }
 
 /** A small run's whole drawing: wide and tall enough for every call it will make. */
